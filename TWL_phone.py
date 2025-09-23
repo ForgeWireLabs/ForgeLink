@@ -101,6 +101,55 @@ except Exception:
 import phonenumbers
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Async helpers shared across UI modules
+# ─────────────────────────────────────────────────────────────────────────────
+
+GUI_LOOP = None
+_GUI_LOOP_THREAD = None
+
+
+def start_gui_loop(loop):
+    """Run the GUI asyncio loop on a background thread and store it globally."""
+    global GUI_LOOP, _GUI_LOOP_THREAD
+    if GUI_LOOP is loop and _GUI_LOOP_THREAD and _GUI_LOOP_THREAD.is_alive():
+        return
+    GUI_LOOP = loop
+
+    def _runner():
+        asyncio.set_event_loop(loop)
+        loop.run_forever()
+
+    _GUI_LOOP_THREAD = threading.Thread(target=_runner, daemon=True)
+    _GUI_LOOP_THREAD.start()
+
+
+def stop_gui_loop():
+    """Stop the background GUI asyncio loop thread cleanly."""
+    global GUI_LOOP, _GUI_LOOP_THREAD
+    loop = GUI_LOOP
+    thread = _GUI_LOOP_THREAD
+    GUI_LOOP = None
+    _GUI_LOOP_THREAD = None
+    if not loop:
+        return
+    if not loop.is_closed():
+        try:
+            loop.call_soon_threadsafe(loop.stop)
+        except RuntimeError:
+            pass
+    if thread and thread.is_alive() and thread is not threading.current_thread():
+        thread.join()
+    if not loop.is_closed():
+        loop.close()
+
+
+def dispatch_on_gui_loop(coro):
+    if GUI_LOOP is None:
+        raise RuntimeError("GUI asyncio loop is not running")
+    return asyncio.run_coroutine_threadsafe(coro, GUI_LOOP)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Config & Storage
 # ─────────────────────────────────────────────────────────────────────────────
 APP_NAME = "TwilioPhone"
@@ -798,7 +847,7 @@ class HomePage(Adw.Bin):
         async def go():
             rows = await list_threads()
             GLib.idle_add(self._render_threads, rows)
-        asyncio.get_event_loop().create_task(go())
+        dispatch_on_gui_loop(go())
 
     def _render_threads(self, rows):
         self.thread_items.remove_all()
@@ -824,7 +873,7 @@ class HomePage(Adw.Bin):
             self.oldest_loaded_ts = msgs[0]['ts'] if msgs else None
             GLib.idle_add(self._set_thread_header, tid)
             GLib.idle_add(self._render_chat, msgs)
-        asyncio.get_event_loop().create_task(go())
+        dispatch_on_gui_loop(go())
 
     def _set_thread_header(self, tid: int):
         # Show name/number
@@ -836,7 +885,7 @@ class HomePage(Adw.Bin):
                 if r:
                     title = r['name'] or r['canonical_number']
                     GLib.idle_add(self.thread_title_lbl.set_text, title)
-        asyncio.get_event_loop().create_task(go())
+        dispatch_on_gui_loop(go())
 
     def _render_chat(self, msgs):
         self.chat_items.remove_all()
@@ -858,7 +907,7 @@ class HomePage(Adw.Bin):
             if older:
                 self.oldest_loaded_ts = older[0]['ts']
                 GLib.idle_add(self._append_older, older)
-        asyncio.get_event_loop().create_task(go())
+        dispatch_on_gui_loop(go())
 
     def select_thread_id(self, tid: int):  # Fix #7 helper
         # find in liststore
@@ -889,7 +938,7 @@ class HomePage(Adw.Bin):
         def on_selected(d, res):
             try: file = d.open_finish(res)
             except Exception: return
-            asyncio.get_event_loop().create_task(self._upload_file(file))
+            dispatch_on_gui_loop(self._upload_file(file))
         dlg.open(self.get_native(), None, on_selected)
 
     async def _upload_file(self, gfile: Gio.File):
@@ -915,7 +964,7 @@ class HomePage(Adw.Bin):
                     cur = await db.execute("SELECT canonical_number FROM threads WHERE id=?", (self.current_thread_id,))
                     r = await cur.fetchone()
                     if r: GLib.idle_add(self.to_entry.set_text, r['canonical_number'])
-            asyncio.get_event_loop().create_task(go())
+            dispatch_on_gui_loop(go())
             to = self.to_entry.get_text().strip()
         body = self.body_entry.get_text().strip()
         media = self.media_entry.get_text().strip()
@@ -934,7 +983,7 @@ class HomePage(Adw.Bin):
                     await insert_message(row)
                     GLib.idle_add(self.body_entry.set_text, "")
                     GLib.idle_add(self._refresh_after_send, tid)
-                asyncio.get_event_loop().create_task(record())
+                dispatch_on_gui_loop(record())
             except Exception as e:
                 print("Send error:", e)
         threading.Thread(target=task, daemon=True).start()
@@ -946,7 +995,7 @@ class HomePage(Adw.Bin):
             msgs = await list_messages(tid)
             self.oldest_loaded_ts = msgs[0]['ts'] if msgs else None
             GLib.idle_add(self._render_chat, msgs)
-        asyncio.get_event_loop().create_task(go())
+        dispatch_on_gui_loop(go())
 
     def on_search(self, *_):  # Fix #17 (unified search)
         q = self.search_entry.get_text().strip()
@@ -964,7 +1013,7 @@ class HomePage(Adw.Bin):
             for c in cons:
                 results.append({'direction':'inbound','body': f"[contact] {c.get('name','')} {c.get('number','')}", 'media_urls':'', 'status':'', 'ts': c.get('last_seen','')})
             GLib.idle_add(self._render_chat, results)
-        asyncio.get_event_loop().create_task(go())
+        dispatch_on_gui_loop(go())
 
     # Link thread to an existing contact (Fix #16)
     def _link_contact_dialog(self, *_):
@@ -995,7 +1044,7 @@ class HomePage(Adw.Bin):
             rows = [r for r in contacts_cache if q in (r.get('name','').lower()) or q in (r.get('number',''))]
             render(rows)
         entry.connect("changed", on_search)
-        asyncio.get_event_loop().create_task(load())
+        dispatch_on_gui_loop(load())
 
         chosen = {"id": None}
         def on_select(lb, row):
@@ -1004,7 +1053,7 @@ class HomePage(Adw.Bin):
 
         def resp(d, id):
             if id != "ok" or not chosen["id"]: return
-            asyncio.get_event_loop().create_task(link_thread_to_contact(self.current_thread_id, chosen["id"]))
+            dispatch_on_gui_loop(link_thread_to_contact(self.current_thread_id, chosen["id"]))
             GLib.idle_add(self._set_thread_header, self.current_thread_id)
         dlg.connect("response", resp); dlg.present()
 
@@ -1038,7 +1087,7 @@ class ContactsPage(Adw.Bin):
             if q:
                 rows = [r for r in rows if q in (r.get('name','').lower()) or q in (r.get('number',''))]
             GLib.idle_add(self._render, rows)
-        asyncio.get_event_loop().create_task(go())
+        dispatch_on_gui_loop(go())
 
     def _render(self, rows):
         for c in list(self.list.get_children()): self.list.remove(c)
@@ -1054,7 +1103,7 @@ class ContactsPage(Adw.Bin):
         dlg.add_response("cancel","Cancel"); dlg.add_response("ok","Save"); dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
         def resp(d, id):
             if id != "ok": return
-            asyncio.get_event_loop().create_task(upsert_contact(name.get_text().strip(), number.get_text().strip()))
+            dispatch_on_gui_loop(upsert_contact(name.get_text().strip(), number.get_text().strip()))
             GLib.idle_add(self.refresh)
         dlg.connect("response", resp); dlg.present()
 
@@ -1067,7 +1116,7 @@ class ContactsPage(Adw.Bin):
             try:
                 with open(path, newline='') as csvfile:
                     for row in csv.DictReader(csvfile):
-                        asyncio.get_event_loop().create_task(upsert_contact(row.get('name',''), row.get('number','')))
+                        dispatch_on_gui_loop(upsert_contact(row.get('name',''), row.get('number','')))
                 GLib.idle_add(self.refresh)
             except Exception as e:
                 print("CSV import error:", e)
@@ -1081,7 +1130,7 @@ class ContactsPage(Adw.Bin):
                 w = csv.DictWriter(f, fieldnames=['name','number']); w.writeheader();
                 for r in rows: w.writerow({'name': r.get('name',''), 'number': r.get('number','')})
             print(f"Exported → {out}")
-        asyncio.get_event_loop().create_task(go())
+        dispatch_on_gui_loop(go())
 
 # ——— Voice (WebRTC) ————————————————————————————————————————————————
 class VoicePage(Adw.Bin):
@@ -1229,6 +1278,10 @@ class App(Adw.Application):
     def on_activate(self, *_):
         self.win = PhoneWindow(self); self.win.present(); start_webhooks()
 
+    def do_shutdown(self):
+        super().do_shutdown()
+        stop_gui_loop()
+
     def _open_thread(self, _, param):
         tid = param.unpack()
         if getattr(self, 'win', None):
@@ -1241,7 +1294,7 @@ def push_inbound_to_ui(thread_id: int):
     if not app or not getattr(app, 'win', None): return
     app.win.home.refresh_threads()
     async def go(): msgs = await list_messages(thread_id); GLib.idle_add(app.win.home._render_chat, msgs)
-    asyncio.get_event_loop().create_task(go())
+    dispatch_on_gui_loop(go())
 
 
 def start_webhooks():
@@ -1304,8 +1357,12 @@ def main():
         except KeyboardInterrupt:
             return
     else:
-        loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop)
-        app = App(); app.run()
+        loop = asyncio.new_event_loop()
+        start_gui_loop(loop)
+        try:
+            app = App(); app.run()
+        finally:
+            stop_gui_loop()
 
 if __name__ == "__main__":
     asyncio.get_event_loop_policy().new_event_loop()
