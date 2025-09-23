@@ -58,12 +58,29 @@ import gi
 # Core GUI
 gi.require_version("Adw", "1")
 gi.require_version("Gtk", "4.0")
-# WebView for WebRTC UI
+# WebView for WebRTC UI (optional, needs WebKitGTK 4.1)
+WEBKIT_AVAILABLE = False
+WEBKIT_ERROR = None
 try:
     gi.require_version("WebKit2", "4.1")
-except ValueError:
-    gi.require_version("WebKit2", "4.0")
-from gi.repository import Adw, Gtk, Gdk, GLib, Gio, WebKit2
+    from gi.repository import WebKit2
+except (ValueError, ImportError) as exc:
+    WebKit2 = None
+    WEBKIT_ERROR = exc
+else:
+    WEBKIT_AVAILABLE = True
+
+from gi.repository import Adw, Gtk, Gdk, GLib, Gio
+
+WEBKIT_DISABLED_MESSAGE = ""
+if not WEBKIT_AVAILABLE:
+    WEBKIT_DISABLED_MESSAGE = (
+        "WebRTC voice requires WebKitGTK 4.1 (libwebkit2gtk-4.1). "
+        "Install the WebKitGTK 4.1 packages to enable the embedded voice view."
+    )
+    if WEBKIT_ERROR:
+        WEBKIT_DISABLED_MESSAGE += f"\n\nDetails: {WEBKIT_ERROR}"
+    print(WEBKIT_DISABLED_MESSAGE.replace("\n", " "), file=sys.stderr)
 
 import aiosqlite
 from aiohttp import web
@@ -1072,11 +1089,27 @@ class VoicePage(Adw.Bin):
         super().__init__()
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=8, margin_bottom=8, margin_start=8, margin_end=8)
         self.set_child(root)
-        self.web = WebKit2.WebView(); self.reload()
-        root.append(self.web)
-        info = Gtk.Label(label="WebRTC uses Twilio Voice JS SDK. Set Public Base URL + TwiML App SID + API Key in Settings, then Initialize → Register in the page.")
-        info.set_wrap(True); root.append(info)
+        self.web = None
+
+        if WEBKIT_AVAILABLE and WebKit2 is not None:
+            self.web = WebKit2.WebView()
+            self.reload()
+            root.append(self.web)
+            info = Gtk.Label(label="WebRTC uses Twilio Voice JS SDK. Set Public Base URL + TwiML App SID + API Key in Settings, then Initialize → Register in the page.")
+            info.set_wrap(True)
+            root.append(info)
+        else:
+            msg = Gtk.Label(label=WEBKIT_DISABLED_MESSAGE or "WebRTC voice requires WebKitGTK 4.1 (libwebkit2gtk-4.1).")
+            msg.set_wrap(True)
+            msg.set_xalign(0)
+            root.append(msg)
+            followup = Gtk.Label(label="Install WebKitGTK 4.1 and restart Twilio Phone to enable the embedded Twilio Voice client.")
+            followup.set_wrap(True)
+            followup.set_xalign(0)
+            root.append(followup)
     def reload(self):
+        if not self.web:
+            return
         self.web.load_uri(f"http://{CFG.get('webhook_host','127.0.0.1')}:{CFG.get('webhook_port',5055)}/voice")
 
 # ——— Settings ————————————————————————————————————————————————
