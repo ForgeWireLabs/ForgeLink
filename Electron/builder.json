@@ -1,0 +1,21 @@
+{
+  "appId": "dev.twiliophone.desktop",
+  "productName": "Twilio Phone",
+  "files": [
+    "main.js",
+    "preload.js",
+    "renderer/**/*",
+    "assets/**/*",
+    "package.json"
+  ],
+  "directories": {
+    "buildResources": "assets"
+  },
+  "linux": {
+    "target": ["AppImage", "deb"],
+    "icon": "assets/icon.png",
+    "category": "Network"
+  },
+  "mac": { "category": "public.app-category.productivity", "icon": "assets/icon.png" },
+  "win": { "icon": "assets/icon.png" }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "twilio-phone",
+  "version": "1.0.0",
+  "description": "A desktop phone for SMS/MMS + Twilio Voice on top of your Python backend",
+  "author": "Jeremy Shows",
+  "license": "MIT",
+  "main": "main.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "electron .",
+    "build": "electron-builder -c builder.json"
+  },
+  "dependencies": {
+    "electron-store": "^9.0.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.2",
+    "electron-builder": "^24.13.3"
+  }
+}

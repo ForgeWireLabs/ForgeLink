@@ -49,27 +49,30 @@ Security
 • Uploads hardened: size cap, extension allow‑list, randomized names ✅
 """
 
+import os
+os.environ.setdefault("GI_REQUIRE_GTK", "4.0")  
+os.environ.setdefault("GDK_BACKEND", "wayland,x11") 
+
 import os, sys, json, asyncio, threading, time, mimetypes, secrets, csv, re
 from pathlib import Path
 from datetime import datetime, timedelta
 from dateutil import tz
 
 import gi
-# Core GUI
 gi.require_version("Adw", "1")
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-# WebView for WebRTC UI (optional, needs WebKitGTK 4.1)
+from gi.repository import Adw, Gtk, Gdk, GLib, Gio
+
 WEBKIT_AVAILABLE = False
 WEBKIT_ERROR = None
 try:
-    gi.require_version("WebKit2", "4.1")
+    gi.require_version("WebKit2", "4.1")   # GTK4 build of WebKit
     from gi.repository import WebKit2
+    WEBKIT_AVAILABLE = True
 except (ValueError, ImportError) as exc:
     WebKit2 = None
     WEBKIT_ERROR = exc
-else:
-    WEBKIT_AVAILABLE = True
 
 from gi.repository import Adw, Gtk, Gdk, GLib, Gio
 

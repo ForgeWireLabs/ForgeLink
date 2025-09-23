@@ -1,0 +1,16 @@
+your-project/
+├─ python/
+│  └─ twilio_phone.py           # your existing file (patch below)
+└─ electron/
+   ├─ package.json
+   ├─ main.js
+   ├─ preload.js
+   ├─ builder.json
+   ├─ assets/
+   │  ├─ icon.png               # 512x512 app icon (put any png here)
+   │  └─ bell.wav               # notification sound (optional)
+   └─ renderer/
+      ├─ index.html
+      ├─ styles.css
+      ├─ app.js
+      └─ phone.svg
