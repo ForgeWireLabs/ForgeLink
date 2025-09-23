@@ -58,6 +58,7 @@ import gi
 # Core GUI
 gi.require_version("Adw", "1")
 gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
 # WebView for WebRTC UI (optional, needs WebKitGTK 4.1)
 WEBKIT_AVAILABLE = False
 WEBKIT_ERROR = None
