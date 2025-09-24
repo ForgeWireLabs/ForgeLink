@@ -14,6 +14,74 @@ html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); f
 
 #app { display:flex; justify-content:center; align-items:center; padding: 22px; }
 
+.setup {
+  width: 620px;
+  background: var(--card);
+  border: 1px solid #2b2f3b;
+  border-radius: 24px;
+  padding: 32px;
+  box-shadow: 0 40px 120px rgba(0,0,0,.45);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.setup-intro h1 { margin: 0 0 6px; font-size: 28px; }
+.setup-intro p { margin: 4px 0; color: var(--muted); }
+.setup-note { font-size: 13px; }
+
+.setup-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 18px;
+}
+
+.setup-field { display:flex; flex-direction:column; gap: 6px; }
+.setup-label { font-size: 13px; color: var(--muted); }
+.setup-field input {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #2a2e3c;
+  background: #10131b;
+  color: var(--fg);
+}
+
+.setup-actions {
+  grid-column: 1 / -1;
+  display:flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.setup-actions button {
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid #2a2e3c;
+  background: #141823;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.setup-actions .primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.setup-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.setup-error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.setup-status {
+  color: var(--muted);
+}
+
 .phone {
   width: 940px; height: 860px; position: relative;
   border-radius: 42px; background: var(--card);
@@ -63,3 +131,19 @@ html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); f
 
 .voiceframe { width: 100%; height: 100%; border:0; border-top:1px solid #222638; }
 .settings { padding: 12px; display:grid; grid-template-columns: 220px 1fr; gap: 12px; }
+
+.settings-log { gap: 18px; }
+.settings-status { font-weight: 600; }
+.settings-help { display:flex; flex-direction:column; gap: 8px; color: var(--muted); }
+.settings-help button {
+  align-self:flex-start;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor:pointer;
+}
+.settings-help button:hover { background: rgba(91, 157, 255, 0.12); }
+.linkish { padding: 10px 16px; border-radius: 12px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor:pointer; }
+.linkish:hover { background: rgba(91, 157, 255, 0.12); }

@@ -296,6 +296,22 @@ def load_cfg():
 CFG = load_cfg()
 KEYRING_SERVICE = "TwilioPhone"
 
+env_public = os.environ.get("TWILIO_PUBLIC_BASE_URL")
+if env_public:
+    CFG["public_base_url"] = env_public
+env_host = os.environ.get("WEBHOOK_HOST")
+if env_host:
+    CFG["webhook_host"] = env_host
+env_port = os.environ.get("WEBHOOK_PORT")
+if env_port:
+    try:
+        CFG["webhook_port"] = int(env_port)
+    except ValueError:
+        pass
+env_twiml = os.environ.get("TWILIO_TWIML_APP_SID")
+if env_twiml:
+    CFG["twiml_app_sid"] = env_twiml
+
 # Accessors to keyring
 
 def kr_get(user_key):
@@ -316,15 +332,15 @@ def save_cfg(cfg):
 
 # Secrets
 
-def get_sid(): return kr_get("account_sid") or ""
+def get_sid(): return os.environ.get("TWILIO_ACCOUNT_SID") or kr_get("account_sid") or ""
 
-def get_token(): return kr_get("auth_token") or ""
+def get_token(): return os.environ.get("TWILIO_AUTH_TOKEN") or kr_get("auth_token") or ""
 
-def get_num(): return kr_get("twilio_number") or ""
+def get_num(): return os.environ.get("TWILIO_PHONE_NUMBER") or kr_get("twilio_number") or ""
 
-def get_api_key_sid(): return kr_get("twilio_api_key_sid") or ""
+def get_api_key_sid(): return os.environ.get("TWILIO_API_KEY_SID") or kr_get("twilio_api_key_sid") or ""
 
-def get_api_key_secret(): return kr_get("twilio_api_key_secret") or ""
+def get_api_key_secret(): return os.environ.get("TWILIO_API_KEY_SECRET") or kr_get("twilio_api_key_secret") or ""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Twilio client + delivery status (Fix #5)
