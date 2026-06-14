@@ -1,20 +1,23 @@
 {
   "name": "twilio-phone",
-  "version": "1.0.0",
-  "description": "A desktop phone for SMS/MMS + Twilio Voice on top of your Python backend",
+  "version": "2.0.0",
+  "description": "A focused desktop SMS/MMS client for Twilio",
   "author": "Jeremy Shows",
   "license": "MIT",
   "main": "main.js",
   "type": "commonjs",
   "scripts": {
-    "dev": "electron .",
-    "build": "electron-builder -c builder.json"
-  },
-  "dependencies": {
-    "electron-store": "^9.0.0"
+    "backend:build": "tsc -p backend/tsconfig.json",
+    "dev": "npm run backend:build && electron .",
+    "start": "npm run dev",
+    "build": "npm run backend:build && electron-builder -c builder.json",
+    "test": "npm run backend:build && node --test backend-dist/database.test.js backend-dist/server.test.js backend-dist/twilio.test.js && node --check main.js && node --check preload.js && node --check renderer/app.js",
+    "screenshot": "npm run backend:build && electron scripts/visual-smoke.js"
   },
   "devDependencies": {
-    "electron": "^31.0.2",
-    "electron-builder": "^24.13.3"
+    "@types/node": "^24.0.0",
+    "electron": "42.4.0",
+    "electron-builder": "26.15.3",
+    "typescript": "^5.9.0"
   }
 }

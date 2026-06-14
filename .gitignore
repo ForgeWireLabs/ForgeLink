@@ -1,3 +1,9 @@
-.venv
-
+.venv/
+Electron/dist/
+Electron/dist-*/
+Electron/backend-dist/
+Electron/node_modules/
+.visual-smoke-data/
+Python/__pycache__/
+*.pyc
 run.sh

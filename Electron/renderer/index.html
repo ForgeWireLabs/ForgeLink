@@ -3,12 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <title>Twilio Phone</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta http-equiv="Content-Security-Policy"
-      content="default-src 'self' 'unsafe-inline' data: blob: filesystem:;
-               img-src 'self' data: https:;
-               media-src 'self' data: https:;
-               connect-src 'self' http://127.0.0.1:* https:;
-               frame-src http://127.0.0.1:*;">
+      content="default-src 'self';
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' data: https: http://127.0.0.1:*;
+               connect-src 'self' http://127.0.0.1:*;
+               frame-src 'none';
+               object-src 'none';
+               base-uri 'none';">
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>

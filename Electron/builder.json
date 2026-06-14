@@ -5,6 +5,8 @@
     "main.js",
     "preload.js",
     "renderer/**/*",
+    "backend-dist/**/*",
+    "!backend-dist/**/*.test.js",
     "assets/**/*",
     "package.json"
   ],
@@ -13,9 +15,8 @@
   },
   "linux": {
     "target": ["AppImage", "deb"],
-    "icon": "assets/icon.png",
     "category": "Network"
   },
-  "mac": { "category": "public.app-category.productivity", "icon": "assets/icon.png" },
-  "win": { "icon": "assets/icon.png" }
+  "mac": { "category": "public.app-category.productivity" },
+  "win": { "target": ["nsis"] }
 }
