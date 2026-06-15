@@ -18,8 +18,9 @@
   },
   "linux": {
     "target": ["AppImage", "deb"],
+    "icon": "assets/icon.png",
     "category": "Network"
   },
   "mac": { "category": "public.app-category.productivity" },
-  "win": { "target": ["nsis"] }
+  "win": { "target": ["nsis"], "icon": "assets/icon.ico" }
 }

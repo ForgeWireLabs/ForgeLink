@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ForgeLink app icon">
+  <defs>
+    <linearGradient id="tile" x1="64" y1="32" x2="448" y2="480" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="0.52" stop-color="#0e1729"/>
+      <stop offset="1" stop-color="#11151d"/>
+    </linearGradient>
+    <radialGradient id="centerGlow" cx="256" cy="246" r="210" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38bdf8" stop-opacity="0.58"/>
+      <stop offset="0.42" stop-color="#7c6df2" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#090b10" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wire" x1="130" y1="132" x2="382" y2="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="0.55" stop-color="#cbd5e1"/>
+      <stop offset="1" stop-color="#818cf8"/>
+    </linearGradient>
+    <linearGradient id="hub" x1="212" y1="200" x2="304" y2="312" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#7c6df2"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fbbf24"/>
+      <stop offset="1" stop-color="#f97316"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="24" stdDeviation="22" flood-color="#000000" flood-opacity="0.42"/>
+    </filter>
+    <filter id="softGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect x="12" y="12" width="488" height="488" rx="92" fill="url(#tile)" filter="url(#shadow)"/>
+  <rect x="18" y="18" width="476" height="476" rx="86" fill="none" stroke="#1e3a5f" stroke-width="4"/>
+  <rect x="28" y="28" width="456" height="456" rx="76" fill="none" stroke="#38bdf8" stroke-opacity="0.18" stroke-width="2"/>
+  <circle cx="256" cy="256" r="210" fill="url(#centerGlow)"/>
+  <g stroke="#1e2a42" stroke-width="1.2" opacity="0.42">
+    <path d="M96 128H416M96 256H416M96 384H416M128 96V416M256 96V416M384 96V416"/>
+  </g>
+  <g filter="url(#softGlow)" stroke-linecap="round">
+    <path d="M156 156L256 256L356 156M156 356L256 256L356 356" stroke="#38bdf8" stroke-opacity="0.23" stroke-width="28"/>
+    <path d="M156 156L256 256L356 156M156 356L256 256L356 356" stroke="url(#wire)" stroke-width="17"/>
+    <path d="M156 156L256 256L356 156M156 356L256 256L356 356" stroke="#f8fafc" stroke-opacity="0.7" stroke-width="6"/>
+  </g>
+  <g fill="#0b1220" stroke-width="5">
+    <circle cx="156" cy="156" r="33" stroke="url(#spark)"/>
+    <circle cx="356" cy="156" r="33" stroke="url(#spark)"/>
+    <circle cx="156" cy="356" r="33" stroke="url(#spark)"/>
+    <circle cx="356" cy="356" r="33" stroke="url(#spark)"/>
+  </g>
+  <g fill="url(#spark)" filter="url(#softGlow)">
+    <circle cx="156" cy="156" r="22"/>
+    <circle cx="356" cy="156" r="22"/>
+    <circle cx="156" cy="356" r="22"/>
+    <circle cx="356" cy="356" r="22"/>
+  </g>
+  <circle cx="256" cy="256" r="58" fill="#0b1220" stroke="#38bdf8" stroke-width="5"/>
+  <circle cx="256" cy="256" r="45" fill="url(#hub)" stroke="#dbeafe" stroke-opacity="0.72" stroke-width="3"/>
+  <g fill="none" stroke="#ffffff" stroke-linecap="round" stroke-width="11" opacity="0.94">
+    <path d="M230 257c-16-14-16-36 0-50 15-13 39-11 53 3"/>
+    <path d="M282 255c16 14 16 36 0 50-15 13-39 11-53-3"/>
+  </g>
+</svg>
