@@ -1,0 +1,16 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "000",
+  "title": "Adopt RepoPact For ForgeLink",
+  "status": "completed",
+  "owner_scope": "governance",
+  "affected_scopes": ["work", "evidence", "tooling", "docs"],
+  "depends_on": [],
+  "acceptance_criteria": [
+    {"id": "AC-1", "text": "ForgeLink has RepoPact schemas, validator scripts, governance records, work ledger, and evidence directories without overwriting existing project docs or AGENTS.md.", "state": "satisfied", "evidence": ["20260615-repopact-adoption"]},
+    {"id": "AC-2", "text": "RepoPact validation passes from the ForgeLink checkout.", "state": "satisfied", "evidence": ["20260615-repopact-adoption"]},
+    {"id": "AC-3", "text": "The adoption decision records that local todos are retained as historical planning context.", "state": "satisfied", "evidence": ["20260615-repopact-adoption"]}
+  ],
+  "created": "2026-06-15",
+  "updated": "2026-06-15"
+}

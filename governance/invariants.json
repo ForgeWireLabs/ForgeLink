@@ -1,0 +1,48 @@
+{
+  "$schema": "../schemas/invariants.schema.json",
+  "version": 1,
+  "invariants": [
+    {
+      "id": "INV-1",
+      "statement": "No critical project state exists only in conversation; intent, decisions, evidence, and history live in versioned files.",
+      "rationale": "ForgeLink will be touched by humans and agents across sessions; project state must be recoverable without prior chat context.",
+      "escalation": "If a task would leave load-bearing state only in chat, stop and record it as a work item, decision, evidence run, or documentation update first.",
+      "enforced_by": null
+    },
+    {
+      "id": "INV-2",
+      "statement": "A completed work item has zero pending acceptance criteria.",
+      "rationale": "Completion must mean declared outcomes were actually reached.",
+      "escalation": "Move the item back to active, satisfy the criterion with evidence, or waive it with rationale.",
+      "enforced_by": "scripts/validate_repo.py:validate_work"
+    },
+    {
+      "id": "INV-3",
+      "statement": "A satisfied acceptance criterion has linked evidence.",
+      "rationale": "Confidence is not evidence; release and safety claims need proof.",
+      "escalation": "Produce an evidence run and link it, or return the criterion to pending.",
+      "enforced_by": "scripts/validate_repo.py:validate_work"
+    },
+    {
+      "id": "INV-4",
+      "statement": "ForgeLink remains private-first: no secrets, tokens, phone numbers, message bodies, personal media, or agent-human transcripts are committed or logged.",
+      "rationale": "The product is a communications surface for private humans and agentic systems.",
+      "escalation": "Stop the change, quarantine the artifact, rotate any exposed secret, and record the incident as evidence or an audit finding.",
+      "enforced_by": null
+    },
+    {
+      "id": "INV-5",
+      "statement": "Automated or agent-originated communication must carry identity, intent, urgency, and an audit trail before it can interrupt a human.",
+      "rationale": "ForgeLink should reduce attention debt, not become another spam channel.",
+      "escalation": "Keep the channel local or disabled until identity, rate limits, retention, and review behavior are specified.",
+      "enforced_by": null
+    },
+    {
+      "id": "INV-6",
+      "statement": "The deepest applicable AGENTS.md refines its parents but cannot weaken them.",
+      "rationale": "Local ownership is useful only if it preserves repository-wide guarantees.",
+      "escalation": "A weakening change needs explicit operator approval and a decision record.",
+      "enforced_by": null
+    }
+  ]
+}

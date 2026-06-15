@@ -1,4 +1,6 @@
 .venv/
+__pycache__/
+*.pyc
 Electron/dist/
 Electron/dist-*/
 Electron/backend-dist/

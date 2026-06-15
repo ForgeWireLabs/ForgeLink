@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "scopes": [
+    {"id": "governance", "paths": ["AGENTS.md", "governance/**", "schemas/**", "decisions/**", "VERSION"], "owner": "governance-owner"},
+    {"id": "work", "paths": ["work/**", "todos/**"], "owner": "planning-agent"},
+    {"id": "evidence", "paths": ["evidence/**", "audits/**"], "owner": "testing-agent"},
+    {"id": "tooling", "paths": ["scripts/**", ".github/**", ".local/**"], "owner": "testing-agent"},
+    {"id": "docs", "paths": ["docs/**", "README.md", "layout"], "owner": "docs-agent"},
+    {"id": "ui", "paths": ["Electron/renderer/**"], "owner": "ui-agent"},
+    {"id": "desktop", "paths": ["Electron/main.js", "Electron/preload.js", "Electron/builder.json", "Electron/assets/**", "Electron/package*.json"], "owner": "desktop-agent"},
+    {"id": "backend", "paths": ["Electron/backend/src/**", "Electron/onboarding.js", "Electron/onboarding.test.js"], "owner": "backend-agent"},
+    {"id": "data", "paths": ["Electron/backend/src/database.ts", "Electron/backend/src/migration.ts"], "owner": "data-agent"},
+    {"id": "release", "paths": ["Electron/dist/**"], "owner": "desktop-agent"},
+    {"id": "security", "paths": ["Electron/preload.js", "Electron/main.js", "Electron/backend/src/**", "governance/invariants.json"], "owner": "security-agent"},
+    {"id": "agent-channel", "paths": ["Electron/backend/src/**", "Electron/renderer/src/**", "docs/**"], "owner": "backend-agent"}
+  ],
+  "roles": [
+    {"id": "governance-owner", "description": "Maintains RepoPact records, invariants, schemas, and durable decisions.", "scopes": ["governance"]},
+    {"id": "planning-agent", "description": "Owns work item lifecycle, dependencies, acceptance criteria, and historical todo alignment.", "scopes": ["work"]},
+    {"id": "testing-agent", "description": "Owns validation, evidence runs, smoke checks, and audit records.", "scopes": ["evidence", "tooling"]},
+    {"id": "docs-agent", "description": "Owns documentation and code-to-doc alignment.", "scopes": ["docs"]},
+    {"id": "ui-agent", "description": "Owns renderer implementation and visual validation.", "scopes": ["ui"]},
+    {"id": "desktop-agent", "description": "Owns Electron shell, packaging, process lifecycle, assets, and release outputs.", "scopes": ["desktop", "release"]},
+    {"id": "backend-agent", "description": "Owns local HTTP contracts, Twilio integration, and future agent-channel APIs.", "scopes": ["backend", "agent-channel"]},
+    {"id": "security-agent", "description": "Reviews secret handling, local API exposure, caller authentication, logs, uploads, and release integrity.", "scopes": ["security"]},
+    {"id": "data-agent", "description": "Owns SQLite schema, migration, backup, export, retention, and recovery behavior.", "scopes": ["data"]}
+  ],
+  "concurrency": {
+    "enforce_disjoint_active_scopes": false,
+    "note": "ForgeLink currently has one active RepoPact item; enable this when concurrent agent work begins."
+  }
+}

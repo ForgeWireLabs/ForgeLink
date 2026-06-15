@@ -1,0 +1,16 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "002",
+  "title": "Ship Branded ForgeLink Icon In 2.0.1",
+  "status": "completed",
+  "owner_scope": "desktop",
+  "affected_scopes": ["release", "ui"],
+  "depends_on": ["001"],
+  "acceptance_criteria": [
+    {"id": "AC-1", "text": "ForgeLink has editable SVG source artwork and generated PNG/ICO assets that match the ForgeWire brand language.", "state": "satisfied", "evidence": ["20260615-forgelink-2-0-1-icon-release"]},
+    {"id": "AC-2", "text": "Electron Builder uses the branded icon for the Windows executable and installer.", "state": "satisfied", "evidence": ["20260615-forgelink-2-0-1-icon-release"]},
+    {"id": "AC-3", "text": "A GitHub release exists for v2.0.1 with the branded installer, blockmap, and checksums.", "state": "satisfied", "evidence": ["20260615-forgelink-2-0-1-icon-release"]}
+  ],
+  "created": "2026-06-15",
+  "updated": "2026-06-15"
+}

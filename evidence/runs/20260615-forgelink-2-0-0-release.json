@@ -1,0 +1,28 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260615-forgelink-2-0-0-release",
+  "timestamp": "2026-06-15T21:10:03Z",
+  "work_item": "001",
+  "result": "passed",
+  "commands": [
+    {"command": "cd Electron && npm test", "exit_code": 0, "summary": "Renderer, backend, onboarding, Electron syntax, and local API tests passed."},
+    {"command": "python .local/validate_system.py", "exit_code": 0, "summary": "Local system audit passed."},
+    {"command": "cd Electron && npm run screenshot", "exit_code": 0, "summary": "Visual smoke screenshot generated at Electron/dist/ui-preview.png."},
+    {"command": "cd Electron && npm run build -- --dir", "exit_code": 0, "summary": "Unpacked Windows build produced ForgeLink.exe."},
+    {"command": "cd Electron && npm run build", "exit_code": 0, "summary": "Windows NSIS installer and blockmap built."},
+    {"command": "gh release create v2.0.0 ...", "exit_code": 0, "summary": "GitHub release published with installer, blockmap, and SHA256SUMS."}
+  ],
+  "artifacts": [
+    "https://github.com/ForgeWireLabs/ForgeLink/releases/tag/v2.0.0",
+    "Electron/dist/ForgeLink Setup 2.0.0.exe",
+    "Electron/dist/ForgeLink Setup 2.0.0.exe.blockmap",
+    "Electron/dist/SHA256SUMS.txt"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "commit": "685fc86",
+    "tag": "v2.0.0",
+    "platform": "Windows",
+    "node": "project npm scripts"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "scopes": [
+    {
+      "path": ".",
+      "owner": "governance-owner",
+      "contract": "AGENTS.md",
+      "last_reviewed": "2026-06-15",
+      "next_review": "2026-09-15",
+      "alignment": "current",
+      "notes": "ForgeLink root contract preserved; RepoPact integrated around it."
+    },
+    {
+      "path": "docs",
+      "owner": "docs-agent",
+      "contract": "docs/AGENTS.md",
+      "last_reviewed": "2026-06-15",
+      "next_review": "2026-09-15",
+      "alignment": "current",
+      "notes": "Existing docs audit companion remains authoritative for documentation alignment."
+    },
+    {
+      "path": "todos/001-production-readiness",
+      "owner": "planning-agent",
+      "contract": "todos/001-production-readiness/AGENTS.md",
+      "last_reviewed": "2026-06-15",
+      "next_review": "2026-09-15",
+      "alignment": "current",
+      "notes": "Existing production-readiness todo retained as historical planning context."
+    }
+  ]
+}

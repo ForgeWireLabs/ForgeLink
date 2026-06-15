@@ -1,0 +1,31 @@
+{
+  "$schema": "../schemas/frozen-surface.schema.json",
+  "version": 1,
+  "protected": [
+    {
+      "glob": "governance/invariants.json",
+      "reason": "Invariants are the pact for ForgeLink's private communications and agent-human boundary.",
+      "symbols": []
+    },
+    {
+      "glob": "Electron/preload.js",
+      "reason": "The preload bridge is the renderer's security boundary.",
+      "symbols": []
+    },
+    {
+      "glob": "Electron/backend/src/server.ts",
+      "reason": "The local HTTP API mediates private data, uploads, webhooks, and future agent channels.",
+      "symbols": ["createBackend"]
+    },
+    {
+      "glob": "Electron/backend/src/twilio.ts",
+      "reason": "Twilio webhook validation and provider calls protect externally visible communications.",
+      "symbols": ["validateTwilioSignature", "sendTwilioMessage"]
+    },
+    {
+      "glob": "schemas/**",
+      "reason": "RepoPact schemas define the durable record contracts used by validators and future agents.",
+      "symbols": []
+    }
+  ]
+}
