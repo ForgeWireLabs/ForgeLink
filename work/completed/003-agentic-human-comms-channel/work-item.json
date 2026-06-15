@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "003",
+  "title": "Agentic Human Communications Channel",
+  "status": "completed",
+  "owner_scope": "agent-channel",
+  "affected_scopes": ["backend", "data", "ui", "docs", "security"],
+  "depends_on": ["001"],
+  "acceptance_criteria": [
+    {"id": "AC-1", "text": "Define a local authenticated channel contract for ForgeWire and other agentic apps to send human-directed messages with source identity, intent, urgency, expiry, and actions.", "state": "satisfied", "evidence": ["20260615-agentic-human-comms-channel"]},
+    {"id": "AC-2", "text": "Persist agent-originated messages in a way that separates them from SMS conversations while preserving auditability, retention, and backup/export behavior.", "state": "satisfied", "evidence": ["20260615-agentic-human-comms-channel"]},
+    {"id": "AC-3", "text": "Add UI affordances for agent channels that do not create a social feed or compete for infinite feed time.", "state": "satisfied", "evidence": ["20260615-agentic-human-comms-channel"]},
+    {"id": "AC-4", "text": "Document security boundaries: caller authentication, loopback exposure, rate limits, redaction/logging rules, action approval, and failure states.", "state": "satisfied", "evidence": ["20260615-agentic-human-comms-channel"]},
+    {"id": "AC-5", "text": "Provide integration evidence from at least one ForgeWire or local agentic app prototype using the channel.", "state": "satisfied", "evidence": ["20260615-agentic-human-comms-channel"]}
+  ],
+  "created": "2026-06-15",
+  "updated": "2026-06-15"
+}

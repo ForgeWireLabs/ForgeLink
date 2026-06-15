@@ -93,8 +93,38 @@ test("creates verified backups, restores data, exports JSON, and applies retenti
     assert.equal(exported.format, "forgelink-export-v1");
     assert.equal(exported.schema_version, CURRENT_SCHEMA_VERSION);
     assert.equal(exported.messages.some((message) => message.id === "AFTER"), false);
-    assert.deepEqual(database.applyRetention(365), { deletedMessages: 1, deletedThreads: 1 });
+    assert.deepEqual(database.applyRetention(365), { deletedMessages: 1, deletedThreads: 1, deletedAgentMessages: 0 });
     assert.equal((database.exportData().messages as Array<unknown>).length, 1);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("stores agent channel messages separately with export, actions, expiry, and retention", () => {
+  const directory = mkdtempSync(join(tmpdir(), "twilio-phone-agent-channel-"));
+  const path = join(directory, "phone.sqlite3");
+  const database = new PhoneDatabase(path);
+  try {
+    database.addMessage({ id: "SMS", number: "+15551234567", direction: "inbound", body: "person" });
+    const stored = database.addAgentMessage({
+      id: "agent-1",
+      channel_id: "forgewire",
+      source: "forgewire",
+      kind: "approval_request",
+      urgency: "normal",
+      title: "Release approval",
+      body: "ForgeWire wants approval.",
+      actions: [{ id: "approve", label: "Approve" }],
+      created_at: "2020-01-01T00:00:00.000Z",
+      expires_at: "2099-01-01T00:00:00.000Z"
+    });
+    assert.equal(stored.status, "unread");
+    assert.equal(database.agentMessages()[0].channel_id, "forgewire");
+    assert.equal(database.updateAgentMessageStatus("agent-1", "acted", "approve").status, "acted");
+    const exported = database.exportData() as { messages: Array<unknown>; agent_messages: Array<{ id: string }> };
+    assert.equal(exported.messages.length, 1);
+    assert.deepEqual(exported.agent_messages.map((message) => message.id), ["agent-1"]);
+    database.addAgentMessage({ id: "expired", channel_id: "forgewire", source: "forgewire", kind: "alert", urgency: "high", title: "Old alert", body: "Expired", expires_at: "2020-01-01T00:00:00.000Z" });
+    assert.equal(database.agentMessage("expired")?.status, "expired");
+    assert.equal(database.applyRetention(365).deletedAgentMessages, 1);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 

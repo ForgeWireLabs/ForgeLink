@@ -1,4 +1,4 @@
-import type { BackendConnection, ConfigStatus, Contact, DataStatus, Message, RetentionResult, Thread } from "./types";
+import type { AgentMessage, BackendConnection, ConfigStatus, Contact, DataStatus, Message, RetentionResult, Thread } from "./types";
 
 export class PhoneApi {
   constructor(private connection: () => BackendConnection) {}
@@ -17,6 +17,10 @@ export class PhoneApi {
   contacts = (query = "") => this.request<Contact[]>(`/api/contacts${query ? `?q=${encodeURIComponent(query)}` : ""}`);
   messages = (threadId: number, before?: string) => this.request<Message[]>(`/api/messages?thread_id=${threadId}${before ? `&before=${encodeURIComponent(before)}` : ""}`);
   config = () => this.request<ConfigStatus>("/api/config-status");
+  agentMessages = () => this.request<AgentMessage[]>("/api/agent-messages");
+  markAgentMessageRead = (id: string) => this.request<{ ok: true; message: AgentMessage }>(`/api/agent-messages/${encodeURIComponent(id)}/read`, { method: "POST" });
+  dismissAgentMessage = (id: string) => this.request<{ ok: true; message: AgentMessage }>(`/api/agent-messages/${encodeURIComponent(id)}/dismiss`, { method: "POST" });
+  actOnAgentMessage = (id: string, actionId: string) => this.request<{ ok: true; message: AgentMessage }>(`/api/agent-messages/${encodeURIComponent(id)}/actions/${encodeURIComponent(actionId)}`, { method: "POST" });
   send = (localId: string, to: string, body: string, mediaUrls: string[] = []) => this.request("/api/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ local_id: localId, to, body, media_urls: mediaUrls }) });
   retry = (id: string) => this.request("/api/retry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
   draft = (threadId: number) => this.request<{ body: string }>(`/api/draft?thread_id=${threadId}`);

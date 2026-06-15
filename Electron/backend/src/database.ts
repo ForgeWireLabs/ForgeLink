@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 export interface ThreadRow {
   id: number;
@@ -31,6 +31,43 @@ export interface OutboundMessage {
   media_urls: string;
   status: string;
   attempt_count: number;
+}
+
+export type AgentUrgency = "low" | "normal" | "high" | "urgent";
+export type AgentMessageStatus = "unread" | "read" | "dismissed" | "acted" | "expired";
+
+export interface AgentAction {
+  id: string;
+  label: string;
+}
+
+export interface AgentMessageInput {
+  id: string;
+  channel_id: string;
+  source: string;
+  kind: string;
+  urgency: AgentUrgency;
+  title: string;
+  body: string;
+  actions?: AgentAction[];
+  expires_at?: string | null;
+  created_at?: string;
+}
+
+export interface AgentMessageRow {
+  id: string;
+  channel_id: string;
+  source: string;
+  kind: string;
+  urgency: AgentUrgency;
+  title: string;
+  body: string;
+  actions: string;
+  status: AgentMessageStatus;
+  action_result: string;
+  last_error: string;
+  created_at: string;
+  expires_at?: string | null;
 }
 
 export interface DatabaseState {
@@ -152,6 +189,30 @@ export class PhoneDatabase {
         version = 3;
         this.connection.exec("PRAGMA user_version=3");
       }
+      if (version === 3) {
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS agent_messages (
+            id TEXT PRIMARY KEY,
+            channel_id TEXT NOT NULL,
+            source TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            urgency TEXT NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            actions TEXT NOT NULL DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT 'unread',
+            action_result TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            expires_at TEXT,
+            last_error TEXT NOT NULL DEFAULT ''
+          );
+          CREATE INDEX IF NOT EXISTS idx_agent_messages_created_at ON agent_messages(created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_agent_messages_channel_id ON agent_messages(channel_id);
+          CREATE INDEX IF NOT EXISTS idx_agent_messages_status ON agent_messages(status);
+        `);
+        version = 4;
+        this.connection.exec("PRAGMA user_version=4");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -199,20 +260,22 @@ export class PhoneDatabase {
       schema_version: this.state.schemaVersion,
       contacts: this.connection.prepare("SELECT * FROM contacts ORDER BY id").all(),
       threads: this.connection.prepare("SELECT * FROM threads ORDER BY id").all(),
-      messages: this.connection.prepare("SELECT * FROM messages ORDER BY ts, id").all()
+      messages: this.connection.prepare("SELECT * FROM messages ORDER BY ts, id").all(),
+      agent_messages: this.connection.prepare("SELECT * FROM agent_messages ORDER BY created_at, id").all()
     };
   }
 
-  applyRetention(days: number): { deletedMessages: number; deletedThreads: number } {
+  applyRetention(days: number): { deletedMessages: number; deletedThreads: number; deletedAgentMessages: number } {
     if (!Number.isInteger(days) || days < 30 || days > 3650) throw new Error("Retention must be between 30 and 3650 days.");
     const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
     this.connection.exec("BEGIN IMMEDIATE");
     try {
       const deletedMessages = Number(this.connection.prepare("DELETE FROM messages WHERE ts < ?").run(cutoff).changes);
+      const deletedAgentMessages = Number(this.connection.prepare("DELETE FROM agent_messages WHERE created_at < ?").run(cutoff).changes);
       const deletedThreads = Number(this.connection.prepare("DELETE FROM threads WHERE NOT EXISTS (SELECT 1 FROM messages WHERE messages.thread_id=threads.id)").run().changes);
       this.connection.prepare("UPDATE threads SET last_msg_ts=(SELECT MAX(ts) FROM messages WHERE messages.thread_id=threads.id)").run();
       this.connection.exec("COMMIT");
-      return { deletedMessages, deletedThreads };
+      return { deletedMessages, deletedThreads, deletedAgentMessages };
     } catch (error) {
       this.connection.exec("ROLLBACK");
       throw error;
@@ -338,5 +401,40 @@ export class PhoneDatabase {
 
   updateMessageStatus(messageId: string, status: string): void {
     this.updateDeliveryStatus(messageId, status);
+  }
+
+  addAgentMessage(message: AgentMessageInput): AgentMessageRow {
+    const createdAt = message.created_at || utcNow();
+    const status: AgentMessageStatus = message.expires_at && new Date(message.expires_at).getTime() <= Date.now() ? "expired" : "unread";
+    this.connection.prepare(`
+      INSERT INTO agent_messages(id, channel_id, source, kind, urgency, title, body, actions, status, created_at, expires_at)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(message.id, message.channel_id, message.source, message.kind, message.urgency, message.title, message.body, JSON.stringify(message.actions || []), status, createdAt, message.expires_at || null);
+    return this.agentMessage(message.id)!;
+  }
+
+  agentMessages(): AgentMessageRow[] {
+    this.expireAgentMessages();
+    return this.connection.prepare("SELECT * FROM agent_messages ORDER BY created_at DESC, id DESC LIMIT 500").all() as unknown as AgentMessageRow[];
+  }
+
+  agentMessage(id: string): AgentMessageRow | undefined {
+    this.expireAgentMessages();
+    return this.connection.prepare("SELECT * FROM agent_messages WHERE id=?").get(id) as unknown as AgentMessageRow | undefined;
+  }
+
+  updateAgentMessageStatus(id: string, status: AgentMessageStatus, actionId = ""): AgentMessageRow {
+    if (!["read", "dismissed", "acted"].includes(status)) throw new Error("Unsupported agent message status.");
+    const current = this.agentMessage(id);
+    if (!current) throw new Error("Agent message not found.");
+    if (current.status === "expired") throw new Error("Agent message has expired.");
+    const result = this.connection.prepare("UPDATE agent_messages SET status=?, action_result=? WHERE id=?")
+      .run(status, actionId ? JSON.stringify({ action_id: actionId, acted_at: utcNow() }) : current.action_result, id);
+    if (result.changes !== 1) throw new Error("Agent message not found.");
+    return this.agentMessage(id)!;
+  }
+
+  private expireAgentMessages(): void {
+    this.connection.prepare("UPDATE agent_messages SET status='expired' WHERE expires_at IS NOT NULL AND expires_at <= ? AND status IN ('unread', 'read')").run(utcNow());
   }
 }

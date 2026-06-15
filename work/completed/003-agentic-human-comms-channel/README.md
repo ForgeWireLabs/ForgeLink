@@ -1,6 +1,6 @@
 # 003 — Agentic Human Communications Channel
 
-> **Status**: Active.
+> **Status**: Completed 2026-06-15.
 > **Owners**: backend-agent lead, Security Agent, UI Agent, Data Agent, Docs Agent supporting.
 > **Depends on**: Work item `001`.
 
@@ -53,11 +53,11 @@ Agent messages are communications, not content. Every automated message should
 carry enough metadata for a person to understand who is asking, why now, what
 action is requested, when it expires, and what happens if the action fails.
 
-## Initial Contract Sketch
+## Implemented Contract
 
 ```http
 POST /api/agent-channels/:channel_id/messages
-Authorization: Bearer <channel token>
+Authorization: Bearer <local launch token>
 Content-Type: application/json
 ```
 
@@ -76,18 +76,39 @@ Content-Type: application/json
 }
 ```
 
-## Open Questions
+Additional implemented endpoints:
 
-- Should channels be configured in ForgeLink settings, a local token file, or an
-  OS-encrypted store?
-- Should actions call back to the originating agent, or should ForgeLink expose
-  a polling API for action results?
-- How should urgent agent messages bridge to SMS or desktop notifications
-  without creating spam?
-- What is the first ForgeWire integration: task approval, release approval,
-  operator prompt, or alerting?
+```http
+GET /api/agent-messages
+POST /api/agent-messages/:id/read
+POST /api/agent-messages/:id/dismiss
+POST /api/agent-messages/:id/actions/:action_id
+```
 
 ## Closeout
 
-This work closes only when the API, persistence, UI, docs, security notes, and
-one integration evidence record are all present.
+Completed with:
+
+- Authenticated local agent-channel API in `Electron/backend/src/server.ts`.
+- SQLite schema version 4 with `agent_messages` separate from SMS/MMS messages
+  in `Electron/backend/src/database.ts`.
+- Backup/export/retention coverage for agent messages.
+- Renderer **Agents** view with active requests and recent outcomes.
+- Contract and security documentation in `docs/agent-channels.md`.
+- Prototype evidence in
+  `evidence/runs/20260615-agentic-human-comms-channel.json`.
+
+## Remaining Hardening
+
+- Add per-channel credentials, revocation, and operator-visible channel
+  configuration before accepting untrusted third-party callers.
+- Add dedicated rate limits for local agent callers.
+- Decide whether future urgent messages can bridge to notifications or SMS
+  without creating spam.
+
+## Verification
+
+- `cd Electron && npm test`
+- `cd Electron && npm run screenshot`
+- Local ForgeWire-style prototype posted an approval request, listed it,
+  recorded an `approve` action, and verified `sms_thread_count` remained `0`.

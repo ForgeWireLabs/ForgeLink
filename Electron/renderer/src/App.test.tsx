@@ -8,14 +8,17 @@ import { App } from "./App";
 const thread = { id: 1, canonical_number: "+15551234567", name: "Ada Lovelace", last_msg_ts: "2026-06-14T18:00:00.000Z", unread_count: 0 };
 const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
 const message = { id: "SM1", direction: "inbound", body: "Hello", ts: "2026-06-14T18:00:00.000Z", status: "received", media_urls: "" };
+const agentMessage = { id: "agent-1", channel_id: "forgewire", source: "forgewire", kind: "approval_request", urgency: "normal", title: "Release approval", body: "ForgeWire wants approval.", actions: JSON.stringify([{ id: "approve", label: "Approve" }]), status: "unread", action_result: "", created_at: "2026-06-14T18:00:00.000Z", expires_at: "2099-01-01T00:00:00.000Z", last_error: "" };
 let messagesFixture: Array<Record<string, unknown>>;
 let olderFixture: Array<Record<string, unknown>>;
+let agentMessagesFixture: Array<Record<string, unknown>>;
 
 function response(payload: unknown, ok = true): Promise<Response> { return Promise.resolve({ ok, status: ok ? 200 : 400, json: async () => payload } as Response); }
 
 beforeEach(() => {
   messagesFixture = [message];
   olderFixture = [];
+  agentMessagesFixture = [agentMessage];
   window.desktop = {
     notify: vi.fn(),
     openExternal: vi.fn(),
@@ -33,14 +36,18 @@ beforeEach(() => {
     const url = String(input);
     if (new Headers(init?.headers).get("Authorization") !== "Bearer renderer-api-token") return response({ error: "Unauthorized" }, false);
     if (url.includes("/api/messages")) return response(url.includes("before=") ? olderFixture : messagesFixture);
+    if (url.endsWith("/api/agent-messages")) return response(agentMessagesFixture);
+    if (url.endsWith("/api/agent-messages/agent-1/read")) { agentMessagesFixture = [{ ...agentMessage, status: "read" }]; return response({ ok: true, message: agentMessagesFixture[0] }); }
+    if (url.endsWith("/api/agent-messages/agent-1/dismiss")) { agentMessagesFixture = [{ ...agentMessage, status: "dismissed" }]; return response({ ok: true, message: agentMessagesFixture[0] }); }
+    if (url.endsWith("/api/agent-messages/agent-1/actions/approve")) { agentMessagesFixture = [{ ...agentMessage, status: "acted", action_result: JSON.stringify({ action_id: "approve" }) }]; return response({ ok: true, message: agentMessagesFixture[0] }); }
     if (url.endsWith("/api/threads")) return response([thread]);
     if (url.includes("/api/contacts")) return response(init?.method === "POST" ? { ok: true } : [contact]);
     if (url.endsWith("/api/config-status")) return response({ account_sid: true, auth_token: true, phone_number: true, public_base_url: true });
-    if (url.endsWith("/api/data/status")) return response({ schema_version: 3, latest_backup: "backup-test", backup_count: 1, recovered_from: null, migration_backup: null });
+    if (url.endsWith("/api/data/status")) return response({ schema_version: 4, latest_backup: "backup-test", backup_count: 1, recovered_from: null, migration_backup: null });
     if (url.endsWith("/api/data/backup")) return response({ ok: true, name: "backup-test" });
     if (url.endsWith("/api/data/export")) return response({ ok: true, name: "export-test.json" });
     if (url.endsWith("/api/data/restore-latest")) return response({ ok: true, name: "backup-test" });
-    if (url.endsWith("/api/data/retention")) return response({ ok: true, deletedMessages: 2, deletedThreads: 1, deletedUploads: 1 });
+    if (url.endsWith("/api/data/retention")) return response({ ok: true, deletedMessages: 2, deletedThreads: 1, deletedUploads: 1, deletedAgentMessages: 1 });
     if (url.includes("/api/draft")) return response(init?.method === "POST" ? { ok: true } : { body: "" });
     if (url.endsWith("/api/send")) return response({ sid: "SM2", status: "queued" });
     if (url.endsWith("/api/retry")) return response({ sid: "SM2", status: "queued" });
@@ -89,10 +96,21 @@ describe("React renderer parity", () => {
     expect(screen.getByText("No contacts found")).toBeTruthy();
   });
 
+  it("shows agent channel messages without mixing them into SMS conversations", async () => {
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Agents" }));
+    expect(await screen.findByRole("heading", { name: "Agents" })).toBeTruthy();
+    expect(screen.getByText("Release approval")).toBeTruthy();
+    expect(screen.getByText("ForgeWire wants approval.")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).endsWith("/api/agent-messages/agent-1/actions/approve"))).toBe(true));
+    expect(await screen.findByText("Recent outcomes")).toBeTruthy();
+  });
+
   it("backs up, exports, restores, and applies local retention from settings", async () => {
     render(<App/>);
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
-    await screen.findByText("Schema version 3. Backups and exports contain private message and contact data.");
+    await screen.findByText("Schema version 4. Backups and exports contain private message and contact data.");
     await userEvent.click(screen.getByRole("button", { name: "Create backup" }));
     await userEvent.click(screen.getByRole("button", { name: "Export JSON" }));
     await userEvent.click(screen.getByRole("button", { name: "Restore latest backup" }));
@@ -140,10 +158,11 @@ describe("React renderer parity", () => {
       if (new Headers(init?.headers).get("Authorization") !== "Bearer renderer-api-token") return response({ error: "Unauthorized" }, false);
       if (url.includes("/api/draft")) return response(init?.method === "POST" ? { ok: true } : { body: "Saved draft" });
       if (url.includes("/api/messages")) return response(messagesFixture);
+      if (url.endsWith("/api/agent-messages")) return response([]);
       if (url.endsWith("/api/threads")) return response([thread]);
       if (url.includes("/api/contacts")) return response([contact]);
       if (url.endsWith("/api/config-status")) return response({ account_sid: true, auth_token: true, phone_number: true, public_base_url: true });
-      if (url.endsWith("/api/data/status")) return response({ schema_version: 3, latest_backup: null, backup_count: 0, recovered_from: null, migration_backup: null });
+      if (url.endsWith("/api/data/status")) return response({ schema_version: 4, latest_backup: null, backup_count: 0, recovered_from: null, migration_backup: null });
       if (url.endsWith("/api/retry")) { messagesFixture = [{ ...messagesFixture[0], status: "queued", attempt_count: 2 }]; return response({ ok: true }); }
       return response({});
     });

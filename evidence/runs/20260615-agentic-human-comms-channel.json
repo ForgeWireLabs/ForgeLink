@@ -1,0 +1,53 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260615-agentic-human-comms-channel",
+  "timestamp": "2026-06-15T21:48:32Z",
+  "work_item": "003",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Renderer, backend, database, migration, Twilio, onboarding, and Electron syntax checks passed with agent-channel coverage."
+    },
+    {
+      "command": "cd Electron && npm run screenshot",
+      "exit_code": 0,
+      "summary": "Visual smoke screenshot generated and inspected; new Agents rail item fits without overlap."
+    },
+    {
+      "command": "cd Electron && node <forgewire prototype>",
+      "exit_code": 0,
+      "summary": "Prototype posted a ForgeWire approval, listed it, recorded approve, and verified sms_thread_count remained 0."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Local system audit passed."
+    }
+  ],
+  "artifacts": [
+    "docs/agent-channels.md",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/database.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/dist/ui-preview.png"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "prototype": {
+      "created_status": 201,
+      "created_id": "prototype-forgewire-approval",
+      "listed_count": 1,
+      "action_status": "acted",
+      "action_result_contains": "approve",
+      "sms_thread_count": 0
+    },
+    "remaining_risks": [
+      "Per-channel credentials and revocation are documented future hardening.",
+      "Dedicated rate limiting for agent callers is not yet implemented."
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 import React, { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PhoneApi } from "./api";
-import type { BackendConnection, ConfigStatus, Contact, DataStatus, DesktopStatus, Message, Thread, View } from "./types";
+import type { AgentAction, AgentMessage, BackendConnection, ConfigStatus, Contact, DataStatus, DesktopStatus, Message, Thread, View } from "./types";
 
 const iconPaths: Record<string, ReactNode> = {
   alert: <><path d="M12 3 2 20h20L12 3z"/><path d="M12 9v4M12 17h.01"/></>,
@@ -11,6 +11,7 @@ const iconPaths: Record<string, ReactNode> = {
   external: <><path d="M15 3h6v6M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></>,
   inbox: <><path d="M4 4h16v16H4z"/><path d="M4 13h4l2 3h4l2-3h4"/></>,
   more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
+  nodes: <><circle cx="6" cy="7" r="3"/><circle cx="18" cy="7" r="3"/><circle cx="12" cy="18" r="3"/><path d="m8.4 9.2 2.4 5.1M15.6 9.2l-2.4 5.1M9 7h6"/></>,
   paperclip: <path d="m21 11-9 9a6 6 0 0 1-8-8l9-9a4 4 0 0 1 6 6l-9 9a2 2 0 0 1-3-3l8-8"/>,
   plus: <path d="M12 5v14M5 12h14"/>,
   search: <><circle cx="11" cy="11" r="8"/><path d="m21 21-4-4"/></>,
@@ -34,6 +35,11 @@ const displayName = (item?: Partial<Thread & Contact>) => item?.name || item?.ca
 const initials = (value: string) => value.trim().split(/\s+/).filter(Boolean).map(part => part[0]).slice(0, 2).join("").toUpperCase() || "?";
 const mediaUrls = (message: Message) => (message.media_urls || "").split(",").filter(Boolean);
 const isImage = (url: string) => /\.(png|jpe?g|gif|webp)(\?.*)?$/i.test(url);
+const activeAgentMessage = (message: AgentMessage) => !["dismissed", "acted", "expired"].includes(message.status);
+const parseAgentActions = (message: AgentMessage): AgentAction[] => {
+  try { return JSON.parse(message.actions || "[]") as AgentAction[]; }
+  catch { return []; }
+};
 
 function formatListTime(iso?: string) {
   if (!iso) return "";
@@ -95,6 +101,7 @@ export function App() {
   const [view, setView] = useState<View>("messages");
   const [threads, setThreads] = useState<Thread[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [selectedId, setSelectedId] = useState<number>();
   const [oldestTs, setOldestTs] = useState<string>();
@@ -110,6 +117,7 @@ export function App() {
   const [attachment, setAttachment] = useState("");
   const [draft, setDraft] = useState("");
   const unreadRef = useRef(new Map<number, number>());
+  const agentUnreadRef = useRef(new Set<string>());
   const onboardingShownRef = useRef(false);
   const selected = threads.find(thread => thread.id === selectedId);
   const closeModal = useCallback(() => setModal(null), []);
@@ -119,9 +127,10 @@ export function App() {
   }, [api, selectedId]);
 
   const loadAll = useCallback(async () => {
-    const [nextThreads, nextContacts, nextConfig, nextDataStatus] = await Promise.all([api.threads(), api.contacts(), api.config(), api.dataStatus()]);
-    setThreads(nextThreads); setContacts(nextContacts); setConfig(nextConfig); setDataStatus(nextDataStatus);
+    const [nextThreads, nextContacts, nextAgentMessages, nextConfig, nextDataStatus] = await Promise.all([api.threads(), api.contacts(), api.agentMessages(), api.config(), api.dataStatus()]);
+    setThreads(nextThreads); setContacts(nextContacts); setAgentMessages(nextAgentMessages); setConfig(nextConfig); setDataStatus(nextDataStatus);
     unreadRef.current = new Map(nextThreads.map(thread => [thread.id, thread.unread_count || 0]));
+    agentUnreadRef.current = new Set(nextAgentMessages.filter(message => message.status === "unread").map(message => message.id));
   }, [api]);
 
   useEffect(() => {
@@ -155,11 +164,17 @@ export function App() {
     const timer = window.setInterval(async () => {
       try {
         const next = await api.threads();
+        const nextAgentMessages = await api.agentMessages();
         next.forEach(thread => {
           if ((thread.unread_count || 0) > (unreadRef.current.get(thread.id) || 0)) window.desktop?.notify("New message", displayName(thread));
         });
+        nextAgentMessages.forEach(message => {
+          if (message.status === "unread" && !agentUnreadRef.current.has(message.id)) window.desktop?.notify("Agent channel update", message.source);
+        });
         unreadRef.current = new Map(next.map(thread => [thread.id, thread.unread_count || 0]));
+        agentUnreadRef.current = new Set(nextAgentMessages.filter(message => message.status === "unread").map(message => message.id));
         setThreads(next);
+        setAgentMessages(nextAgentMessages);
         if (selectedId) {
           const nextMessages = await api.messages(selectedId);
           setMessages(nextMessages); setOldestTs(nextMessages[0]?.ts);
@@ -216,11 +231,13 @@ export function App() {
 
   const visibleThreads = threads.filter(thread => !search || displayName(thread).toLowerCase().includes(search.toLowerCase()) || thread.canonical_number.includes(search));
   const visibleContacts = contacts.filter(contact => !contactSearch || displayName(contact).toLowerCase().includes(contactSearch.toLowerCase()) || contact.number.includes(contactSearch));
+  const unreadAgentCount = agentMessages.filter(message => message.status === "unread").length;
 
   return <div className="app-shell">
-    <Rail view={view} running={status?.running !== false} onView={setView}/>
+    <Rail view={view} running={status?.running !== false} agentUnreadCount={unreadAgentCount} onView={setView}/>
     {view === "messages" && <ConversationList threads={visibleThreads} selectedId={selectedId} search={search} onSearch={setSearch} onSelect={chooseThread} onNew={() => setModal({ kind: "message" })}/>} 
     {view === "messages" ? <Chat thread={selected} messages={messages} oldestTs={oldestTs} sending={sending} uploading={uploading} attachment={attachment} draft={draft} onDraft={saveSelectedDraft} onRetry={async id => { try { await api.retry(id); if (selectedId) setMessages(await api.messages(selectedId)); } catch (cause) { if (selectedId) setMessages(await api.messages(selectedId)); setError(String(cause)); } }} onNew={() => setModal({ kind: "message" })} onLoadOlder={loadOlder} onSend={send} onUpload={upload} onRemoveAttachment={() => setAttachment("")} onAddContact={() => setModal({ kind: "contact", number: selected?.canonical_number })} onLink={() => setModal({ kind: "link" })}/>
+      : view === "agents" ? <AgentInbox messages={agentMessages} onRead={async id => { try { const result = await api.markAgentMessageRead(id); setAgentMessages(current => current.map(message => message.id === id ? result.message : message)); } catch (cause) { setError(String(cause)); } }} onDismiss={async id => { try { const result = await api.dismissAgentMessage(id); setAgentMessages(current => current.map(message => message.id === id ? result.message : message)); } catch (cause) { setError(String(cause)); } }} onAction={async (id, actionId) => { try { const result = await api.actOnAgentMessage(id, actionId); setAgentMessages(current => current.map(message => message.id === id ? result.message : message)); window.desktop?.notify("Agent response recorded", actionId); } catch (cause) { setError(String(cause)); } }}/>
       : view === "contacts" ? <Contacts contacts={visibleContacts} search={contactSearch} onSearch={setContactSearch} onAdd={() => setModal({ kind: "contact" })} onMessage={contact => { const thread = threads.find(item => item.canonical_number === contact.number); if (thread) chooseThread(thread.id); else setModal({ kind: "message", number: contact.number }); }}/>
       : <Settings config={config} status={status} dataStatus={dataStatus} host={host} onConfigure={() => setModal({ kind: "settings" })} onConsole={() => window.desktop?.openExternal("https://console.twilio.com/")} onImport={async () => { try { const next = await window.desktop!.importEnvironment(); setStatus(next); setHost(next.baseUrl); setConfig(await new PhoneApi(() => ({ baseUrl: next.baseUrl, apiToken })).config()); window.desktop?.notify("Environment credentials imported", `Using ${next.validation?.phone_number || "the selected Twilio number"}.`); } catch (cause) { setError(String(cause)); } }} onRemove={async () => { try { const next = await window.desktop!.removeCredentials(); setStatus(next); setConfig({ account_sid: false, auth_token: false, phone_number: false, public_base_url: false }); setModal({ kind: "settings" }); } catch (cause) { setError(String(cause)); } }} onToggle={async () => { try { const next = status?.running === false ? await window.desktop!.startServer({}) : await window.desktop!.stopServer(); setStatus(next); } catch (cause) { setError(String(cause)); } }} onBackup={async () => { try { const result = await api.backupData(); setDataStatus(await api.dataStatus()); window.desktop?.notify("Backup created", result.name); } catch (cause) { setError(String(cause)); } }} onExport={async () => { try { const result = await api.exportData(); window.desktop?.notify("Sensitive export created", result.name); } catch (cause) { setError(String(cause)); } }} onRestore={async () => { if (!window.confirm("Restore the latest backup? Current data will be preserved in a rollback copy.")) return; try { const result = await api.restoreLatestBackup(); await loadAll(); window.desktop?.notify("Backup restored", result.name); } catch (cause) { setError(String(cause)); } }} onRetention={async days => { if (!window.confirm(`Delete messages older than ${days} days? A backup will be created first.`)) return; try { const result = await api.applyRetention(days); await loadAll(); window.desktop?.notify("Retention complete", `${result.deletedMessages} messages and ${result.deletedUploads} uploads removed.`); } catch (cause) { setError(String(cause)); } }}/>} 
     {error && <div className="toast error" role="alert"><Icon name="alert" size={18}/><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError("")}><Icon name="close" size={16}/></button></div>}
@@ -231,8 +248,11 @@ export function App() {
   </div>;
 }
 
-function Rail({ view, running, onView }: { view: View; running: boolean; onView(view: View): void }) {
-  return <nav className="rail" aria-label="Primary navigation"><div className="brand-mark" title="ForgeLink">F</div><div className="rail-nav">{(["messages", "contacts", "settings"] as View[]).map(item => { const label = item[0].toUpperCase() + item.slice(1); return <button key={item} className={`nav-button ${view === item ? "active" : ""}`} aria-label={label} onClick={() => onView(item)}><Icon name={item === "messages" ? "chat" : item === "contacts" ? "users" : "settings"}/><span>{label}</span></button>; })}</div><div className="rail-footer"><span className={`status-dot ${running ? "online" : ""}`} title={running ? "Local service connected" : "Local service stopped"}/></div></nav>;
+function Rail({ view, running, agentUnreadCount, onView }: { view: View; running: boolean; agentUnreadCount: number; onView(view: View): void }) {
+  const items: View[] = ["messages", "agents", "contacts", "settings"];
+  const iconFor = (item: View) => item === "messages" ? "chat" : item === "agents" ? "nodes" : item === "contacts" ? "users" : "settings";
+  const labelFor = (item: View) => item === "agents" ? "Agents" : item[0].toUpperCase() + item.slice(1);
+  return <nav className="rail" aria-label="Primary navigation"><div className="brand-mark" title="ForgeLink">F</div><div className="rail-nav">{items.map(item => <button key={item} className={`nav-button ${view === item ? "active" : ""}`} aria-label={labelFor(item)} onClick={() => onView(item)}><span className="nav-icon-wrap"><Icon name={iconFor(item)}/>{item === "agents" && agentUnreadCount > 0 && <span className="nav-badge" aria-label={`${agentUnreadCount} unread agent messages`}>{Math.min(agentUnreadCount, 9)}{agentUnreadCount > 9 ? "+" : ""}</span>}</span><span>{labelFor(item)}</span></button>)}</div><div className="rail-footer"><span className={`status-dot ${running ? "online" : ""}`} title={running ? "Local service connected" : "Local service stopped"}/></div></nav>;
 }
 
 function ConversationList({ threads, selectedId, search, onSearch, onSelect, onNew }: { threads: Thread[]; selectedId?: number; search: string; onSearch(value: string): void; onSelect(id: number): void; onNew(): void }) {
@@ -242,6 +262,17 @@ function ConversationList({ threads, selectedId, search, onSearch, onSelect, onN
 function Chat({ thread, messages, oldestTs, sending, uploading, attachment, draft, onDraft, onRetry, onNew, onLoadOlder, onSend, onUpload, onRemoveAttachment, onAddContact, onLink }: { thread?: Thread; messages: Message[]; oldestTs?: string; sending: boolean; uploading: boolean; attachment: string; draft: string; onDraft(value: string): void; onRetry(id: string): Promise<void>; onNew(): void; onLoadOlder(): void; onSend(to: string, body: string): Promise<void>; onUpload(file: File): Promise<void>; onRemoveAttachment(): void; onAddContact(): void; onLink(): void }) {
   if (!thread) return <main className="content-panel welcome-panel"><div className="welcome-art"><Icon name="chat" size={38}/></div><span className="eyebrow">ForgeLink</span><h2>Your conversations, without the clutter.</h2><p>Select a conversation from the left, or start a new message when you are ready.</p><button className="button primary" onClick={onNew}><Icon name="plus" size={17}/>New message</button></main>;
   return <main className="content-panel chat-panel"><header className="chat-header"><div className="chat-identity"><Avatar name={displayName(thread)}/><div><h2>{displayName(thread)}</h2><span>{thread.canonical_number}</span></div></div><div className="header-actions">{!thread.name && <button className="button subtle" onClick={onAddContact}><Icon name="plus" size={16}/>Add contact</button>}<button className="icon-button" aria-label="Link contact" onClick={onLink}><Icon name="more"/></button></div></header><div className="message-log">{oldestTs && messages.length >= 200 && <button className="load-older" onClick={onLoadOlder}>Load earlier messages</button>}{messages.length ? messages.map((message, index) => <React.Fragment key={message.id}>{(index === 0 || messageDay(messages[index - 1].ts) !== messageDay(message.ts)) && <div className="message-day"><span>{messageDay(message.ts)}</span></div>}<MessageBubble message={message} onRetry={onRetry}/></React.Fragment>) : <div className="empty-chat"><strong>This is the beginning</strong><span>Send the first message to {displayName(thread)}.</span></div>}</div><Composer to={thread.canonical_number} sending={sending} uploading={uploading} attachment={attachment} draft={draft} onDraft={onDraft} onSend={onSend} onUpload={onUpload} onRemoveAttachment={onRemoveAttachment}/></main>;
+}
+
+function AgentInbox({ messages, onRead, onDismiss, onAction }: { messages: AgentMessage[]; onRead(id: string): Promise<void>; onDismiss(id: string): Promise<void>; onAction(id: string, actionId: string): Promise<void> }) {
+  const active = messages.filter(activeAgentMessage);
+  const archived = messages.filter(message => !activeAgentMessage(message)).slice(0, 8);
+  return <main className="content-panel page-panel agent-page"><header className="page-header"><div><span className="eyebrow">Local channels</span><h1>Agents</h1><p>Human-directed requests from ForgeWire and local agentic apps.</p></div><span className="count-label">{active.length} active</span></header><div className="agent-grid">{active.length ? active.map(message => <AgentCard key={message.id} message={message} onRead={onRead} onDismiss={onDismiss} onAction={onAction}/>) : <div className="page-empty"><Icon name="nodes" size={32}/><h3>No active agent messages</h3><p>When a local agent needs a decision, it will appear here.</p></div>}</div>{archived.length > 0 && <section className="agent-history"><h2>Recent outcomes</h2><div className="agent-history-list">{archived.map(message => <div key={message.id} className="agent-history-row"><span>{message.title}</span><strong>{message.status}</strong><time>{formatListTime(message.created_at)}</time></div>)}</div></section>}</main>;
+}
+
+function AgentCard({ message, onRead, onDismiss, onAction }: { message: AgentMessage; onRead(id: string): Promise<void>; onDismiss(id: string): Promise<void>; onAction(id: string, actionId: string): Promise<void> }) {
+  const actions = parseAgentActions(message);
+  return <article className={`agent-card urgency-${message.urgency}`}><div className="agent-card-head"><div><span className="agent-source">{message.source} · {message.channel_id}</span><h2>{message.title}</h2></div><span className={`urgency-pill ${message.urgency}`}>{message.urgency}</span></div><p>{message.body}</p><div className="agent-meta"><span>{message.kind}</span><time>{formatListTime(message.created_at)}</time>{message.expires_at && <span>Expires {formatListTime(message.expires_at)}</span>}</div><div className="agent-actions">{message.status === "unread" && <button className="button secondary" onClick={() => void onRead(message.id)}>Mark read</button>}{actions.map(action => <button key={action.id} className="button primary" onClick={() => void onAction(message.id, action.id)}>{action.label}</button>)}<button className="button subtle" onClick={() => void onDismiss(message.id)}>Dismiss</button></div></article>;
 }
 
 function MessageBubble({ message, onRetry }: { message: Message; onRetry(id: string): Promise<void> }) {

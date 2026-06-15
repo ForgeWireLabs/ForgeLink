@@ -121,9 +121,52 @@ test("backs up, exports, restores, and reports managed data", async () => {
     assert.equal(readFileSync(join(directory, "uploads", "proof.txt"), "utf8"), "before backup");
 
     const status = await fetch(`${localUrl}/api/data/status`, { headers: authorized() }).then((response) => response.json()) as { schema_version: number; backup_count: number; latest_backup: string };
-    assert.equal(status.schema_version, 3);
+    assert.equal(status.schema_version, 4);
     assert.equal(status.backup_count, 1);
     assert.match(status.latest_backup, /^backup-/);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("accepts authenticated agent channel messages and records human actions", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "twilio-phone-agent-api-"));
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  try {
+    const unauthorized = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    assert.equal(unauthorized.status, 401);
+
+    const created = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
+      method: "POST",
+      headers: authorized({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        id: "agent-http-1",
+        source: "forgewire",
+        kind: "approval_request",
+        urgency: "normal",
+        title: "Task needs approval",
+        body: "ForgeWire wants to run a release workflow.",
+        actions: [{ id: "approve", label: "Approve" }],
+        expires_at: "2099-01-01T00:00:00.000Z"
+      })
+    });
+    assert.equal(created.status, 201);
+    const listed = await fetch(`${localUrl}/api/agent-messages`, { headers: authorized() }).then((response) => response.json()) as Array<{ id: string; status: string }>;
+    assert.deepEqual(listed.map((message) => message.id), ["agent-http-1"]);
+    assert.equal(listed[0].status, "unread");
+
+    const acted = await fetch(`${localUrl}/api/agent-messages/agent-http-1/actions/approve`, { method: "POST", headers: authorized() });
+    assert.equal(acted.status, 200);
+    const actedPayload = await acted.json() as { message: { status: string; action_result: string } };
+    assert.equal(actedPayload.message.status, "acted");
+    assert.match(actedPayload.message.action_result, /approve/);
+
+    const invalid = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ source: "forgewire", kind: "alert", urgency: "loud", title: "Bad", body: "Bad" }) });
+    assert.equal(invalid.status, 400);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(directory, { recursive: true, force: true });

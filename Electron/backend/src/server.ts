@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:
 import { createServer, IncomingMessage, Server, ServerResponse } from "node:http";
 import { extname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
-import { PhoneDatabase } from "./database";
+import { AgentAction, AgentUrgency, PhoneDatabase } from "./database";
 import { utcNow } from "./phone";
 import { loadTwilioConfig, sendTwilioMessage, validateTwilioSignature } from "./twilio";
 
@@ -12,6 +12,7 @@ const ALLOWED_UPLOADS = new Set([".gif", ".jpeg", ".jpg", ".pdf", ".png", ".txt"
 const MIME_TYPES: Record<string, string> = { ".gif": "image/gif", ".jpeg": "image/jpeg", ".jpg": "image/jpeg", ".pdf": "application/pdf", ".png": "image/png", ".txt": "text/plain", ".webp": "image/webp" };
 const BACKUP_FORMAT = "forgelink-backup-v1";
 const LEGACY_BACKUP_FORMAT = "twilio-phone-backup-v1";
+const AGENT_URGENCIES = new Set(["low", "normal", "high", "urgent"]);
 
 function sendJson(response: ServerResponse, payload: unknown, status = 200): void {
   const data = Buffer.from(JSON.stringify(payload));
@@ -34,7 +35,7 @@ async function readBody(request: IncomingMessage, limit = MAX_UPLOAD_BYTES): Pro
 }
 
 async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
-  return JSON.parse((await readBody(request)).toString("utf8") || "{}");
+  return JSON.parse((await readBody(request, 64 * 1024)).toString("utf8") || "{}");
 }
 
 async function readForm(request: IncomingMessage): Promise<Record<string, string>> {
@@ -54,6 +55,41 @@ function hasValidApiToken(request: IncomingMessage, expectedToken: string): bool
   const expected = createHash("sha256").update(expectedToken).digest();
   const supplied = createHash("sha256").update(suppliedToken).digest();
   return Boolean(suppliedToken) && timingSafeEqual(expected, supplied);
+}
+
+function boundedText(value: unknown, label: string, maxLength: number, pattern = /^[\s\S]+$/): string {
+  const text = String(value || "").trim();
+  if (!text || text.length > maxLength || !pattern.test(text)) throw new Error(`${label} is invalid.`);
+  return text;
+}
+
+function optionalIso(value: unknown): string | null {
+  if (value === undefined || value === null || value === "") return null;
+  const text = String(value);
+  const time = new Date(text).getTime();
+  if (!Number.isFinite(time)) throw new Error("expires_at must be an ISO timestamp.");
+  return new Date(time).toISOString();
+}
+
+function agentActions(value: unknown): AgentAction[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 8) throw new Error("actions must be an array of up to 8 items.");
+  return value.map((item) => {
+    const record = item as Record<string, unknown>;
+    return {
+      id: boundedText(record.id, "action id", 40, /^[A-Za-z0-9_.:-]+$/),
+      label: boundedText(record.label, "action label", 80)
+    };
+  });
+}
+
+function actionExists(actionsJson: string, actionId: string): boolean {
+  try {
+    const actions = JSON.parse(actionsJson) as AgentAction[];
+    return actions.some((action) => action.id === actionId);
+  } catch {
+    return false;
+  }
 }
 
 export function createBackend(options: BackendOptions): { server: Server; database: PhoneDatabase } {
@@ -122,6 +158,40 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         return sendJson(response, { account_sid: !!config.accountSid, auth_token: !!config.authToken, phone_number: !!config.phoneNumber, public_base_url: !!config.publicBaseUrl });
       }
       if (request.method === "GET" && url.pathname === "/api/data/status") return sendJson(response, await dataStatus());
+      if (request.method === "GET" && url.pathname === "/api/agent-messages") return sendJson(response, database.agentMessages());
+      const agentMessageMatch = url.pathname.match(/^\/api\/agent-channels\/([A-Za-z0-9_.:-]{1,80})\/messages$/);
+      if (request.method === "POST" && agentMessageMatch) {
+        const payload = await readJson(request);
+        const urgency = String(payload.urgency || "normal");
+        if (!AGENT_URGENCIES.has(urgency)) throw new Error("urgency is invalid.");
+        const message = database.addAgentMessage({
+          id: String(payload.id || `agent-${randomUUID()}`).slice(0, 120),
+          channel_id: agentMessageMatch[1],
+          source: boundedText(payload.source, "source", 80, /^[A-Za-z0-9_.:-]+$/),
+          kind: boundedText(payload.kind, "kind", 80, /^[A-Za-z0-9_.:-]+$/),
+          urgency: urgency as AgentUrgency,
+          title: boundedText(payload.title, "title", 160),
+          body: boundedText(payload.body, "body", 4000),
+          actions: agentActions(payload.actions),
+          expires_at: optionalIso(payload.expires_at)
+        });
+        return sendJson(response, { ok: true, message }, 201);
+      }
+      const agentStatusMatch = url.pathname.match(/^\/api\/agent-messages\/([^/]+)\/(read|dismiss)$/);
+      if (request.method === "POST" && agentStatusMatch) {
+        const message = database.updateAgentMessageStatus(decodeURIComponent(agentStatusMatch[1]), agentStatusMatch[2] === "read" ? "read" : "dismissed");
+        return sendJson(response, { ok: true, message });
+      }
+      const agentActionMatch = url.pathname.match(/^\/api\/agent-messages\/([^/]+)\/actions\/([^/]+)$/);
+      if (request.method === "POST" && agentActionMatch) {
+        const id = decodeURIComponent(agentActionMatch[1]);
+        const actionId = decodeURIComponent(agentActionMatch[2]);
+        const current = database.agentMessage(id);
+        if (!current) throw new Error("Agent message not found.");
+        if (!actionExists(current.actions, actionId)) throw new Error("Agent action not found.");
+        const message = database.updateAgentMessageStatus(id, "acted", actionId);
+        return sendJson(response, { ok: true, message });
+      }
       if (request.method === "POST" && url.pathname === "/api/data/backup") return sendJson(response, { ok: true, ...(await createBackup()) });
       if (request.method === "POST" && url.pathname === "/api/data/restore-latest") return sendJson(response, { ok: true, ...(await restoreLatest()) });
       if (request.method === "POST" && url.pathname === "/api/data/export") {
