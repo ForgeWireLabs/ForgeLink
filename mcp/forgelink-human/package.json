@@ -1,0 +1,19 @@
+{
+  "name": "@forgewire/forgelink-human-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ForgeLink human communication bridge MCP server",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "forgelink-human-mcp": "dist/server.js"
+  },
+  "scripts": {
+    "build": "node ../../Electron/node_modules/typescript/bin/tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.js",
+    "start": "node dist/server.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

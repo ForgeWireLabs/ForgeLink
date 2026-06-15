@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "004",
+  "title": "ForgeLink Human MCP Bridge",
+  "status": "completed",
+  "owner_scope": "agent-channel",
+  "affected_scopes": ["agent-channel", "tooling", "docs", "security"],
+  "depends_on": ["003"],
+  "acceptance_criteria": [
+    {"id": "AC-1", "text": "Ship a no-Python ForgeLink-owned MCP server that exposes tools, resources, and prompts for external agentic apps to communicate with humans through ForgeLink.", "state": "satisfied", "evidence": ["20260615-forgelink-human-mcp"]},
+    {"id": "AC-2", "text": "Provide ForgeWire-style persona and communication skills for private, concise, non-social agent-human messages.", "state": "satisfied", "evidence": ["20260615-forgelink-human-mcp"]},
+    {"id": "AC-3", "text": "Provide installable MCP configuration templates for ForgeWire/Fabric, VS Code Copilot MCP, Claude Code, and Codex.", "state": "satisfied", "evidence": ["20260615-forgelink-human-mcp"]},
+    {"id": "AC-4", "text": "Test MCP protocol surfaces and prove a tool call can create a ForgeLink agent-channel message through the local API.", "state": "satisfied", "evidence": ["20260615-forgelink-human-mcp"]},
+    {"id": "AC-5", "text": "Document security boundaries for token loading, loopback-only use, redaction, approval actions, and app installation.", "state": "satisfied", "evidence": ["20260615-forgelink-human-mcp"]}
+  ],
+  "created": "2026-06-15",
+  "updated": "2026-06-15"
+}

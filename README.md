@@ -36,6 +36,29 @@ The **Settings > Data safety** panel creates verified SQLite and upload backups,
 
 Outbound messages are written locally before Twilio is called. Pending and failed states survive restarts, failed messages can be retried explicitly, delivery callbacks update the same local row, and conversation drafts are stored in SQLite.
 
+## Agentic apps and MCP
+
+ForgeLink includes a Node/TypeScript MCP bridge for external agentic apps that
+need to reach a human without becoming a social feed. The bridge exposes
+ForgeWire-style tools, resources, and prompts, then sends messages through the
+local ForgeLink agent-channel API.
+
+```powershell
+cd mcp/forgelink-human
+npm run build
+```
+
+MCP templates for VS Code/Copilot, Claude Code, Codex, and ForgeWire/Fabric live
+under `install/mcp-configs/`. A PowerShell installer can build the bridge and
+write app configs:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/install/install-forgelink-mcp.ps1 -Target all
+```
+
+The MCP bridge requires `FORGELINK_API_TOKEN` or `FORGELINK_API_TOKEN_FILE` and
+should stay pointed at the loopback ForgeLink API.
+
 For incoming messages, expose port `5055` through a secure tunnel and configure the Twilio messaging webhook as:
 
 ```text

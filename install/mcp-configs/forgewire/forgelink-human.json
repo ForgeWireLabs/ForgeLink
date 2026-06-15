@@ -1,0 +1,16 @@
+{
+  "servers": {
+    "forgelink-human": {
+      "command": "node",
+      "args": [
+        "C:\\Projects\\TWL_phone\\mcp\\forgelink-human\\dist\\server.js"
+      ],
+      "env": {
+        "FORGELINK_BASE_URL": "http://127.0.0.1:5055",
+        "FORGELINK_API_TOKEN_FILE": "~/.forgelink/api.token",
+        "FORGELINK_CHANNEL_ID": "forgewire",
+        "FORGELINK_SOURCE": "forgewire-fabric"
+      }
+    }
+  }
+}

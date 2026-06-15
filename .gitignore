@@ -7,5 +7,6 @@ Electron/backend-dist/
 Electron/renderer/app.js
 Electron/renderer/app.js.map
 Electron/node_modules/
+mcp/forgelink-human/dist/
 .visual-smoke-data/
 run.sh

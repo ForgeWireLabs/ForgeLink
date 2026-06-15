@@ -1,0 +1,42 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260615-forgelink-human-mcp",
+  "timestamp": "2026-06-15T22:08:00Z",
+  "work_item": "004",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cd mcp/forgelink-human && npm test",
+      "exit_code": 0,
+      "summary": "Built the TypeScript MCP server and verified tools, resources, prompts, templates, and an approval tool call against a fake ForgeLink API."
+    },
+    {
+      "command": "[scriptblock]::Create((Get-Content -Raw scripts/install/install-forgelink-mcp.ps1))",
+      "exit_code": 0,
+      "summary": "PowerShell installer parsed successfully."
+    },
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Existing Electron/backend/renderer regression suite passed."
+    }
+  ],
+  "artifacts": [
+    "mcp/forgelink-human/src/server.ts",
+    "mcp/forgelink-human/test/server.test.js",
+    "mcp/forgelink-human/test/templates.test.js",
+    "install/mcp-configs/README.md",
+    "install/mcp-configs/vscode/mcp.json",
+    "install/mcp-configs/claude/forgelink-human.json",
+    "install/mcp-configs/codex/config.toml",
+    "install/mcp-configs/forgewire/forgelink-human.json",
+    "scripts/install/install-forgelink-mcp.ps1"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "runtime": "Node.js 24.15.0",
+    "language_decision": "No Python runtime added for work item 004; MCP bridge is Node/TypeScript."
+  }
+}
