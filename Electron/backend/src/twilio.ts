@@ -24,6 +24,7 @@ export async function sendTwilioMessage(toValue: string, body: string, mediaUrls
   }
   const fields = new URLSearchParams({ To: normalizeNumber(toValue), From: normalizeNumber(config.phoneNumber), Body: body });
   for (const url of mediaUrls) fields.append("MediaUrl", url);
+  if (config.publicBaseUrl) fields.set("StatusCallback", `${config.publicBaseUrl}/webhooks/status`);
   const authorization = Buffer.from(`${config.accountSid}:${config.authToken}`).toString("base64");
   const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${config.accountSid}/Messages.json`, {
     method: "POST",
@@ -32,7 +33,7 @@ export async function sendTwilioMessage(toValue: string, body: string, mediaUrls
     signal: AbortSignal.timeout(20_000)
   });
   const payload = await response.json() as Record<string, unknown>;
-  if (!response.ok) throw new Error(`Twilio rejected the message (${response.status}): ${JSON.stringify(payload)}`);
+  if (!response.ok) throw new Error(`Twilio rejected the message (${response.status}).`);
   return payload;
 }
 

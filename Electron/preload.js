@@ -3,9 +3,12 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("desktop", {
   notify: (title, body) => ipcRenderer.invoke("notify", { title, body }),
   openExternal: (url) => ipcRenderer.invoke("open-url", url),
-  backendUrl: () => ipcRenderer.invoke("backend-url"),
+  backendConnection: () => ipcRenderer.invoke("backend-connection"),
   getStatus: () => ipcRenderer.invoke("get-status"),
+  validateSettings: (settings) => ipcRenderer.invoke("validate-settings", settings),
   startServer: (settings) => ipcRenderer.invoke("start-server", settings),
+  importEnvironment: () => ipcRenderer.invoke("import-environment"),
+  removeCredentials: () => ipcRenderer.invoke("remove-credentials"),
   stopServer: () => ipcRenderer.invoke("stop-server"),
   onServerStatus: (callback) => ipcRenderer.on("server-status", (_, status) => callback(status))
 });

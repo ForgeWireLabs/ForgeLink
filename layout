@@ -1,7 +1,5 @@
-your-project/
-├─ python/
-│  └─ twilio_phone.py           # your existing file (patch below)
-└─ electron/
+forgelink/
+└─ Electron/
    ├─ package.json
    ├─ main.js
    ├─ preload.js
@@ -12,5 +10,5 @@ your-project/
    └─ renderer/
       ├─ index.html
       ├─ styles.css
-      ├─ app.js
-      └─ phone.svg
+      ├─ app.js                  # generated React bundle
+      └─ src/                    # React + TypeScript source

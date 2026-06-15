@@ -2,8 +2,8 @@
 Electron/dist/
 Electron/dist-*/
 Electron/backend-dist/
+Electron/renderer/app.js
+Electron/renderer/app.js.map
 Electron/node_modules/
 .visual-smoke-data/
-Python/__pycache__/
-*.pyc
 run.sh

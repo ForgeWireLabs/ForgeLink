@@ -1,74 +1,37 @@
 const { app, BrowserWindow, ipcMain, Notification, safeStorage, shell, utilityProcess } = require("electron");
 const fs = require("node:fs");
+const { randomBytes } = require("node:crypto");
 const http = require("node:http");
 const path = require("node:path");
+const { createSettingsStore, validateTwilioCredentials } = require("./onboarding");
 
+const APP_NAME = "ForgeLink";
 const BACKEND_ENTRY = path.join(__dirname, "backend-dist", "index.js");
-const DEFAULT_SETTINGS = {
-  account_sid: "",
-  auth_token: "",
-  twilio_number: "",
-  public_base_url: "",
-  webhook_host: "127.0.0.1",
-  webhook_port: 5055
-};
+const apiToken = randomBytes(32).toString("base64url");
 
 let backendProcess = null;
 let mainWindow = null;
-let settings = { ...DEFAULT_SETTINGS };
+let settingsStore = null;
 
-function settingsPath() {
-  return path.join(app.getPath("userData"), "settings.json");
-}
-
-function loadSettings() {
-  try {
-    const stored = JSON.parse(fs.readFileSync(settingsPath(), "utf8"));
-    settings = { ...DEFAULT_SETTINGS, ...stored };
-    if (stored.auth_token_encrypted && safeStorage.isEncryptionAvailable()) {
-      settings.auth_token = safeStorage.decryptString(Buffer.from(stored.auth_token_encrypted, "base64"));
-    }
-  } catch (error) {
-    if (error.code !== "ENOENT") console.error("Could not load settings:", error.message);
-  }
-  settings.account_sid ||= process.env.TWILIO_ACCOUNT_SID || "";
-  settings.auth_token ||= process.env.TWILIO_AUTH_TOKEN || "";
-  settings.twilio_number ||= process.env.TWILIO_PHONE_NUMBER || "";
-  settings.public_base_url ||= process.env.TWILIO_PUBLIC_BASE_URL || "";
-  settings.webhook_host = process.env.TWILIO_PHONE_HOST || settings.webhook_host;
-  settings.webhook_port = Number(process.env.TWILIO_PHONE_PORT || settings.webhook_port);
-}
-
-function saveSettings(update = {}) {
-  const next = { ...settings, ...update };
-  if (!update.auth_token) next.auth_token = settings.auth_token;
-  next.webhook_host = String(next.webhook_host || DEFAULT_SETTINGS.webhook_host);
-  next.webhook_port = Number(next.webhook_port || DEFAULT_SETTINGS.webhook_port);
-  if (!new Set(["127.0.0.1", "localhost"]).has(next.webhook_host)) {
-    throw new Error("Local service host must remain on loopback.");
-  }
-  if (!Number.isInteger(next.webhook_port) || next.webhook_port < 1024 || next.webhook_port > 65535) {
-    throw new Error("Local service port must be between 1024 and 65535.");
-  }
-  const stored = { ...next };
-  delete stored.auth_token;
-  if (next.auth_token) {
-    if (!safeStorage.isEncryptionAvailable()) throw new Error("Secure credential storage is unavailable on this system.");
-    stored.auth_token_encrypted = safeStorage.encryptString(next.auth_token).toString("base64");
-  }
-  fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
-  fs.writeFileSync(settingsPath(), JSON.stringify(stored, null, 2), { mode: 0o600 });
-  settings = next;
+function settingsState() {
+  return settingsStore.current();
 }
 
 function baseUrl() {
+  const settings = settingsState().settings;
   return `http://${settings.webhook_host}:${settings.webhook_port}`;
 }
 
 function publicStatus() {
+  const state = settingsState();
+  const settings = state.settings;
   return {
     running: Boolean(backendProcess),
     baseUrl: baseUrl(),
+    configured: state.configured,
+    credential_source: state.source,
+    environment_import_available: state.environmentAvailable,
+    needs_onboarding: !state.configured,
     settings: {
       account_sid: settings.account_sid,
       auth_token_configured: Boolean(settings.auth_token),
@@ -86,16 +49,19 @@ function broadcastStatus() {
 
 function startBackend() {
   stopBackend();
+  const settings = settingsState().settings;
   const processHandle = utilityProcess.fork(BACKEND_ENTRY, ["--host", settings.webhook_host, "--port", String(settings.webhook_port)], {
     env: {
       ...process.env,
       TWILIO_ACCOUNT_SID: settings.account_sid,
       TWILIO_AUTH_TOKEN: settings.auth_token,
       TWILIO_PHONE_NUMBER: settings.twilio_number,
-      TWILIO_PUBLIC_BASE_URL: settings.public_base_url
+      TWILIO_PUBLIC_BASE_URL: settings.public_base_url,
+      FORGELINK_API_TOKEN: apiToken,
+      TWILIO_PHONE_API_TOKEN: apiToken
     },
     stdio: "pipe",
-    serviceName: "Twilio Phone Backend"
+    serviceName: `${APP_NAME} Backend`
   });
   backendProcess = processHandle;
   processHandle.stdout?.on("data", (chunk) => console.log(`[backend] ${chunk}`.trimEnd()));
@@ -117,7 +83,7 @@ function stopBackend() {
 
 function backendIsReady() {
   return new Promise((resolve) => {
-    const request = http.get(`${baseUrl()}/health`, (response) => {
+    const request = http.get(`${baseUrl()}/health`, { headers: { Authorization: `Bearer ${apiToken}` } }, (response) => {
       response.resume();
       resolve(response.statusCode === 200);
     });
@@ -144,7 +110,7 @@ function createWindow() {
     height: 900,
     minWidth: 760,
     minHeight: 620,
-    title: "Twilio Phone",
+    title: APP_NAME,
     backgroundColor: "#0f1115",
     icon: path.join(__dirname, "assets", "icon.png"),
     show: false,
@@ -171,7 +137,7 @@ function createWindow() {
 
 ipcMain.handle("notify", (_, payload = {}) => {
   if (Notification.isSupported()) {
-    new Notification({ title: payload.title || "Twilio Phone", body: payload.body || "" }).show();
+    new Notification({ title: payload.title || APP_NAME, body: payload.body || "" }).show();
   }
 });
 
@@ -179,14 +145,36 @@ ipcMain.handle("open-url", (_, url) => {
   if (typeof url === "string" && url.startsWith("https://")) return shell.openExternal(url);
 });
 
-ipcMain.handle("backend-url", () => baseUrl());
+ipcMain.handle("backend-connection", () => ({ baseUrl: baseUrl(), apiToken }));
 ipcMain.handle("get-status", () => publicStatus());
 ipcMain.handle("start-server", async (_, update = {}) => {
-  saveSettings(update);
+  const current = settingsState().settings;
+  const candidate = { ...current, ...update, auth_token: update.auth_token || current.auth_token };
+  const validation = await validateTwilioCredentials(candidate);
+  settingsStore.persist(validation.settings);
   startBackend();
   const ready = await waitForBackend();
   if (!ready) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
   broadcastStatus();
+  return { ...publicStatus(), validation: { account_name: validation.account_name, account_status: validation.account_status, phone_number: validation.phone_number } };
+});
+ipcMain.handle("validate-settings", async (_, update = {}) => {
+  const current = settingsState().settings;
+  const validation = await validateTwilioCredentials({ ...current, ...update, auth_token: update.auth_token || current.auth_token });
+  return { account_name: validation.account_name, account_status: validation.account_status, phone_number: validation.phone_number };
+});
+ipcMain.handle("import-environment", async () => {
+  const candidate = settingsState().settings;
+  const validation = await validateTwilioCredentials(candidate);
+  settingsStore.importEnvironment();
+  startBackend();
+  if (!(await waitForBackend())) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
+  return { ...publicStatus(), validation: { account_name: validation.account_name, account_status: validation.account_status, phone_number: validation.phone_number } };
+});
+ipcMain.handle("remove-credentials", async () => {
+  settingsStore.removeCredentials();
+  startBackend();
+  await waitForBackend();
   return publicStatus();
 });
 ipcMain.handle("stop-server", () => {
@@ -195,7 +183,15 @@ ipcMain.handle("stop-server", () => {
 });
 
 app.whenReady().then(async () => {
-  loadSettings();
+  settingsStore = createSettingsStore({
+    fs,
+    path,
+    safeStorage,
+    env: process.env,
+    userData: app.getPath("userData"),
+    legacyUserData: path.join(app.getPath("appData"), "Twilio Phone")
+  });
+  settingsStore.load();
   if (!(await backendIsReady())) startBackend();
   const ready = await waitForBackend();
   if (!ready) console.error(`Backend did not become ready at ${baseUrl()}`);

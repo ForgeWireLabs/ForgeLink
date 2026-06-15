@@ -1,0 +1,294 @@
+import React, { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PhoneApi } from "./api";
+import type { BackendConnection, ConfigStatus, Contact, DataStatus, DesktopStatus, Message, Thread, View } from "./types";
+
+const iconPaths: Record<string, ReactNode> = {
+  alert: <><path d="M12 3 2 20h20L12 3z"/><path d="M12 9v4M12 17h.01"/></>,
+  chat: <><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/></>,
+  check: <path d="m20 6-11 11-5-5"/>,
+  chevron: <path d="m9 18 6-6-6-6"/>,
+  close: <path d="M18 6 6 18M6 6l12 12"/>,
+  external: <><path d="M15 3h6v6M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></>,
+  inbox: <><path d="M4 4h16v16H4z"/><path d="M4 13h4l2 3h4l2-3h4"/></>,
+  more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
+  paperclip: <path d="m21 11-9 9a6 6 0 0 1-8-8l9-9a4 4 0 0 1 6 6l-9 9a2 2 0 0 1-3-3l8-8"/>,
+  plus: <path d="M12 5v14M5 12h14"/>,
+  search: <><circle cx="11" cy="11" r="8"/><path d="m21 21-4-4"/></>,
+  send: <><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></>,
+  settings: <><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 1 1-14 0 7 7 0 0 1 14 0z"/></>,
+  users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></>
+};
+
+type ModalState =
+  | { kind: "message"; number?: string }
+  | { kind: "contact"; number?: string }
+  | { kind: "settings" }
+  | { kind: "link" }
+  | null;
+
+function Icon({ name, size = 20 }: { name: string; size?: number }) {
+  return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{iconPaths[name]}</svg>;
+}
+
+const displayName = (item?: Partial<Thread & Contact>) => item?.name || item?.canonical_number || item?.number || "Unknown";
+const initials = (value: string) => value.trim().split(/\s+/).filter(Boolean).map(part => part[0]).slice(0, 2).join("").toUpperCase() || "?";
+const mediaUrls = (message: Message) => (message.media_urls || "").split(",").filter(Boolean);
+const isImage = (url: string) => /\.(png|jpe?g|gif|webp)(\?.*)?$/i.test(url);
+
+function formatListTime(iso?: string) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return date.toLocaleDateString([], { month: "short", day: "numeric", year: date.getFullYear() === now.getFullYear() ? undefined : "numeric" });
+}
+
+function messageDay(iso: string): string {
+  const date = new Date(iso);
+  const today = new Date();
+  if (date.toDateString() === today.toDateString()) return "Today";
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return date.toLocaleDateString([], { month: "short", day: "numeric", year: date.getFullYear() === today.getFullYear() ? undefined : "numeric" });
+}
+
+function Modal({ title, eyebrow, children, submitLabel = "Save", onSubmit, onClose, hideSubmit = false }: { title: string; eyebrow: string; children: ReactNode; submitLabel?: string; onSubmit?(data: FormData): Promise<void>; onClose(): void; hideSubmit?: boolean }) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    const firstControl = formRef.current?.querySelector<HTMLElement>("input,textarea,select") || formRef.current?.querySelector<HTMLElement>("button");
+    firstControl?.focus();
+    const keydown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", keydown);
+    return () => { window.removeEventListener("keydown", keydown); previous?.focus(); };
+  }, [onClose]);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!onSubmit) return;
+    setBusy(true); setError("");
+    try { await onSubmit(new FormData(event.currentTarget)); onClose(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save."); }
+    finally { setBusy(false); }
+  }
+  return <div className="modal-overlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <form ref={formRef} className="modal-card" role="dialog" aria-modal="true" aria-label={title} onSubmit={submit}>
+      <div className="modal-head"><div><div className="eyebrow">{eyebrow}</div><h2>{title}</h2></div><button className="icon-button" type="button" aria-label="Close" onClick={onClose}><Icon name="close"/></button></div>
+      <div className="modal-body">{children}{error && <div className="modal-error" role="alert">{error}</div>}</div>
+      {!hideSubmit && <div className="modal-actions"><button className="button secondary" type="button" onClick={onClose}>Cancel</button><button className="button primary" type="submit" disabled={busy}>{busy ? "Saving..." : submitLabel}</button></div>}
+    </form>
+  </div>;
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>; }
+function Avatar({ name, size = "regular" }: { name: string; size?: string }) { return <div className={`avatar ${size}`} aria-hidden="true">{initials(name)}</div>; }
+
+export function App() {
+  const [host, setHost] = useState("http://127.0.0.1:5055");
+  const [apiToken, setApiToken] = useState("");
+  const [connectionReady, setConnectionReady] = useState(false);
+  const connection = useCallback<() => BackendConnection>(() => ({ baseUrl: host, apiToken }), [host, apiToken]);
+  const api = useMemo(() => new PhoneApi(connection), [connection]);
+  const [view, setView] = useState<View>("messages");
+  const [threads, setThreads] = useState<Thread[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [selectedId, setSelectedId] = useState<number>();
+  const [oldestTs, setOldestTs] = useState<string>();
+  const [config, setConfig] = useState<ConfigStatus>();
+  const [status, setStatus] = useState<DesktopStatus>();
+  const [dataStatus, setDataStatus] = useState<DataStatus>();
+  const [search, setSearch] = useState("");
+  const [contactSearch, setContactSearch] = useState("");
+  const [error, setError] = useState("");
+  const [modal, setModal] = useState<ModalState>(null);
+  const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [attachment, setAttachment] = useState("");
+  const [draft, setDraft] = useState("");
+  const unreadRef = useRef(new Map<number, number>());
+  const onboardingShownRef = useRef(false);
+  const selected = threads.find(thread => thread.id === selectedId);
+  const closeModal = useCallback(() => setModal(null), []);
+  const saveSelectedDraft = useCallback((value: string) => {
+    setDraft(value);
+    if (selectedId) void api.saveDraft(selectedId, value).catch(() => undefined);
+  }, [api, selectedId]);
+
+  const loadAll = useCallback(async () => {
+    const [nextThreads, nextContacts, nextConfig, nextDataStatus] = await Promise.all([api.threads(), api.contacts(), api.config(), api.dataStatus()]);
+    setThreads(nextThreads); setContacts(nextContacts); setConfig(nextConfig); setDataStatus(nextDataStatus);
+    unreadRef.current = new Map(nextThreads.map(thread => [thread.id, thread.unread_count || 0]));
+  }, [api]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const [next, backendConnection] = await Promise.all([window.desktop?.getStatus(), window.desktop?.backendConnection()]);
+        if (!active) return;
+        if (next) {
+          setStatus(next);
+          if (next.needs_onboarding && !onboardingShownRef.current) {
+            onboardingShownRef.current = true;
+            setView("settings");
+            setModal({ kind: "settings" });
+          }
+        }
+        if (backendConnection) {
+          setHost(backendConnection.baseUrl);
+          setApiToken(backendConnection.apiToken);
+          setConnectionReady(true);
+        }
+      } catch (cause) { setError(String(cause)); }
+    })();
+    window.desktop?.onServerStatus(next => { setStatus(next); setHost(next.baseUrl); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!connectionReady) return;
+    loadAll().catch(cause => setError(`The local service is unavailable. ${cause.message}`));
+    const timer = window.setInterval(async () => {
+      try {
+        const next = await api.threads();
+        next.forEach(thread => {
+          if ((thread.unread_count || 0) > (unreadRef.current.get(thread.id) || 0)) window.desktop?.notify("New message", displayName(thread));
+        });
+        unreadRef.current = new Map(next.map(thread => [thread.id, thread.unread_count || 0]));
+        setThreads(next);
+        if (selectedId) {
+          const nextMessages = await api.messages(selectedId);
+          setMessages(nextMessages); setOldestTs(nextMessages[0]?.ts);
+        }
+      } catch { /* The visible error state is managed by foreground actions. */ }
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [api, connectionReady, loadAll, selectedId]);
+
+  async function chooseThread(id: number) {
+    setSelectedId(id); setView("messages");
+    try {
+      const [nextMessages, nextDraft] = await Promise.all([api.messages(id), api.draft(id)]);
+      setMessages(nextMessages); setOldestTs(nextMessages[0]?.ts); setThreads(await api.threads()); setError("");
+      setDraft(nextDraft.body);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+  }
+
+  async function loadOlder() {
+    if (!selectedId || !oldestTs) return;
+    try {
+      const older = await api.messages(selectedId, oldestTs);
+      if (older.length) { setMessages(current => [...older, ...current]); setOldestTs(older[0].ts); }
+    } catch (cause) { setError(String(cause)); }
+  }
+
+  async function send(to: string, body: string) {
+    if (!to || (!body && !attachment) || sending) return;
+    setSending(true);
+    const localId = `local-${crypto.randomUUID()}`;
+    const optimistic: Message = { id: localId, direction: "outbound", body, media_urls: attachment, status: "pending", ts: new Date().toISOString(), attempt_count: 1 };
+    if (selected?.canonical_number === to) setMessages(current => [...current, optimistic]);
+    try {
+      await api.send(localId, to, body, attachment ? [attachment] : []);
+      setAttachment("");
+      setDraft("");
+      const next = await api.threads(); setThreads(next);
+      const digits = to.replace(/\D/g, "").slice(-10);
+      const thread = next.find(item => item.canonical_number === to || item.canonical_number.replace(/\D/g, "").endsWith(digits));
+      if (thread) await chooseThread(thread.id);
+      window.desktop?.notify("Message sent", body || "Attachment sent");
+    } catch (cause) {
+      if (selectedId) setMessages(await api.messages(selectedId));
+      const message = cause instanceof Error ? cause.message : String(cause); setError(message); window.desktop?.notify("Message failed", "The message was saved and can be retried."); throw cause;
+    } finally { setSending(false); }
+  }
+
+  async function upload(file: File) {
+    setUploading(true);
+    try { setAttachment((await api.upload(file)).url); }
+    catch (cause) { const message = String(cause); setError(message); window.desktop?.notify("Upload failed", message); }
+    finally { setUploading(false); }
+  }
+
+  const visibleThreads = threads.filter(thread => !search || displayName(thread).toLowerCase().includes(search.toLowerCase()) || thread.canonical_number.includes(search));
+  const visibleContacts = contacts.filter(contact => !contactSearch || displayName(contact).toLowerCase().includes(contactSearch.toLowerCase()) || contact.number.includes(contactSearch));
+
+  return <div className="app-shell">
+    <Rail view={view} running={status?.running !== false} onView={setView}/>
+    {view === "messages" && <ConversationList threads={visibleThreads} selectedId={selectedId} search={search} onSearch={setSearch} onSelect={chooseThread} onNew={() => setModal({ kind: "message" })}/>} 
+    {view === "messages" ? <Chat thread={selected} messages={messages} oldestTs={oldestTs} sending={sending} uploading={uploading} attachment={attachment} draft={draft} onDraft={saveSelectedDraft} onRetry={async id => { try { await api.retry(id); if (selectedId) setMessages(await api.messages(selectedId)); } catch (cause) { if (selectedId) setMessages(await api.messages(selectedId)); setError(String(cause)); } }} onNew={() => setModal({ kind: "message" })} onLoadOlder={loadOlder} onSend={send} onUpload={upload} onRemoveAttachment={() => setAttachment("")} onAddContact={() => setModal({ kind: "contact", number: selected?.canonical_number })} onLink={() => setModal({ kind: "link" })}/>
+      : view === "contacts" ? <Contacts contacts={visibleContacts} search={contactSearch} onSearch={setContactSearch} onAdd={() => setModal({ kind: "contact" })} onMessage={contact => { const thread = threads.find(item => item.canonical_number === contact.number); if (thread) chooseThread(thread.id); else setModal({ kind: "message", number: contact.number }); }}/>
+      : <Settings config={config} status={status} dataStatus={dataStatus} host={host} onConfigure={() => setModal({ kind: "settings" })} onConsole={() => window.desktop?.openExternal("https://console.twilio.com/")} onImport={async () => { try { const next = await window.desktop!.importEnvironment(); setStatus(next); setHost(next.baseUrl); setConfig(await new PhoneApi(() => ({ baseUrl: next.baseUrl, apiToken })).config()); window.desktop?.notify("Environment credentials imported", `Using ${next.validation?.phone_number || "the selected Twilio number"}.`); } catch (cause) { setError(String(cause)); } }} onRemove={async () => { try { const next = await window.desktop!.removeCredentials(); setStatus(next); setConfig({ account_sid: false, auth_token: false, phone_number: false, public_base_url: false }); setModal({ kind: "settings" }); } catch (cause) { setError(String(cause)); } }} onToggle={async () => { try { const next = status?.running === false ? await window.desktop!.startServer({}) : await window.desktop!.stopServer(); setStatus(next); } catch (cause) { setError(String(cause)); } }} onBackup={async () => { try { const result = await api.backupData(); setDataStatus(await api.dataStatus()); window.desktop?.notify("Backup created", result.name); } catch (cause) { setError(String(cause)); } }} onExport={async () => { try { const result = await api.exportData(); window.desktop?.notify("Sensitive export created", result.name); } catch (cause) { setError(String(cause)); } }} onRestore={async () => { if (!window.confirm("Restore the latest backup? Current data will be preserved in a rollback copy.")) return; try { const result = await api.restoreLatestBackup(); await loadAll(); window.desktop?.notify("Backup restored", result.name); } catch (cause) { setError(String(cause)); } }} onRetention={async days => { if (!window.confirm(`Delete messages older than ${days} days? A backup will be created first.`)) return; try { const result = await api.applyRetention(days); await loadAll(); window.desktop?.notify("Retention complete", `${result.deletedMessages} messages and ${result.deletedUploads} uploads removed.`); } catch (cause) { setError(String(cause)); } }}/>} 
+    {error && <div className="toast error" role="alert"><Icon name="alert" size={18}/><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError("")}><Icon name="close" size={16}/></button></div>}
+    {modal?.kind === "message" && <Modal title="New message" eyebrow="Compose" submitLabel="Start conversation" onClose={closeModal} onSubmit={async data => send(String(data.get("number")), String(data.get("message")))}><div className="form-stack"><Field label="Phone number"><input name="number" type="tel" defaultValue={modal.number} placeholder="+1 555 123 4567" required autoComplete="tel"/></Field><Field label="Message"><textarea name="message" rows={4} placeholder="Write a message..." required/></Field></div></Modal>}
+    {modal?.kind === "contact" && <Modal title="Add contact" eyebrow="Contacts" submitLabel="Save contact" onClose={closeModal} onSubmit={async data => { await api.saveContact(String(data.get("name")), String(data.get("number"))); await loadAll(); window.desktop?.notify("Contact saved", String(data.get("name"))); }}><div className="form-stack"><Field label="Name"><input name="name" placeholder="Contact name" required autoComplete="name"/></Field><Field label="Phone number"><input name="number" type="tel" defaultValue={modal.number} placeholder="+1 555 123 4567" required autoComplete="tel"/></Field></div></Modal>}
+    {modal?.kind === "settings" && <ConnectionModal status={status} firstRun={status?.needs_onboarding === true} onClose={closeModal} onValidate={values => window.desktop!.validateSettings(values)} onSave={async values => { const next = await window.desktop!.startServer(values); setStatus(next); setHost(next.baseUrl); setConfig(await new PhoneApi(() => ({ baseUrl: next.baseUrl, apiToken })).config()); window.desktop?.notify("Connection settings saved", `Validated ${next.validation?.phone_number || "the selected Twilio number"} and restarted the local service.`); }}/>} 
+    {modal?.kind === "link" && selected && <LinkModal contacts={contacts} thread={selected} onClose={closeModal} onLink={async contactId => { await api.linkThread(selected.id, contactId); await loadAll(); closeModal(); }} onAdd={() => setModal({ kind: "contact", number: selected.canonical_number })}/>} 
+  </div>;
+}
+
+function Rail({ view, running, onView }: { view: View; running: boolean; onView(view: View): void }) {
+  return <nav className="rail" aria-label="Primary navigation"><div className="brand-mark" title="ForgeLink">F</div><div className="rail-nav">{(["messages", "contacts", "settings"] as View[]).map(item => { const label = item[0].toUpperCase() + item.slice(1); return <button key={item} className={`nav-button ${view === item ? "active" : ""}`} aria-label={label} onClick={() => onView(item)}><Icon name={item === "messages" ? "chat" : item === "contacts" ? "users" : "settings"}/><span>{label}</span></button>; })}</div><div className="rail-footer"><span className={`status-dot ${running ? "online" : ""}`} title={running ? "Local service connected" : "Local service stopped"}/></div></nav>;
+}
+
+function ConversationList({ threads, selectedId, search, onSearch, onSelect, onNew }: { threads: Thread[]; selectedId?: number; search: string; onSearch(value: string): void; onSelect(id: number): void; onNew(): void }) {
+  return <aside className="conversation-panel"><header className="panel-title"><div><span className="eyebrow">Workspace</span><h1>Messages</h1></div><button className="icon-button accent" aria-label="New message" onClick={onNew}><Icon name="plus"/></button></header><label className="search-box"><Icon name="search" size={18}/><input type="search" value={search} placeholder="Search conversations" aria-label="Search conversations" onChange={event => onSearch(event.target.value)}/></label><div className="list-heading"><span>Recent</span><span>{threads.length} conversations</span></div><div className="thread-list">{threads.length ? threads.map(thread => <button key={thread.id} className={`thread-row ${selectedId === thread.id ? "selected" : ""}`} onClick={() => onSelect(thread.id)}><Avatar name={displayName(thread)}/><span className="thread-content"><span className="thread-line"><strong>{displayName(thread)}</strong><time>{formatListTime(thread.last_msg_ts)}</time></span><span className="thread-line preview"><span>{thread.canonical_number}</span>{Boolean(thread.unread_count) && <span className="unread-badge">{Math.min(thread.unread_count || 0, 99)}{(thread.unread_count || 0) > 99 ? "+" : ""}</span>}</span></span></button>) : <div className="list-empty"><Icon name="inbox" size={28}/><strong>{search ? "No matches" : "No conversations yet"}</strong><span>{search ? "Try another name or number." : "Start a message to begin."}</span></div>}</div></aside>;
+}
+
+function Chat({ thread, messages, oldestTs, sending, uploading, attachment, draft, onDraft, onRetry, onNew, onLoadOlder, onSend, onUpload, onRemoveAttachment, onAddContact, onLink }: { thread?: Thread; messages: Message[]; oldestTs?: string; sending: boolean; uploading: boolean; attachment: string; draft: string; onDraft(value: string): void; onRetry(id: string): Promise<void>; onNew(): void; onLoadOlder(): void; onSend(to: string, body: string): Promise<void>; onUpload(file: File): Promise<void>; onRemoveAttachment(): void; onAddContact(): void; onLink(): void }) {
+  if (!thread) return <main className="content-panel welcome-panel"><div className="welcome-art"><Icon name="chat" size={38}/></div><span className="eyebrow">ForgeLink</span><h2>Your conversations, without the clutter.</h2><p>Select a conversation from the left, or start a new message when you are ready.</p><button className="button primary" onClick={onNew}><Icon name="plus" size={17}/>New message</button></main>;
+  return <main className="content-panel chat-panel"><header className="chat-header"><div className="chat-identity"><Avatar name={displayName(thread)}/><div><h2>{displayName(thread)}</h2><span>{thread.canonical_number}</span></div></div><div className="header-actions">{!thread.name && <button className="button subtle" onClick={onAddContact}><Icon name="plus" size={16}/>Add contact</button>}<button className="icon-button" aria-label="Link contact" onClick={onLink}><Icon name="more"/></button></div></header><div className="message-log">{oldestTs && messages.length >= 200 && <button className="load-older" onClick={onLoadOlder}>Load earlier messages</button>}{messages.length ? messages.map((message, index) => <React.Fragment key={message.id}>{(index === 0 || messageDay(messages[index - 1].ts) !== messageDay(message.ts)) && <div className="message-day"><span>{messageDay(message.ts)}</span></div>}<MessageBubble message={message} onRetry={onRetry}/></React.Fragment>) : <div className="empty-chat"><strong>This is the beginning</strong><span>Send the first message to {displayName(thread)}.</span></div>}</div><Composer to={thread.canonical_number} sending={sending} uploading={uploading} attachment={attachment} draft={draft} onDraft={onDraft} onSend={onSend} onUpload={onUpload} onRemoveAttachment={onRemoveAttachment}/></main>;
+}
+
+function MessageBubble({ message, onRetry }: { message: Message; onRetry(id: string): Promise<void> }) {
+  const failed = message.direction === "outbound" && ["failed", "undelivered"].includes(message.status || "");
+  return <div className={`message-row ${message.direction}`}><div className={`bubble ${message.direction} ${failed ? "failed" : ""}`}>{message.body && <p>{message.body}</p>}{mediaUrls(message).map(url => isImage(url) ? <img key={url} className="message-media" src={url} alt="Message attachment" loading="lazy"/> : <button key={url} className="attachment-link" onClick={() => window.desktop?.openExternal(url)}><Icon name="paperclip" size={16}/>Open attachment</button>)}<div className="message-meta"><time>{new Date(message.ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time>{message.direction === "outbound" && message.status && <span>{message.status}{message.status === "delivered" && <Icon name="check" size={13}/>}</span>}{failed && <button className="message-retry" onClick={() => void onRetry(message.id)}>Retry</button>}</div></div></div>;
+}
+
+function Composer({ to, sending, uploading, attachment, draft, onDraft, onSend, onUpload, onRemoveAttachment }: { to: string; sending: boolean; uploading: boolean; attachment: string; draft: string; onDraft(value: string): void; onSend(to: string, body: string): Promise<void>; onUpload(file: File): Promise<void>; onRemoveAttachment(): void }) {
+  const [body, setBody] = useState(draft);
+  useEffect(() => { setBody(draft); }, [draft, to]);
+  useEffect(() => { const timer = window.setTimeout(() => onDraft(body), 350); return () => clearTimeout(timer); }, [body, onDraft]);
+  async function submit() { if (!body.trim() && !attachment) return; await onSend(to, body.trim()); setBody(""); }
+  return <div className="composer-wrap">{attachment && <div className="attachment-chip"><Icon name="paperclip" size={16}/><span>Attachment ready</span><button className="chip-close" aria-label="Remove attachment" onClick={onRemoveAttachment}><Icon name="close" size={14}/></button></div>}<div className="composer"><input className="recipient-input" value={to} readOnly aria-label="Recipient phone number"/><div className="compose-main"><textarea value={body} rows={1} aria-label="Message" placeholder={`Message ${to}`} onChange={event => setBody(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(); } }}/><label className="icon-button composer-action" aria-label="Attach file">{uploading ? <span className="spinner"/> : <Icon name="paperclip"/>}<input hidden type="file" accept="image/*,.pdf,.txt" disabled={uploading} onChange={event => { const file = event.target.files?.[0]; if (file) void onUpload(file); }}/></label><button className="send-button" aria-label="Send message" disabled={sending || (!body.trim() && !attachment)} onClick={() => void submit()}>{sending ? <span className="spinner light"/> : <Icon name="send" size={19}/>}</button></div></div><div className="composer-hint">Enter to send <span>Shift + Enter for a new line</span></div></div>;
+}
+
+function Contacts({ contacts, search, onSearch, onAdd, onMessage }: { contacts: Contact[]; search: string; onSearch(value: string): void; onAdd(): void; onMessage(contact: Contact): void }) {
+  return <main className="content-panel page-panel"><header className="page-header"><div><span className="eyebrow">Directory</span><h1>Contacts</h1><p>Keep names attached to the numbers you message most.</p></div><button className="button primary" onClick={onAdd}><Icon name="plus" size={17}/>Add contact</button></header><div className="page-toolbar"><label className="search-box wide"><Icon name="search" size={18}/><input type="search" value={search} aria-label="Search contacts" placeholder="Search contacts" onChange={event => onSearch(event.target.value)}/></label><span className="count-label">{contacts.length} contacts</span></div><div className="contact-grid">{contacts.length ? contacts.map(contact => <article className="contact-card" key={contact.id}><Avatar name={displayName(contact)} size="large"/><div className="contact-info"><h3>{displayName(contact)}</h3><span>{contact.number}</span></div><button className="icon-button" aria-label={`Message ${displayName(contact)}`} onClick={() => onMessage(contact)}><Icon name="chat" size={18}/></button></article>) : <div className="page-empty"><Icon name="users" size={32}/><h3>No contacts found</h3><p>Add a contact to make your conversations easier to recognize.</p></div>}</div></main>;
+}
+
+function StatusRow({ label, ready }: { label: string; ready?: boolean }) { return <div className="status-row"><span>{label}</span><span className={`config-pill ${ready ? "ready" : "missing"}`}>{ready ? <Icon name="check" size={14}/> : <Icon name="alert" size={14}/>} {ready ? "Configured" : "Missing"}</span></div>; }
+
+function Settings({ config, status, dataStatus, host, onConfigure, onConsole, onImport, onRemove, onToggle, onBackup, onExport, onRestore, onRetention }: { config?: ConfigStatus; status?: DesktopStatus; dataStatus?: DataStatus; host: string; onConfigure(): void; onConsole(): void; onImport(): void; onRemove(): void; onToggle(): void; onBackup(): void; onExport(): void; onRestore(): void; onRetention(days: number): void }) {
+  const [retentionDays, setRetentionDays] = useState(365);
+  return <main className="content-panel page-panel settings-page"><header className="page-header"><div><span className="eyebrow">Application</span><h1>Settings</h1><p>Connection health, local data safety, and the environment this app uses.</p></div></header><div className="settings-grid"><section className="settings-card"><div className="settings-card-head"><div className="settings-icon"><Icon name="settings"/></div><div><h2>Twilio connection</h2><p>Credentials stay encrypted in the desktop process.</p></div></div><div className="status-list"><StatusRow label="Account SID" ready={config?.account_sid}/><StatusRow label="Auth token" ready={config?.auth_token}/><StatusRow label="Phone number" ready={config?.phone_number}/><StatusRow label="Public webhook URL" ready={config?.public_base_url}/></div><p className="settings-source">Credential source: <strong>{status?.credential_source || "none"}</strong></p>{status?.environment_import_available && status.credential_source === "environment" && <button className="button secondary full" onClick={onImport}>Import environment credentials securely</button>}<button className="button primary full" onClick={onConfigure}>{status?.configured ? "Update connection" : "Configure connection"}</button>{status?.credential_source === "stored" && <button className="button danger full" onClick={onRemove}>Remove stored credentials</button>}</section><section className="settings-card"><div className="settings-card-head"><div className="settings-icon"><Icon name="external"/></div><div><h2>Twilio Console</h2><p>Manage numbers, messaging webhooks, and usage.</p></div></div><button className="button secondary full" onClick={onConsole}>Open Twilio Console <Icon name="external" size={16}/></button></section><section className="settings-card span-two"><h2>Data safety</h2><p>Schema version {dataStatus?.schema_version ?? "..."}. Backups and exports contain private message and contact data.</p>{dataStatus?.recovered_from && <div className="modal-error" role="alert">A damaged database was quarantined as {dataStatus.recovered_from}. Restore a backup if data is missing.</div>}<div className="data-actions"><button className="button primary" onClick={onBackup}>Create backup</button><button className="button secondary" onClick={onExport}>Export JSON</button><button className="button secondary" disabled={!dataStatus?.latest_backup} onClick={onRestore}>Restore latest backup</button></div><p className="settings-source">Managed backups: <strong>{dataStatus?.backup_count ?? 0}</strong>{dataStatus?.latest_backup ? ` · Latest ${dataStatus.latest_backup}` : ""}</p><div className="retention-row"><label className="field"><span>Keep messages for days</span><input type="number" min={30} max={3650} value={retentionDays} onChange={event => setRetentionDays(Number(event.target.value))}/></label><button className="button danger" onClick={() => onRetention(retentionDays)}>Apply retention</button></div></section><section className="settings-card span-two"><h2>Local service</h2><div className="service-address"><code>{host}</code><span>{status?.running === false ? "Stopped" : "Online"}</span></div><button className="button secondary full" onClick={onToggle}>{status?.running === false ? "Start local service" : "Stop local service"}</button></section></div></main>;
+}
+
+function ConnectionModal({ status, firstRun, onClose, onValidate, onSave }: { status?: DesktopStatus; firstRun: boolean; onClose(): void; onValidate(values: Record<string, string | number>): Promise<import("./types").ValidationResult>; onSave(values: Record<string, string | number>): Promise<void> }) {
+  const current = status?.settings;
+  const formRef = useRef<HTMLFormElement>(null);
+  const busyRef = useRef(false);
+  const [busy, setBusy] = useState<"test" | "save" | null>(null);
+  const [error, setError] = useState("");
+  const [validated, setValidated] = useState<import("./types").ValidationResult>();
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    formRef.current?.querySelector<HTMLElement>("input")?.focus();
+    const keydown = (event: KeyboardEvent) => { if (event.key === "Escape" && !busyRef.current) onClose(); };
+    window.addEventListener("keydown", keydown);
+    return () => { window.removeEventListener("keydown", keydown); previous?.focus(); };
+  }, [onClose]);
+  useEffect(() => { busyRef.current = Boolean(busy); }, [busy]);
+  const values = () => { const data = new FormData(formRef.current!); return { ...Object.fromEntries(data.entries()), webhook_port: Number(data.get("webhook_port")) }; };
+  async function testConnection() { setBusy("test"); setError(""); try { setValidated(await onValidate(values())); } catch (cause) { setValidated(undefined); setError(cause instanceof Error ? cause.message : String(cause)); } finally { setBusy(null); } }
+  async function save(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy("save"); setError(""); try { await onSave(values()); onClose(); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setBusy(null); } }
+  return <div className="modal-overlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}><form ref={formRef} className="modal-card" role="dialog" aria-modal="true" aria-label={firstRun ? "Welcome to ForgeLink" : "Twilio connection"} onSubmit={save}><div className="modal-head"><div><div className="eyebrow">{firstRun ? "First-run setup" : "Secure local settings"}</div><h2>{firstRun ? "Connect your Twilio account" : "Twilio connection"}</h2></div><button className="icon-button" type="button" aria-label="Close" disabled={Boolean(busy)} onClick={onClose}><Icon name="close"/></button></div><div className="modal-body"><p>{firstRun ? "Validate your account and choose the Twilio number ForgeLink will use." : "Test changes against Twilio before saving them locally."}</p><div className="form-stack"><Field label="Account SID"><input name="account_sid" defaultValue={current?.account_sid} required/></Field><Field label="Auth token" hint="Stored with operating-system encryption. Leave blank to keep the current token."><input name="auth_token" type="password" required={!current?.auth_token_configured} placeholder={current?.auth_token_configured ? "Configured; enter to replace" : "Enter auth token"}/></Field><Field label="Twilio number"><input name="twilio_number" type="tel" defaultValue={current?.twilio_number} placeholder="+15551234567" required/></Field><Field label="Public webhook URL"><input name="public_base_url" type="url" defaultValue={current?.public_base_url} placeholder="https://link.example.com"/></Field><Field label="Local host" hint="Keep the service bound to loopback."><input name="webhook_host" defaultValue={current?.webhook_host || "127.0.0.1"} pattern="127\.0\.0\.1|localhost" required/></Field><Field label="Local port"><input name="webhook_port" type="number" defaultValue={current?.webhook_port || 5055} min={1024} max={65535} required/></Field></div>{validated && <div className="validation-success" role="status"><Icon name="check" size={18}/><span><strong>{validated.account_name}</strong><br/>Confirmed {validated.phone_number}</span></div>}{error && <div className="modal-error" role="alert">{error}</div>}</div><div className="modal-actions"><button className="button secondary" type="button" disabled={Boolean(busy)} onClick={() => void testConnection()}>{busy === "test" ? "Testing..." : "Test connection"}</button><button className="button primary" type="submit" disabled={Boolean(busy)}>{busy === "save" ? "Validating and saving..." : "Save and restart"}</button></div></form></div>;
+}
+
+function LinkModal({ contacts, thread, onClose, onLink, onAdd }: { contacts: Contact[]; thread: Thread; onClose(): void; onLink(contactId: number): Promise<void>; onAdd(): void }) {
+  return <Modal title="Link contact" eyebrow={displayName(thread)} onClose={onClose} hideSubmit><div className="contact-picker">{contacts.length ? contacts.map(contact => <button className="contact-picker-row" type="button" key={contact.id} onClick={() => void onLink(contact.id)}><Avatar name={displayName(contact)} size="small"/><span><strong>{displayName(contact)}</strong><small>{contact.number}</small></span><Icon name="chevron" size={16}/></button>) : <div className="empty-inline">No contacts yet.</div>}<button className="button primary full" type="button" onClick={onAdd}>Add new contact</button></div></Modal>;
+}

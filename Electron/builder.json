@@ -1,10 +1,13 @@
 {
-  "appId": "dev.twiliophone.desktop",
-  "productName": "Twilio Phone",
+  "appId": "dev.forgelink.desktop",
+  "productName": "ForgeLink",
   "files": [
     "main.js",
     "preload.js",
-    "renderer/**/*",
+    "onboarding.js",
+    "renderer/index.html",
+    "renderer/styles.css",
+    "renderer/app.js",
     "backend-dist/**/*",
     "!backend-dist/**/*.test.js",
     "assets/**/*",
