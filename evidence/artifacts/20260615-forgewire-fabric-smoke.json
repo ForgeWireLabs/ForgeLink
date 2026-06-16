@@ -1,0 +1,407 @@
+{
+  "schema_version": 1,
+  "smoke": "forgewire-fabric-forgelink-human",
+  "result": "passed",
+  "fabric_manifest_hash": "09ee9e8352a7ab8aa806f9c66c03715d3bee4b9969a26f2d0ee84e6b1f09ca35",
+  "fabric_manifest": {
+    "schema_version": 1,
+    "servers": [
+      {
+        "server_id": "forgelink-human",
+        "tools": [
+          {
+            "name": "send_human_message",
+            "description": "Send a concise human-directed message into ForgeLink without creating an approval action.",
+            "input_schema": {
+              "type": "object",
+              "required": [
+                "title",
+                "body"
+              ],
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "description": "Short human-readable title."
+                },
+                "body": {
+                  "type": "string",
+                  "description": "Concise message body for the human."
+                },
+                "channel_id": {
+                  "type": "string",
+                  "description": "ForgeLink agent channel id. Defaults to FORGELINK_CHANNEL_ID."
+                },
+                "source": {
+                  "type": "string",
+                  "description": "Source app identity. Defaults to FORGELINK_SOURCE."
+                },
+                "kind": {
+                  "type": "string",
+                  "description": "Message kind, such as status_update or operator_prompt."
+                },
+                "urgency": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "normal",
+                    "high",
+                    "urgent"
+                  ],
+                  "description": "Message urgency."
+                },
+                "expires_at": {
+                  "type": "string",
+                  "description": "Optional ISO expiry timestamp."
+                },
+                "id": {
+                  "type": "string",
+                  "description": "Optional idempotency id."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "request_human_approval",
+            "description": "Ask a human to choose from explicit approval/action buttons in ForgeLink.",
+            "input_schema": {
+              "type": "object",
+              "required": [
+                "title",
+                "body",
+                "actions"
+              ],
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "description": "Short approval title."
+                },
+                "body": {
+                  "type": "string",
+                  "description": "Specific approval context."
+                },
+                "actions": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "label"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "description": "Stable action id, for example approve or deny."
+                      },
+                      "label": {
+                        "type": "string",
+                        "description": "Button label shown to the human."
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "channel_id": {
+                  "type": "string",
+                  "description": "ForgeLink agent channel id. Defaults to FORGELINK_CHANNEL_ID."
+                },
+                "source": {
+                  "type": "string",
+                  "description": "Source app identity. Defaults to FORGELINK_SOURCE."
+                },
+                "kind": {
+                  "type": "string",
+                  "description": "Message kind. Defaults to approval_request."
+                },
+                "urgency": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "normal",
+                    "high",
+                    "urgent"
+                  ],
+                  "description": "Approval urgency."
+                },
+                "expires_at": {
+                  "type": "string",
+                  "description": "Optional ISO expiry timestamp."
+                },
+                "id": {
+                  "type": "string",
+                  "description": "Optional idempotency id."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "list_human_messages",
+            "description": "List recent ForgeLink agent-channel messages and human outcomes.",
+            "input_schema": {
+              "type": "object",
+              "required": [],
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "description": "Optional status filter: unread, read, dismissed, acted, expired."
+                },
+                "channel_id": {
+                  "type": "string",
+                  "description": "Optional channel filter."
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100,
+                  "default": 25
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "get_human_message",
+            "description": "Fetch one ForgeLink agent-channel message by id.",
+            "input_schema": {
+              "type": "object",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Agent message id."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "dismiss_human_message",
+            "description": "Dismiss an agent-channel message after it is no longer useful.",
+            "input_schema": {
+              "type": "object",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Agent message id."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "record_human_action",
+            "description": "Record a selected human action for a ForgeLink agent-channel message.",
+            "input_schema": {
+              "type": "object",
+              "required": [
+                "id",
+                "action_id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Agent message id."
+                },
+                "action_id": {
+                  "type": "string",
+                  "description": "Action id from the message actions array."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "channel_status",
+            "description": "Check ForgeLink local API health and summarize agent-channel counts.",
+            "input_schema": {
+              "type": "object",
+              "required": [],
+              "properties": {},
+              "additionalProperties": false
+            }
+          }
+        ],
+        "resources": [
+          {
+            "uri": "forgelink://persona",
+            "name": "ForgeLink Persona",
+            "mime_type": "text/plain"
+          },
+          {
+            "uri": "forgelink://channel-contract",
+            "name": "Agent Channel Contract",
+            "mime_type": "text/plain"
+          },
+          {
+            "uri": "forgelink://security-boundary",
+            "name": "Security Boundary",
+            "mime_type": "text/plain"
+          },
+          {
+            "uri": "forgelink://install",
+            "name": "Install Guide",
+            "mime_type": "text/plain"
+          }
+        ],
+        "prompts": [
+          {
+            "name": "forgelink_ask_human",
+            "description": "Prepare a concise question for a human through ForgeLink.",
+            "arguments": [
+              {
+                "name": "question",
+                "description": "Decision or clarification needed.",
+                "required": true
+              }
+            ]
+          },
+          {
+            "name": "forgelink_request_approval",
+            "description": "Prepare an approval request with explicit approve/deny actions.",
+            "arguments": [
+              {
+                "name": "request",
+                "description": "Operation requiring approval.",
+                "required": true
+              }
+            ]
+          },
+          {
+            "name": "forgelink_escalate_concisely",
+            "description": "Escalate only the human-relevant facts, without feed-like narration.",
+            "arguments": [
+              {
+                "name": "situation",
+                "description": "Situation to summarize.",
+                "required": true
+              }
+            ]
+          },
+          {
+            "name": "forgelink_summarize_before_interrupting",
+            "description": "Summarize work state before asking for attention.",
+            "arguments": [
+              {
+                "name": "context",
+                "description": "Current task context.",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "capability_rows": [
+    {
+      "runner_id": "forgewire-fabric-local-smoke",
+      "capability_kind": "tool",
+      "name": "send_human_message",
+      "source_server": "forgelink-human"
+    },
+    {
+      "runner_id": "forgewire-fabric-local-smoke",
+      "capability_kind": "tool",
+      "name": "request_human_approval",
+      "source_server": "forgelink-human"
+    },
+    {
+      "runner_id": "forgewire-fabric-local-smoke",
+      "capability_kind": "tool",
+      "name": "list_human_messages",
+      "source_server": "forgelink-human"
+    },
+    {
+      "runner_id": "forgewire-fabric-local-smoke",
+      "capability_kind": "tool",
+      "name": "get_human_message",
+      "source_server": "forgelink-human"
+    },
+    {
+      "runner_id": "forgewire-fabric-local-smoke",
+      "capability_kind": "tool",
+      "name": "dismiss_human_message",
+      "source_server": "forgelink-human"
+    },
+    {
+      "runner_id": "forgewire-fabric-local-smoke",
+      "capability_kind": "tool",
+      "name": "record_human_action",
+      "source_server": "forgelink-human"
+    },
+    {
+      "runner_id": "forgewire-fabric-local-smoke",
+      "capability_kind": "tool",
+      "name": "channel_status",
+      "source_server": "forgelink-human"
+    },
+    {
+      "runner_id": "forgewire-fabric-local-smoke",
+      "capability_kind": "resource",
+      "name": "forgelink://persona",
+      "source_server": "forgelink-human"
+    },
+    {
+      "runner_id": "forgewire-fabric-local-smoke",
+      "capability_kind": "resource",
+      "name": "forgelink://channel-contract",
+      "source_server": "forgelink-human"
+    },
+    {
+      "runner_id": "forgewire-fabric-local-smoke",
+      "capability_kind": "resource",
+      "name": "forgelink://security-boundary",
+      "source_server": "forgelink-human"
+    },
+    {
+      "runner_id": "forgewire-fabric-local-smoke",
+      "capability_kind": "resource",
+      "name": "forgelink://install",
+      "source_server": "forgelink-human"
+    },
+    {
+      "runner_id": "forgewire-fabric-local-smoke",
+      "capability_kind": "prompt",
+      "name": "forgelink_ask_human",
+      "source_server": "forgelink-human"
+    },
+    {
+      "runner_id": "forgewire-fabric-local-smoke",
+      "capability_kind": "prompt",
+      "name": "forgelink_request_approval",
+      "source_server": "forgelink-human"
+    },
+    {
+      "runner_id": "forgewire-fabric-local-smoke",
+      "capability_kind": "prompt",
+      "name": "forgelink_escalate_concisely",
+      "source_server": "forgelink-human"
+    },
+    {
+      "runner_id": "forgewire-fabric-local-smoke",
+      "capability_kind": "prompt",
+      "name": "forgelink_summarize_before_interrupting",
+      "source_server": "forgelink-human"
+    }
+  ],
+  "transcript": {
+    "created_message_id": "fabric-smoke-1781574782411",
+    "channel_id": "forgewire",
+    "source": "forgewire-fabric",
+    "kind": "approval_request",
+    "urgency": "normal",
+    "action_result": {
+      "action_id": "approve",
+      "acted_at": "2026-06-16T01:53:02.499Z"
+    }
+  },
+  "redaction_note": "Token values and message body text are omitted from this smoke output."
+}

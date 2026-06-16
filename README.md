@@ -59,6 +59,15 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/install/install-forgelink-
 The MCP bridge requires `FORGELINK_API_TOKEN` or `FORGELINK_API_TOKEN_FILE` and
 should stay pointed at the loopback ForgeLink API.
 
+ForgeWire/Fabric compatibility is covered by a high-fidelity smoke that emits a
+Fabric-style `mcp_manifest`, capability rows, and a redacted approval/action
+transcript:
+
+```powershell
+cd mcp/forgelink-human
+npm run smoke:fabric
+```
+
 For incoming messages, expose port `5055` through a secure tunnel and configure the Twilio messaging webhook as:
 
 ```text

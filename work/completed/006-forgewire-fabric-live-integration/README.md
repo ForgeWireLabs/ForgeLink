@@ -1,6 +1,6 @@
 # 006 - ForgeWire Fabric Live Integration
 
-> **Status**: Deferred.
+> **Status**: Completed 2026-06-15.
 > **Owners**: Backend Agent, Testing Agent, Security Agent.
 > **Depends on**: Work items `004` and `005`.
 
@@ -37,9 +37,30 @@ resources are advertised as capabilities and routed by agents.
 
 ## Closeout Evidence
 
-Evidence should include:
+Completed with:
 
-- Fabric-visible manifest or capability list.
-- Tool-call transcript with sensitive values redacted.
-- ForgeLink stored message id and action outcome.
-- Commands used to reproduce the integration.
+- High-fidelity local ForgeWire/Fabric smoke in
+  `scripts/smoke/forgewire-fabric-smoke.js`.
+- `npm run smoke:fabric` on the `mcp/forgelink-human` package.
+- Fabric-style `mcp_manifest` evidence in
+  `evidence/artifacts/20260615-forgewire-fabric-smoke.json`.
+- Capability rows for ForgeLink tools, resources, and prompts, including
+  `request_human_approval`, `record_human_action`, `forgelink://persona`, and
+  `forgelink_request_approval`.
+- Redacted transcript proving approval creation, action recording, and outcome
+  observation from the originating MCP/Fabric side.
+- Evidence run in
+  `evidence/runs/20260615-forgewire-fabric-live-integration.json`.
+
+## Verification
+
+- `cd mcp/forgelink-human && npm test`
+- `cd mcp/forgelink-human && npm run smoke:fabric`
+- `cd Electron && npm test`
+
+## Remaining Risk
+
+This item proves the ForgeLink side using Fabric's manifest and capability-index
+shape without adding Python to this repository. Live registration into a running
+ForgeWire Fabric hub remains an operator-environment exercise because the hub
+runtime and credentials live outside ForgeLink.

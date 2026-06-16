@@ -1,0 +1,41 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260615-forgewire-fabric-live-integration",
+  "timestamp": "2026-06-16T01:54:00Z",
+  "work_item": "006",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cd mcp/forgelink-human && npm test",
+      "exit_code": 0,
+      "summary": "Built the ForgeLink human MCP bridge and verified tools, resources, prompts, templates, and approval/action behavior."
+    },
+    {
+      "command": "cd mcp/forgelink-human && npm run smoke:fabric",
+      "exit_code": 0,
+      "summary": "Started a temporary ForgeLink backend, created an MCP token file, loaded forgelink-human through stdio, emitted a Fabric-style mcp_manifest, mapped capability rows, created a request_human_approval message, recorded an approve action, and observed the acted outcome through MCP."
+    },
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Full Electron/backend/renderer regression suite passed after the Fabric integration smoke tooling changes."
+    }
+  ],
+  "artifacts": [
+    "scripts/smoke/forgewire-fabric-smoke.js",
+    "evidence/artifacts/20260615-forgewire-fabric-smoke.json",
+    "install/mcp-configs/README.md",
+    "install/mcp-configs/forgewire/forgelink-human.json",
+    "mcp/forgelink-human/package.json",
+    "README.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "runtime": "Node.js 24.15.0",
+    "fabric_manifest_shape": "Matches ForgeWire Fabric runner mcp_manifest schema_version 1 with servers[*].tools/resources/prompts.",
+    "runtime_mismatch": "No Fabric runtime mismatch found for the integration boundary. Live Fabric hub registration remains external to ForgeLink; this item uses a high-fidelity local smoke that mirrors Fabric's manifest and capability-index shape without adding Python to ForgeLink.",
+    "redaction_note": "The smoke artifact omits MCP token values and approval body text while retaining tool names, resource URIs, prompt names, message id, channel, source, kind, urgency, and action outcome."
+  }
+}

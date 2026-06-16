@@ -38,3 +38,37 @@ token file with local-user-only permissions for app configs.
 | `forgewire/forgelink-human.json` | ForgeWire/Fabric MCP server entry |
 
 Replace `C:\\Projects\\TWL_phone` with this checkout path if different.
+
+## ForgeWire/Fabric capability surface
+
+ForgeWire Fabric runners introspect connected MCP servers into an
+`mcp_manifest` shaped as:
+
+```json
+{
+  "schema_version": 1,
+  "servers": [
+    {
+      "server_id": "forgelink-human",
+      "tools": [],
+      "resources": [],
+      "prompts": []
+    }
+  ]
+}
+```
+
+`forgelink-human` is expected to advertise the `request_human_approval` and
+`record_human_action` tools, `forgelink://persona` and security resources, and
+ForgeLink prompts for concise human interruption. The high-fidelity local smoke
+is:
+
+```powershell
+cd mcp/forgelink-human
+npm run smoke:fabric
+```
+
+The smoke starts a temporary ForgeLink backend, creates a local MCP token file,
+loads the MCP bridge through stdio, converts the advertised server surface into
+Fabric's manifest shape, sends an approval request, records a human action, and
+writes redacted evidence to `evidence/artifacts/`.
