@@ -1,4 +1,4 @@
-import type { AgentMessage, BackendConnection, ConfigStatus, Contact, DataStatus, Message, RetentionResult, Thread } from "./types";
+import type { AgentMessage, BackendConnection, ConfigStatus, Contact, DataStatus, Message, RetentionResult, SignalItem, SignalSubscription, Thread } from "./types";
 
 export class PhoneApi {
   constructor(private connection: () => BackendConnection) {}
@@ -21,6 +21,12 @@ export class PhoneApi {
   markAgentMessageRead = (id: string) => this.request<{ ok: true; message: AgentMessage }>(`/api/agent-messages/${encodeURIComponent(id)}/read`, { method: "POST" });
   dismissAgentMessage = (id: string) => this.request<{ ok: true; message: AgentMessage }>(`/api/agent-messages/${encodeURIComponent(id)}/dismiss`, { method: "POST" });
   actOnAgentMessage = (id: string, actionId: string) => this.request<{ ok: true; message: AgentMessage }>(`/api/agent-messages/${encodeURIComponent(id)}/actions/${encodeURIComponent(actionId)}`, { method: "POST" });
+  signalSubscriptions = () => this.request<SignalSubscription[]>("/api/signals/subscriptions");
+  createSignalSubscription = (payload: { url: string; title?: string; fetch_interval_minutes: number; retention_days: number }) => this.request<{ ok: true; subscription: SignalSubscription }>("/api/signals/subscriptions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  refreshSignalSubscription = (id: string) => this.request<{ ok: true; added: number; deleted: number; subscription: SignalSubscription; items: SignalItem[] }>(`/api/signals/subscriptions/${encodeURIComponent(id)}/refresh`, { method: "POST" });
+  setSignalSubscriptionState = (id: string, action: "enable" | "disable" | "mute" | "unmute") => this.request<{ ok: true; subscription: SignalSubscription }>(`/api/signals/subscriptions/${encodeURIComponent(id)}/${action}`, { method: "POST" });
+  signalItems = (limit = 50) => this.request<SignalItem[]>(`/api/signals/items?limit=${limit}`);
+  archiveSignalItem = (id: string) => this.request<{ ok: true; item: SignalItem }>(`/api/signals/items/${encodeURIComponent(id)}/archive`, { method: "POST" });
   send = (localId: string, to: string, body: string, mediaUrls: string[] = []) => this.request("/api/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ local_id: localId, to, body, media_urls: mediaUrls }) });
   retry = (id: string) => this.request("/api/retry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
   draft = (threadId: number) => this.request<{ body: string }>(`/api/draft?thread_id=${threadId}`);

@@ -5,6 +5,7 @@ import { extname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { AgentAction, AgentChannelRecord, AgentUrgency, PhoneDatabase } from "./database";
 import { utcNow } from "./phone";
+import { fetchTrustedSignalFeed } from "./signals";
 import { loadTwilioConfig, sendTwilioMessage, validateTwilioSignature } from "./twilio";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -126,6 +127,13 @@ function agentActions(value: unknown): AgentAction[] {
       label: boundedText(record.label, "action label", 80)
     };
   });
+}
+
+function boundedOptionalNumber(value: unknown, fallback: number, min: number, max: number, label: string): number {
+  if (value === undefined || value === null || value === "") return fallback;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < min || number > max) throw new Error(`${label} must be between ${min} and ${max}.`);
+  return number;
 }
 
 function actionExists(actionsJson: string, actionId: string): boolean {
@@ -278,6 +286,58 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         return sendJson(response, { ok: true, message, status: database.markMcpTest("passed") });
       }
       if (request.method === "GET" && url.pathname === "/api/agent-messages") return sendJson(response, database.agentMessages());
+      if (request.method === "GET" && url.pathname === "/api/signals/subscriptions") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.signalSubscriptions());
+      }
+      if (request.method === "POST" && url.pathname === "/api/signals/subscriptions") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const subscription = database.upsertSignalSubscription({
+          url: boundedText(payload.url, "feed URL", 1000),
+          title: payload.title ? boundedText(payload.title, "feed title", 160) : undefined,
+          fetch_interval_minutes: boundedOptionalNumber(payload.fetch_interval_minutes, 60, 15, 10080, "fetch interval"),
+          retention_days: boundedOptionalNumber(payload.retention_days, 30, 7, 3650, "signal retention")
+        });
+        return sendJson(response, { ok: true, subscription }, 201);
+      }
+      const signalStateMatch = url.pathname.match(/^\/api\/signals\/subscriptions\/([^/]+)\/(enable|disable|mute|unmute)$/);
+      if (request.method === "POST" && signalStateMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const action = signalStateMatch[2];
+        const subscription = database.setSignalSubscriptionState(decodeURIComponent(signalStateMatch[1]), action === "enable" ? { enabled: true } : action === "disable" ? { enabled: false } : action === "mute" ? { muted: true } : { muted: false });
+        return sendJson(response, { ok: true, subscription });
+      }
+      const signalRefreshMatch = url.pathname.match(/^\/api\/signals\/subscriptions\/([^/]+)\/refresh$/);
+      if (request.method === "POST" && signalRefreshMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const subscription = database.signalSubscription(decodeURIComponent(signalRefreshMatch[1]));
+        if (!subscription) throw new Error("Signal subscription not found.");
+        if (!subscription.enabled) throw new Error("Signal subscription is paused.");
+        try {
+          const parsed = await fetchTrustedSignalFeed(subscription.url);
+          database.updateSignalSubscriptionTitle(subscription.id, parsed.title);
+          let added = 0;
+          for (const item of parsed.items) {
+            if (database.addSignalItem({ ...item, subscription_id: subscription.id })) added += 1;
+          }
+          const deleted = database.applySignalRetention(subscription.id);
+          database.markSignalFetch(subscription.id, "ok");
+          return sendJson(response, { ok: true, added, deleted, subscription: database.signalSubscription(subscription.id), items: database.signalItems() });
+        } catch (error) {
+          database.markSignalFetch(subscription.id, "failed", error instanceof Error ? error.message : String(error));
+          throw error;
+        }
+      }
+      if (request.method === "GET" && url.pathname === "/api/signals/items") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.signalItems(Number(url.searchParams.get("limit") || 50)));
+      }
+      const signalArchiveMatch = url.pathname.match(/^\/api\/signals\/items\/([^/]+)\/archive$/);
+      if (request.method === "POST" && signalArchiveMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, { ok: true, item: database.archiveSignalItem(decodeURIComponent(signalArchiveMatch[1])) });
+      }
       const agentMessageMatch = url.pathname.match(/^\/api\/agent-channels\/([A-Za-z0-9_.:-]{1,80})\/messages$/);
       if (request.method === "POST" && agentMessageMatch) {
         const payload = await readJson(request);

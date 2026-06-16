@@ -12,7 +12,7 @@
     "dev": "npm run backend:build && npm run renderer:build && electron .",
     "start": "npm run dev",
     "build": "npm run backend:build && npm run renderer:build && electron-builder -c builder.json",
-    "test": "npm run backend:build && npm run renderer:build && vitest run renderer/src/App.test.tsx && node --test onboarding.test.js backend-dist/database.test.js backend-dist/migration.test.js backend-dist/server.test.js backend-dist/twilio.test.js && node --check main.js && node --check preload.js && node --check onboarding.js",
+    "test": "npm run backend:build && npm run renderer:build && vitest run renderer/src/App.test.tsx && node --test onboarding.test.js backend-dist/database.test.js backend-dist/migration.test.js backend-dist/server.test.js backend-dist/signals.test.js backend-dist/twilio.test.js && node --check main.js && node --check preload.js && node --check onboarding.js",
     "screenshot": "npm run backend:build && npm run renderer:build && electron scripts/visual-smoke.js"
   },
   "devDependencies": {

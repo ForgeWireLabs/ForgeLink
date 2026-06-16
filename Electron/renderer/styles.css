@@ -232,6 +232,26 @@ h1, h2, h3, p { margin: 0; }
 .agent-history-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-bright); }
 .agent-history-row strong { text-transform: capitalize; }
 
+.signals-page { display: flex; flex-direction: column; gap: 24px; overflow: hidden; }
+.signal-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); gap: 18px; }
+.signal-source-list, .signal-item-list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.section-title { display: flex; align-items: center; justify-content: space-between; color: var(--muted); }
+.section-title h2 { color: var(--text); font-size: 15px; }
+.section-title span { font-size: 12px; font-weight: 700; }
+.signal-source, .signal-item { border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.018); }
+.signal-source { padding: 14px; display: grid; gap: 12px; }
+.signal-source strong, .signal-item h2 { display: block; min-width: 0; overflow-wrap: anywhere; }
+.signal-source span, .signal-source small { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.signal-source small { color: var(--muted-bright); }
+.signal-actions, .signal-item-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.signal-item { padding: 16px; display: grid; gap: 10px; }
+.signal-item.muted { opacity: .72; }
+.signal-item-head { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; }
+.signal-item h2 { font-size: 18px; line-height: 1.25; }
+.signal-item p { color: var(--muted-bright); overflow-wrap: anywhere; }
+.signal-item-actions span { margin-left: auto; color: var(--muted); font-size: 12px; }
+.page-empty.compact { min-height: 220px; }
+
 .settings-page { max-width: none; }
 .settings-grid { margin-top: 30px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .settings-card { padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: rgba(255,255,255,.018); }

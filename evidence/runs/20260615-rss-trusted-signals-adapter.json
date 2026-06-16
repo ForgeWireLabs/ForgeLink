@@ -1,0 +1,63 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260615-rss-trusted-signals-adapter",
+  "timestamp": "2026-06-16T02:40:00Z",
+  "work_item": "008",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "rg --files C:\\Projects -g \"*.py\" -g \"*.ui\" -g \"*.qrc\" | rg -i \"(rss|feed|reader|qt|pyside|pyqt)\"",
+      "exit_code": 0,
+      "summary": "Located the historical PySide6 RSS app under C:\\Projects\\SCOUT-2\\modules\\Personas\\FeedManager\\Toolbox\\Feed_Portal, including Feed_Portal.py, modules/rss_feed_reader.py, modules/feed_entry_frame.py, and feeds.json."
+    },
+    {
+      "command": "rg -n \"feedparser|PySide6|PySide2|PyQt6|PyQt5|QtWidgets|QApplication|QListWidget|QTreeWidget|QWebEngine|rss|RSS|Atom\" C:\\Projects -g \"*.py\" -g \"*.ui\" -g \"*.qrc\"",
+      "exit_code": 0,
+      "summary": "Confirmed the old feed portal used PySide6, feedparser, requests, categories, manual refresh, entry details, persisted feeds.json, and external browser opening. ForgeLink carried forward behavior, not the Python runtime."
+    },
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Built backend and renderer, ran renderer tests, backend database/server/signals tests, migrations, Twilio tests, onboarding tests, and Electron syntax checks. New coverage includes RSS/Atom parsing, duplicate signal item handling, failed fetch state, export/retention separation, UI separation, and notification boundaries."
+    },
+    {
+      "command": "cd Electron && npm run screenshot",
+      "exit_code": 0,
+      "summary": "Captured Electron/dist/ui-preview.png with a seeded Signals source and item; inspected the screenshot for the bounded Signals view and no visible overlap."
+    },
+    {
+      "command": "python scripts/validate_repo.py --root .",
+      "exit_code": 0,
+      "summary": "Repository governance validation passed after moving 008 to completed."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Local system audit passed."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/signals.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/backend/src/signals.test.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/src/api.ts",
+    "Electron/renderer/src/types.ts",
+    "Electron/renderer/styles.css",
+    "Electron/scripts/visual-smoke.js",
+    "work/completed/008-rss-trusted-signals-adapter/README.md",
+    "work/completed/008-rss-trusted-signals-adapter/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "runtime": "Node.js 24.15.0",
+    "old_app_path": "C:\\Projects\\SCOUT-2\\modules\\Personas\\FeedManager\\Toolbox\\Feed_Portal",
+    "security_note": "Feeds are fetched by the backend with http/https-only URLs, 8s timeout, 3 redirects, 1 MB response cap, content-type checks, text-only parsing, and external links opened outside the renderer."
+  }
+}

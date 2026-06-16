@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -130,11 +131,68 @@ test("backs up, exports, restores, and reports managed data", async () => {
     assert.equal(readFileSync(join(directory, "uploads", "proof.txt"), "utf8"), "before backup");
 
     const status = await fetch(`${localUrl}/api/data/status`, { headers: authorized() }).then((response) => response.json()) as { schema_version: number; backup_count: number; latest_backup: string };
-    assert.equal(status.schema_version, 6);
+    assert.equal(status.schema_version, 7);
     assert.equal(status.backup_count, 1);
     assert.match(status.latest_backup, /^backup-/);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("manages trusted signal subscriptions, bounded refresh, archive, and failed fetch status", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "twilio-phone-signals-api-"));
+  const feedServer = createServer((request, response) => {
+    if (request.url === "/feed.xml") {
+      const body = `<rss><channel><title>Forge Signals</title><item><guid>one</guid><title>Build note</title><link>http://example.test/build</link><description>Release candidate ready</description><pubDate>Mon, 15 Jun 2026 12:00:00 GMT</pubDate></item></channel></rss>`;
+      response.writeHead(200, { "Content-Type": "application/rss+xml", "Content-Length": Buffer.byteLength(body) });
+      return response.end(body);
+    }
+    response.writeHead(200, { "Content-Type": "text/html" });
+    response.end("<html>not a feed</html>");
+  });
+  await new Promise<void>((resolve) => feedServer.listen(0, "127.0.0.1", resolve));
+  const feedPort = (feedServer.address() as AddressInfo).port;
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  try {
+    const created = await fetch(`${localUrl}/api/signals/subscriptions`, {
+      method: "POST",
+      headers: authorized({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ url: `http://127.0.0.1:${feedPort}/feed.xml`, fetch_interval_minutes: 15, retention_days: 7 })
+    });
+    assert.equal(created.status, 201);
+    const subscriptionId = ((await created.json()) as { subscription: { id: string } }).subscription.id;
+
+    const refreshed = await fetch(`${localUrl}/api/signals/subscriptions/${subscriptionId}/refresh`, { method: "POST", headers: authorized() });
+    assert.equal(refreshed.status, 200);
+    const refreshedPayload = await refreshed.json() as { added: number; subscription: { title: string; last_fetch_status: string }; items: Array<{ id: string; title: string }> };
+    assert.equal(refreshedPayload.added, 1);
+    assert.equal(refreshedPayload.subscription.title, "Forge Signals");
+    assert.equal(refreshedPayload.subscription.last_fetch_status, "ok");
+    assert.equal(refreshedPayload.items[0].title, "Build note");
+
+    assert.equal((await fetch(`${localUrl}/api/signals/subscriptions/${subscriptionId}/mute`, { method: "POST", headers: authorized() })).status, 200);
+    const archived = await fetch(`${localUrl}/api/signals/items/${refreshedPayload.items[0].id}/archive`, { method: "POST", headers: authorized() });
+    assert.equal(archived.status, 200);
+    const listed = await fetch(`${localUrl}/api/signals/items`, { headers: authorized() }).then((response) => response.json()) as Array<unknown>;
+    assert.equal(listed.length, 0);
+
+    const bad = await fetch(`${localUrl}/api/signals/subscriptions`, {
+      method: "POST",
+      headers: authorized({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ url: `http://127.0.0.1:${feedPort}/bad.html` })
+    }).then((response) => response.json()) as { subscription: { id: string } };
+    const failed = await fetch(`${localUrl}/api/signals/subscriptions/${bad.subscription.id}/refresh`, { method: "POST", headers: authorized() });
+    assert.equal(failed.status, 400);
+    const subscriptions = await fetch(`${localUrl}/api/signals/subscriptions`, { headers: authorized() }).then((response) => response.json()) as Array<{ id: string; last_fetch_status: string; last_error: string }>;
+    assert.equal(subscriptions.find((item) => item.id === bad.subscription.id)?.last_fetch_status, "failed");
+    assert.match(subscriptions.find((item) => item.id === bad.subscription.id)?.last_error || "", /content type|readable/i);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await new Promise<void>((resolve) => feedServer.close(() => resolve()));
     rmSync(directory, { recursive: true, force: true });
   }
 });

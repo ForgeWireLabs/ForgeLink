@@ -36,6 +36,9 @@ app.whenReady().then(async () => {
   const pending = previewDatabase.createPendingMessage("local-preview", "+15551234567", "This message could not be delivered yet.", []);
   previewDatabase.markMessageFailed(pending.id, "Preview failure");
   previewDatabase.saveDraft(pending.thread_id, "A restart-safe draft");
+  const signalSource = previewDatabase.upsertSignalSubscription({ title: "ForgeWire Signals", url: "https://example.com/feed.xml", fetch_interval_minutes: 60, retention_days: 30 });
+  previewDatabase.addSignalItem({ subscription_id: signalSource.id, external_id: "preview-signal", title: "Build lane is ready", url: "https://example.com/build", summary: "A release candidate is available for review without entering the message queue.", author: "ForgeWire", published_at: new Date().toISOString() });
+  previewDatabase.markSignalFetch(signalSource.id, "ok");
   previewDatabase.close();
   backend = utilityProcess.fork(path.join(projectRoot, "Electron", "backend-dist", "index.js"), ["--host", host, "--port", String(port)], {
     env: { ...process.env, FORGELINK_DATA_DIR: visualData, FORGELINK_API_TOKEN: apiToken },
@@ -133,10 +136,26 @@ app.whenReady().then(async () => {
   });
   await window.loadFile(path.join(projectRoot, "Electron", "renderer", "index.html"));
   await new Promise((resolve) => setTimeout(resolve, 1000));
+  const signalsRect = await window.webContents.executeJavaScript(`
+    (() => {
+      const button = document.querySelector('button[aria-label="Signals"]');
+      if (!button) throw new Error("Signals navigation button was not found.");
+      const rect = button.getBoundingClientRect();
+      return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+    })()
+  `);
+  window.webContents.sendInputEvent({ type: "mouseDown", x: signalsRect.x, y: signalsRect.y, button: "left", clickCount: 1 });
+  window.webContents.sendInputEvent({ type: "mouseUp", x: signalsRect.x, y: signalsRect.y, button: "left", clickCount: 1 });
   await window.webContents.executeJavaScript(`
-    const settingsButton = document.querySelector('button[aria-label="Settings"]');
-    if (!settingsButton) throw new Error("Settings navigation button was not found.");
-    settingsButton.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    new Promise((resolve, reject) => {
+      const deadline = Date.now() + 3000;
+      const check = () => {
+        if ([...document.querySelectorAll("h1")].some((heading) => heading.textContent === "Signals")) resolve(true);
+        else if (Date.now() > deadline) reject(new Error("Signals view did not open."));
+        else setTimeout(check, 100);
+      };
+      check();
+    })
   `);
   await new Promise((resolve) => setTimeout(resolve, 1200));
   const image = await window.webContents.capturePage();
