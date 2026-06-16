@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "005",
+  "title": "MCP Token And Install UX",
+  "status": "active",
+  "owner_scope": "agent-channel",
+  "affected_scopes": ["agent-channel", "ui", "desktop", "security", "docs", "tooling"],
+  "depends_on": ["004"],
+  "acceptance_criteria": [
+    {"id": "AC-1", "text": "ForgeLink Settings has an Agent apps / MCP section showing bridge build status, local API reachability, token-file state, and install targets.", "state": "pending", "evidence": []},
+    {"id": "AC-2", "text": "The user can create, rotate, and revoke an MCP token file for external apps without exposing the token in renderer state, notifications, logs, screenshots, or persisted diagnostics.", "state": "pending", "evidence": []},
+    {"id": "AC-3", "text": "ForgeLink presents copyable install commands or generated config paths for VS Code/Copilot, Claude Code, Codex, and ForgeWire/Fabric using the real local checkout path.", "state": "pending", "evidence": []},
+    {"id": "AC-4", "text": "A built-in test path verifies the MCP bridge can reach the local ForgeLink API and can create a safe test agent-channel message.", "state": "pending", "evidence": []},
+    {"id": "AC-5", "text": "Automated tests cover token-file create/rotate/revoke behavior, renderer redaction boundaries, install command rendering, and MCP bridge health/test-message behavior.", "state": "pending", "evidence": []}
+  ],
+  "created": "2026-06-15",
+  "updated": "2026-06-15"
+}

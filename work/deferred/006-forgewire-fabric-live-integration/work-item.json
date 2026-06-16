@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "006",
+  "title": "ForgeWire Fabric Live Integration",
+  "status": "deferred",
+  "owner_scope": "agent-channel",
+  "affected_scopes": ["agent-channel", "tooling", "docs", "security"],
+  "depends_on": ["004", "005"],
+  "acceptance_criteria": [
+    {"id": "AC-1", "text": "ForgeWire/Fabric can load the ForgeLink MCP bridge from a documented config and list its tools, resources, and prompts as advertised capabilities.", "state": "pending", "evidence": []},
+    {"id": "AC-2", "text": "A live or high-fidelity local smoke proves a Fabric or ForgeWire agent can call request_human_approval and produce a ForgeLink Agents UI message.", "state": "pending", "evidence": []},
+    {"id": "AC-3", "text": "The human action path is validated end-to-end: ForgeLink records the selected action and the originating ForgeWire/Fabric side can observe the outcome.", "state": "pending", "evidence": []},
+    {"id": "AC-4", "text": "Capability manifest output is captured as evidence, including the ForgeLink tools/prompts/resources visible to Fabric routing.", "state": "pending", "evidence": []},
+    {"id": "AC-5", "text": "Any Fabric install or runtime mismatch is documented as either fixed in this item or split into a follow-up work item with explicit owner and risk.", "state": "pending", "evidence": []}
+  ],
+  "created": "2026-06-15",
+  "updated": "2026-06-15"
+}

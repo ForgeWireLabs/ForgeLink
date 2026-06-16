@@ -1,0 +1,19 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "007",
+  "title": "Per-Channel Credentials And Rate Limits",
+  "status": "deferred",
+  "owner_scope": "security",
+  "affected_scopes": ["security", "backend", "data", "ui", "docs", "agent-channel"],
+  "depends_on": ["003", "005"],
+  "acceptance_criteria": [
+    {"id": "AC-1", "text": "Agent channels have separate credentials from the renderer/session token, with channel identity, enabled state, creation time, rotation time, and revocation state.", "state": "pending", "evidence": []},
+    {"id": "AC-2", "text": "The backend authenticates agent-channel message creation by channel credential and rejects missing, invalid, disabled, revoked, or mismatched credentials.", "state": "pending", "evidence": []},
+    {"id": "AC-3", "text": "Rate limits exist per channel and urgency class, with deterministic failure responses and no sensitive body logging.", "state": "pending", "evidence": []},
+    {"id": "AC-4", "text": "Settings UI lets the human view channel identities, create/rotate/revoke credentials, disable channels, and see recent rejection/rate-limit counts without exposing secrets.", "state": "pending", "evidence": []},
+    {"id": "AC-5", "text": "Backup/export/retention behavior for channel metadata is explicit, tested, and documented, including which secret material is excluded or encrypted.", "state": "pending", "evidence": []},
+    {"id": "AC-6", "text": "Tests cover valid channel auth, invalid auth, revoked channel, disabled channel, urgency abuse, rate-limit reset, UI redaction, and migration from the current launch-token-only model.", "state": "pending", "evidence": []}
+  ],
+  "created": "2026-06-15",
+  "updated": "2026-06-15"
+}
