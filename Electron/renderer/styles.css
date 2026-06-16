@@ -269,6 +269,10 @@ h1, h2, h3, p { margin: 0; }
 .service-address code { color: var(--muted-bright); }
 .service-address span { color: var(--green); font-size: 11px; }
 .data-actions { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 8px; }
+.attention-grid { margin-top: 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.attention-grid .span-two { grid-column: 1 / -1; }
+.toggle-row { min-height: 44px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted-bright); background: rgba(0,0,0,.1); font-size: 12px; font-weight: 650; }
+.toggle-row input { width: 16px; height: 16px; accent-color: var(--accent-bright); }
 .retention-row { margin-top: 18px; display: grid; grid-template-columns: minmax(180px, 1fr) auto; align-items: end; gap: 12px; }
 .retention-row .button { min-height: 40px; }
 .mcp-paths { margin-top: 14px; display: grid; gap: 8px; }
@@ -295,7 +299,7 @@ h1, h2, h3, p { margin: 0; }
 .modal-actions { padding: 14px 22px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); background: rgba(0,0,0,.12); }
 .form-stack { display: grid; gap: 15px; }
 .field { display: grid; gap: 7px; color: var(--muted-bright); font-size: 11px; font-weight: 650; }
-.field input, .field textarea { width: 100%; padding: 11px 12px; border: 1px solid var(--line-strong); border-radius: 11px; color: var(--text); background: #0f131a; resize: vertical; }
+.field input, .field textarea, .field select { width: 100%; padding: 11px 12px; border: 1px solid var(--line-strong); border-radius: 11px; color: var(--text); background: #0f131a; resize: vertical; }
 .field small { color: var(--muted); font-weight: 400; }
 .modal-error { margin-top: 14px; padding: 10px; border-radius: 9px; color: #ffd5da; background: rgba(255,112,130,.12); font-size: 11px; }
 .contact-picker { max-height: 310px; display: grid; gap: 5px; overflow-y: auto; }

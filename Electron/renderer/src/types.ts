@@ -15,12 +15,18 @@ export interface DataStatus { schema_version: number; latest_backup: string | nu
 export interface RetentionResult { deletedMessages: number; deletedThreads: number; deletedUploads: number; deletedAgentMessages: number; deletedSignalItems: number; }
 export interface McpStatus { configured: boolean; created_at: string | null; rotated_at: string | null; revoked_at: string | null; last_used_at: string | null; last_test_at: string | null; last_test_status: string | null; token_file: string; token_file_present: boolean; bridge_server: string; bridge_built: boolean; base_url: string; install_commands: Record<string, string>; }
 export interface AgentChannelStatus { channel_id: string; label: string; enabled: boolean; configured: boolean; created_at: string; rotated_at: string; revoked_at: string | null; last_used_at: string | null; last_rejected_at: string | null; rejection_count: number; rate_limited_count: number; token_file?: string; token_file_present?: boolean; }
-export interface DesktopStatus { running: boolean; baseUrl: string; configured?: boolean; credential_source?: "none" | "environment" | "stored"; environment_import_available?: boolean; needs_onboarding?: boolean; settings?: DesktopSettings; validation?: ValidationResult; }
+export interface AttentionPolicy { enabled: boolean; quiet_hours_enabled: boolean; quiet_hours_start: string; quiet_hours_end: string; quiet_hours_allow_urgent: boolean; redact_notification_bodies: boolean; sms_notifications: "all" | "off"; agent_notifications: "all" | "high_and_urgent" | "urgent_only" | "off"; signal_notifications: "all" | "off"; system_notifications: "all" | "failures_only" | "off"; muted_sources: string[]; }
+export interface AttentionEvent { kind: "sms" | "agent" | "signal" | "system"; title?: string; body?: string; source?: string; source_title?: string; channel_id?: string; urgency?: "low" | "normal" | "high" | "urgent"; category?: "info" | "failure"; }
+export interface AttentionDecision { notify: boolean; reason: string; title?: string; body?: string; }
+export interface DesktopStatus { running: boolean; baseUrl: string; configured?: boolean; credential_source?: "none" | "environment" | "stored"; environment_import_available?: boolean; needs_onboarding?: boolean; settings?: DesktopSettings & { attention_policy?: AttentionPolicy }; validation?: ValidationResult; }
 
 declare global {
   interface Window {
     desktop?: {
       notify(title: string, body: string): Promise<void>;
+      notifyEvent(event: AttentionEvent): Promise<AttentionDecision>;
+      attentionPolicy(): Promise<AttentionPolicy>;
+      saveAttentionPolicy(policy: AttentionPolicy): Promise<AttentionPolicy>;
       openExternal(url: string): Promise<void>;
       backendConnection(): Promise<BackendConnection>;
       getStatus(): Promise<DesktopStatus>;

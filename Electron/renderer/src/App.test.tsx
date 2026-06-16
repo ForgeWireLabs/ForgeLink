@@ -13,6 +13,7 @@ const signalSubscription = { id: "sigsub-1", title: "Forge Signals", url: "https
 const signalItem = { id: "sigitem-1", subscription_id: "sigsub-1", source_title: "Forge Signals", title: "Build note", url: "https://example.com/build", summary: "Release candidate ready.", author: "ForgeWire", published_at: "2026-06-15T12:00:00.000Z", received_at: "2026-06-15T12:01:00.000Z", status: "unread", muted: false };
 const mcpStatus = { configured: false, created_at: null, rotated_at: null, revoked_at: null, last_used_at: null, last_test_at: null, last_test_status: null, token_file: "C:\\Users\\test\\.forgelink\\api.token", token_file_present: false, bridge_server: "C:\\Projects\\TWL_phone\\mcp\\forgelink-human\\dist\\server.js", bridge_built: true, base_url: "http://127.0.0.1:5055", install_commands: { vscode: "install vscode", claude: "install claude", codex: "install codex", forgewire: "install forgewire" } };
 const agentChannel = { channel_id: "forgewire", label: "ForgeWire Fabric", enabled: true, configured: true, created_at: "2026-06-15T22:00:00.000Z", rotated_at: "2026-06-15T22:00:00.000Z", revoked_at: null, last_used_at: null, last_rejected_at: null, rejection_count: 2, rate_limited_count: 1, token_file: "C:\\Users\\test\\.forgelink\\channels\\forgewire.token", token_file_present: true };
+const attentionPolicy = { enabled: true, quiet_hours_enabled: false, quiet_hours_start: "22:00", quiet_hours_end: "07:00", quiet_hours_allow_urgent: false, redact_notification_bodies: true, sms_notifications: "all", agent_notifications: "high_and_urgent", signal_notifications: "off", system_notifications: "all", muted_sources: [] };
 let messagesFixture: Array<Record<string, unknown>>;
 let olderFixture: Array<Record<string, unknown>>;
 let agentMessagesFixture: Array<Record<string, unknown>>;
@@ -29,9 +30,10 @@ beforeEach(() => {
   signalItemsFixture = [signalItem];
   window.desktop = {
     notify: vi.fn(),
+    notifyEvent: vi.fn().mockResolvedValue({ notify: true, reason: "allowed", title: "ForgeLink", body: "ForgeLink has an update." }),
     openExternal: vi.fn(),
     backendConnection: vi.fn().mockResolvedValue({ baseUrl: "http://127.0.0.1:5055", apiToken: "renderer-api-token" }),
-    getStatus: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored", needs_onboarding: false, settings: { account_sid: "AC123", auth_token_configured: true, twilio_number: "+15550001111", public_base_url: "https://phone.example.com", webhook_host: "127.0.0.1", webhook_port: 5055 } }),
+    getStatus: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored", needs_onboarding: false, settings: { account_sid: "AC123", auth_token_configured: true, twilio_number: "+15550001111", public_base_url: "https://phone.example.com", webhook_host: "127.0.0.1", webhook_port: 5055, attention_policy: attentionPolicy } }),
     validateSettings: vi.fn().mockResolvedValue({ account_name: "Test Account", account_status: "active", phone_number: "+15550002222" }),
     startServer: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5056", configured: true, credential_source: "stored", validation: { account_name: "Test Account", account_status: "active", phone_number: "+15550002222" }, settings: { account_sid: "AC999", auth_token_configured: true, twilio_number: "+15550002222", public_base_url: "https://new.example.com", webhook_host: "127.0.0.1", webhook_port: 5056 } }),
     importEnvironment: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored" }),
@@ -42,6 +44,8 @@ beforeEach(() => {
     revokeMcpToken: vi.fn().mockResolvedValue({ ...mcpStatus, configured: false, token_file_present: false, revoked_at: "2026-06-15T22:01:00.000Z" }),
     testMcpBridge: vi.fn().mockResolvedValue({ ...mcpStatus, configured: true, token_file_present: true, last_test_status: "passed", last_test_at: "2026-06-15T22:02:00.000Z" }),
     agentChannels: vi.fn().mockResolvedValue([agentChannel]),
+    attentionPolicy: vi.fn().mockResolvedValue(attentionPolicy),
+    saveAttentionPolicy: vi.fn().mockResolvedValue({ ...attentionPolicy, signal_notifications: "all", quiet_hours_enabled: true, muted_sources: ["forgewire"] }),
     createAgentChannel: vi.fn().mockResolvedValue(agentChannel),
     rotateAgentChannel: vi.fn().mockResolvedValue({ ...agentChannel, rotated_at: "2026-06-15T22:03:00.000Z" }),
     revokeAgentChannel: vi.fn().mockResolvedValue({ ...agentChannel, configured: false, revoked_at: "2026-06-15T22:04:00.000Z", token_file_present: false }),
@@ -141,7 +145,7 @@ describe("React renderer parity", () => {
     expect(window.desktop?.openExternal).toHaveBeenCalledWith("https://example.com/build");
     await userEvent.click(screen.getByRole("button", { name: "Archive" }));
     await waitFor(() => expect(screen.queryByText("Build note")).toBeNull());
-    expect(window.desktop?.notify).not.toHaveBeenCalledWith(expect.stringContaining("Signal"), expect.anything());
+    expect(window.desktop?.notifyEvent).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "signal" }));
   });
 
   it("adds and controls signal subscriptions without exposing them to message views", async () => {
@@ -168,6 +172,21 @@ describe("React renderer parity", () => {
     await userEvent.click(screen.getByRole("button", { name: "Apply retention" }));
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).endsWith("/api/data/retention"))).toBe(true));
     expect(window.confirm).toHaveBeenCalledTimes(2);
+  });
+
+  it("saves explicit attention policy controls from settings", async () => {
+    render(<App/>);
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(await screen.findByRole("heading", { name: "Attention policy" })).toBeTruthy();
+    await userEvent.click(screen.getByLabelText("Quiet hours"));
+    await userEvent.selectOptions(screen.getByLabelText("Trusted signals"), "all");
+    await userEvent.type(screen.getByLabelText("Muted sources or channel IDs"), "forgewire");
+    await userEvent.click(screen.getByRole("button", { name: "Save attention policy" }));
+    await waitFor(() => expect(window.desktop?.saveAttentionPolicy).toHaveBeenCalledWith(expect.objectContaining({
+      quiet_hours_enabled: true,
+      signal_notifications: "all",
+      muted_sources: ["forgewire"]
+    })));
   });
 
   it("opens a modal, closes it with Escape, and restores focus", async () => {

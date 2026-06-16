@@ -1,3 +1,5 @@
+const { DEFAULT_ATTENTION_POLICY, normalizeAttentionPolicy } = require("./attention");
+
 const DEFAULT_SETTINGS = {
   account_sid: "",
   auth_token: "",
@@ -5,7 +7,8 @@ const DEFAULT_SETTINGS = {
   public_base_url: "",
   webhook_host: "127.0.0.1",
   webhook_port: 5055,
-  onboarding_complete: false
+  onboarding_complete: false,
+  attention_policy: DEFAULT_ATTENTION_POLICY
 };
 
 function normalizePhone(value) {
@@ -18,6 +21,7 @@ function normalizePhone(value) {
 
 function validateLocalSettings(settings) {
   const next = { ...DEFAULT_SETTINGS, ...settings };
+  next.attention_policy = normalizeAttentionPolicy(next.attention_policy);
   next.account_sid = String(next.account_sid || "").trim();
   next.auth_token = String(next.auth_token || "").trim();
   next.twilio_number = normalizePhone(next.twilio_number);
@@ -30,6 +34,10 @@ function validateLocalSettings(settings) {
   if (!new Set(["127.0.0.1", "localhost"]).has(next.webhook_host)) throw new Error("Local service host must remain on loopback.");
   if (!Number.isInteger(next.webhook_port) || next.webhook_port < 1024 || next.webhook_port > 65535) throw new Error("Local service port must be between 1024 and 65535.");
   return next;
+}
+
+function validateAttentionPolicy(policy) {
+  return normalizeAttentionPolicy(policy);
 }
 
 async function validateTwilioCredentials(settings, fetchImpl = fetch) {
@@ -81,6 +89,7 @@ function createSettingsStore({ fs, path, safeStorage, env, userData, legacyUserD
     }
     if (stored) {
       settings = { ...DEFAULT_SETTINGS, ...stored, auth_token: "" };
+      settings.attention_policy = normalizeAttentionPolicy(stored.attention_policy);
       if (stored.auth_token_encrypted) {
         if (!safeStorage.isEncryptionAvailable()) throw new Error("Secure credential storage is unavailable on this system.");
         settings.auth_token = safeStorage.decryptString(Buffer.from(stored.auth_token_encrypted, "base64"));
@@ -104,6 +113,15 @@ function createSettingsStore({ fs, path, safeStorage, env, userData, legacyUserD
     return current();
   }
 
+  function persistAttentionPolicy(policy) {
+    const next = { ...settings, attention_policy: normalizeAttentionPolicy(policy) };
+    if (settings.auth_token) return persist(next);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(next, null, 2), { mode: 0o600 });
+    settings = next;
+    return current();
+  }
+
   function importEnvironment() {
     if (!environmentAvailable) throw new Error("Complete Twilio environment credentials were not found.");
     return persist(environmentSettings());
@@ -118,8 +136,8 @@ function createSettingsStore({ fs, path, safeStorage, env, userData, legacyUserD
     return current();
   }
 
-  function current() { return { settings: { ...settings }, source, environmentAvailable, configured: Boolean(settings.account_sid && settings.auth_token && settings.twilio_number) }; }
-  return { current, importEnvironment, load, persist, removeCredentials };
+  function current() { return { settings: { ...settings, attention_policy: normalizeAttentionPolicy(settings.attention_policy) }, source, environmentAvailable, configured: Boolean(settings.account_sid && settings.auth_token && settings.twilio_number) }; }
+  return { current, importEnvironment, load, persist, persistAttentionPolicy, removeCredentials };
 }
 
-module.exports = { DEFAULT_SETTINGS, createSettingsStore, normalizePhone, validateLocalSettings, validateTwilioCredentials };
+module.exports = { DEFAULT_SETTINGS, createSettingsStore, normalizePhone, validateAttentionPolicy, validateLocalSettings, validateTwilioCredentials };

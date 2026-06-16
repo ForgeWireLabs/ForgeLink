@@ -1,0 +1,51 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260616-human-attention-policy",
+  "timestamp": "2026-06-16T14:00:00Z",
+  "work_item": "009",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Built backend and renderer, ran renderer tests, attention policy tests, onboarding tests, database/migration/server/signals/Twilio tests, and Electron syntax checks."
+    },
+    {
+      "command": "cd Electron && npm run screenshot",
+      "exit_code": 0,
+      "summary": "Captured Electron/dist/ui-preview.png through the visual smoke harness after adding attention-policy IPC."
+    },
+    {
+      "command": "python scripts/validate_repo.py --root .",
+      "exit_code": 0,
+      "summary": "Repository governance validation passed after moving 009 to completed."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Local system audit passed."
+    }
+  ],
+  "artifacts": [
+    "Electron/attention.js",
+    "Electron/attention.test.js",
+    "Electron/main.js",
+    "Electron/preload.js",
+    "Electron/onboarding.js",
+    "Electron/onboarding.test.js",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/src/types.ts",
+    "Electron/renderer/styles.css",
+    "Electron/scripts/visual-smoke.js",
+    "work/completed/009-human-attention-policy/README.md",
+    "work/completed/009-human-attention-policy/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "runtime": "Node.js 24.15.0",
+    "security_note": "Notifications are redacted by default. Even explicit body display still scrubs Twilio SIDs, ForgeLink tokens, phone-number-like values, and URLs."
+  }
+}
