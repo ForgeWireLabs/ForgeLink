@@ -121,9 +121,45 @@ test("backs up, exports, restores, and reports managed data", async () => {
     assert.equal(readFileSync(join(directory, "uploads", "proof.txt"), "utf8"), "before backup");
 
     const status = await fetch(`${localUrl}/api/data/status`, { headers: authorized() }).then((response) => response.json()) as { schema_version: number; backup_count: number; latest_backup: string };
-    assert.equal(status.schema_version, 4);
+    assert.equal(status.schema_version, 5);
     assert.equal(status.backup_count, 1);
     assert.match(status.latest_backup, /^backup-/);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("manages MCP token and restricts it to agent-safe routes", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "twilio-phone-mcp-token-api-"));
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  try {
+    const created = await fetch(`${localUrl}/api/mcp/token`, { method: "POST", headers: authorized() });
+    assert.equal(created.status, 200);
+    const createdPayload = await created.json() as { token: string; status: { configured: boolean } };
+    assert.match(createdPayload.token, /^flmcp_/);
+    assert.equal(createdPayload.status.configured, true);
+    const mcpHeaders = { Authorization: `Bearer ${createdPayload.token}`, "Content-Type": "application/json" };
+
+    assert.equal((await fetch(`${localUrl}/api/contacts`, { headers: mcpHeaders })).status, 401);
+    assert.equal((await fetch(`${localUrl}/api/data/export`, { method: "POST", headers: mcpHeaders })).status, 401);
+    assert.equal((await fetch(`${localUrl}/health`, { headers: mcpHeaders })).status, 200);
+
+    const posted = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
+      method: "POST",
+      headers: mcpHeaders,
+      body: JSON.stringify({ source: "codex", kind: "approval_request", urgency: "normal", title: "MCP approval", body: "Need approval", actions: [{ id: "approve", label: "Approve" }] })
+    });
+    assert.equal(posted.status, 201);
+    const listed = await fetch(`${localUrl}/api/agent-messages`, { headers: mcpHeaders }).then((response) => response.json()) as Array<{ title: string }>;
+    assert.equal(listed[0].title, "MCP approval");
+
+    const revoked = await fetch(`${localUrl}/api/mcp/token/revoke`, { method: "POST", headers: authorized() });
+    assert.equal(revoked.status, 200);
+    assert.equal((await fetch(`${localUrl}/health`, { headers: mcpHeaders })).status, 401);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(directory, { recursive: true, force: true });

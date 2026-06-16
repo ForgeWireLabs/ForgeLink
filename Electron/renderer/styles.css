@@ -251,6 +251,15 @@ h1, h2, h3, p { margin: 0; }
 .data-actions { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 8px; }
 .retention-row { margin-top: 18px; display: grid; grid-template-columns: minmax(180px, 1fr) auto; align-items: end; gap: 12px; }
 .retention-row .button { min-height: 40px; }
+.mcp-paths { margin-top: 14px; display: grid; gap: 8px; }
+.mcp-paths div, .install-command {
+  min-width: 0; padding: 10px; display: grid; gap: 5px; border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.12);
+}
+.mcp-paths span, .install-command span { color: var(--muted); font-size: 10px; font-weight: 750; text-transform: uppercase; }
+.mcp-paths code, .install-command code {
+  color: var(--muted-bright); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.install-command-grid { margin-top: 14px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 
 .modal-overlay { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(3,5,8,.72); backdrop-filter: blur(10px); }
 .modal-card { width: min(470px, 100%); border: 1px solid var(--line-strong); border-radius: 22px; background: #151a23; box-shadow: var(--shadow); overflow: hidden; }

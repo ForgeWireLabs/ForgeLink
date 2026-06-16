@@ -1,0 +1,53 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260615-mcp-token-install-ux",
+  "timestamp": "2026-06-15T20:42:00Z",
+  "work_item": "005",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Built backend and renderer, ran renderer tests, backend HTTP/database/security tests, and Electron syntax checks. Added coverage for MCP token hashing, route restrictions, revocation, renderer redaction, and Settings MCP controls."
+    },
+    {
+      "command": "cd mcp/forgelink-human && npm test",
+      "exit_code": 0,
+      "summary": "Built and tested the ForgeLink human MCP server, resources, prompts, install templates, and installer contract."
+    },
+    {
+      "command": "cd Electron && npm run screenshot",
+      "exit_code": 0,
+      "summary": "Rebuilt the app and captured Electron/dist/ui-preview.png through the visual smoke harness."
+    },
+    {
+      "command": "python scripts/validate_repo.py --root .",
+      "exit_code": 0,
+      "summary": "Repository governance validation passed."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Local system audit passed."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/main.js",
+    "Electron/preload.js",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/src/types.ts",
+    "Electron/renderer/styles.css",
+    "Electron/scripts/visual-smoke.js",
+    "Electron/dist/ui-preview.png"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "runtime": "Node.js 24.15.0",
+    "redaction_note": "The raw MCP token is generated in the desktop process, written to the local token file, stored only as a SHA-256 hash in SQLite, and never rendered in Settings, notifications, exports, or test snapshots. MCP bearer tokens are accepted only for agent-channel-safe routes."
+  }
+}

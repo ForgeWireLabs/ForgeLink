@@ -49,12 +49,39 @@ function isPrivateRoute(pathname: string): boolean {
   return pathname === "/health" || pathname === "/upload" || pathname.startsWith("/api/");
 }
 
-function hasValidApiToken(request: IncomingMessage, expectedToken: string): boolean {
+type AuthKind = "none" | "launch" | "mcp";
+
+function bearerToken(request: IncomingMessage): string {
   const authorization = String(request.headers.authorization || "");
-  const suppliedToken = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+  return authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function hasValidApiToken(token: string, expectedToken: string): boolean {
   const expected = createHash("sha256").update(expectedToken).digest();
-  const supplied = createHash("sha256").update(suppliedToken).digest();
-  return Boolean(suppliedToken) && timingSafeEqual(expected, supplied);
+  const supplied = createHash("sha256").update(token).digest();
+  return Boolean(token) && timingSafeEqual(expected, supplied);
+}
+
+function hasValidMcpToken(token: string, expectedHash: string): boolean {
+  if (!token || !/^[a-f0-9]{64}$/.test(expectedHash)) return false;
+  const expected = Buffer.from(expectedHash, "hex");
+  const supplied = Buffer.from(sha256(token), "hex");
+  return timingSafeEqual(expected, supplied);
+}
+
+function isMcpSafeRoute(method: string | undefined, pathname: string): boolean {
+  if (method === "GET" && pathname === "/health") return true;
+  if (method === "GET" && pathname === "/api/mcp/status") return true;
+  if (method === "POST" && pathname === "/api/mcp/test-message") return true;
+  if (method === "GET" && pathname === "/api/agent-messages") return true;
+  if (method === "POST" && /^\/api\/agent-channels\/[A-Za-z0-9_.:-]{1,80}\/messages$/.test(pathname)) return true;
+  if (method === "POST" && /^\/api\/agent-messages\/[^/]+\/(read|dismiss)$/.test(pathname)) return true;
+  if (method === "POST" && /^\/api\/agent-messages\/[^/]+\/actions\/[^/]+$/.test(pathname)) return true;
+  return false;
 }
 
 function boundedText(value: unknown, label: string, maxLength: number, pattern = /^[\s\S]+$/): string {
@@ -147,7 +174,19 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         response.writeHead(204, { "Access-Control-Allow-Origin": "null", "Access-Control-Allow-Headers": "Authorization, Content-Type", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" });
         return response.end();
       }
-      if (isPrivateRoute(url.pathname) && !hasValidApiToken(request, options.apiToken)) return sendJson(response, { error: "Unauthorized" }, 401);
+      let auth: AuthKind = "none";
+      if (isPrivateRoute(url.pathname)) {
+        const token = bearerToken(request);
+        if (hasValidApiToken(token, options.apiToken)) auth = "launch";
+        else {
+          const record = database.mcpTokenRecord();
+          if (record && !record.revoked_at && hasValidMcpToken(token, record.token_hash) && isMcpSafeRoute(request.method, url.pathname)) {
+            auth = "mcp";
+            database.markMcpTokenUsed();
+          }
+        }
+        if (auth === "none") return sendJson(response, { error: "Unauthorized" }, 401);
+      }
       if (request.method === "GET" && url.pathname === "/health") return sendJson(response, { ok: true, runtime: "node" });
       if (request.method === "GET" && url.pathname === "/api/threads") return sendJson(response, database.threads());
       if (request.method === "GET" && url.pathname === "/api/messages") return sendJson(response, database.messages(Number(url.searchParams.get("thread_id") || 0), url.searchParams.get("before") || undefined));
@@ -158,6 +197,31 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         return sendJson(response, { account_sid: !!config.accountSid, auth_token: !!config.authToken, phone_number: !!config.phoneNumber, public_base_url: !!config.publicBaseUrl });
       }
       if (request.method === "GET" && url.pathname === "/api/data/status") return sendJson(response, await dataStatus());
+      if (request.method === "GET" && url.pathname === "/api/mcp/status") return sendJson(response, { ...database.mcpTokenStatus(), token_hash_present: Boolean(database.mcpTokenRecord()?.token_hash) });
+      if (request.method === "POST" && url.pathname === "/api/mcp/token") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const token = `flmcp_${randomBytes(32).toString("base64url")}`;
+        const status = database.setMcpTokenHash(sha256(token));
+        return sendJson(response, { ok: true, token, status });
+      }
+      if (request.method === "POST" && url.pathname === "/api/mcp/token/revoke") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, { ok: true, status: database.revokeMcpToken() });
+      }
+      if (request.method === "POST" && url.pathname === "/api/mcp/test-message") {
+        const payload = auth === "launch" ? await readJson(request).catch((): Record<string, unknown> => ({})) : {};
+        const message = database.addAgentMessage({
+          id: `mcp-test-${randomUUID()}`,
+          channel_id: String(payload.channel_id || "forgewire"),
+          source: "forgelink-mcp-test",
+          kind: "mcp_bridge_test",
+          urgency: "low",
+          title: "ForgeLink MCP bridge test",
+          body: "This local test confirms an MCP token can reach ForgeLink.",
+          actions: [{ id: "ack", label: "Acknowledge" }]
+        });
+        return sendJson(response, { ok: true, message, status: database.markMcpTest("passed") });
+      }
       if (request.method === "GET" && url.pathname === "/api/agent-messages") return sendJson(response, database.agentMessages());
       const agentMessageMatch = url.pathname.match(/^\/api\/agent-channels\/([A-Za-z0-9_.:-]{1,80})\/messages$/);
       if (request.method === "POST" && agentMessageMatch) {

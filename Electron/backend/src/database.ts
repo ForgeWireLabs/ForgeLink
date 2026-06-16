@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 export interface ThreadRow {
   id: number;
@@ -68,6 +68,20 @@ export interface AgentMessageRow {
   last_error: string;
   created_at: string;
   expires_at?: string | null;
+}
+
+export interface McpTokenStatus {
+  configured: boolean;
+  created_at: string | null;
+  rotated_at: string | null;
+  revoked_at: string | null;
+  last_used_at: string | null;
+  last_test_at: string | null;
+  last_test_status: string | null;
+}
+
+export interface McpTokenRecord extends McpTokenStatus {
+  token_hash: string;
 }
 
 export interface DatabaseState {
@@ -213,6 +227,22 @@ export class PhoneDatabase {
         version = 4;
         this.connection.exec("PRAGMA user_version=4");
       }
+      if (version === 4) {
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS mcp_tokens (
+            id TEXT PRIMARY KEY,
+            token_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            rotated_at TEXT NOT NULL,
+            revoked_at TEXT,
+            last_used_at TEXT,
+            last_test_at TEXT,
+            last_test_status TEXT
+          );
+        `);
+        version = 5;
+        this.connection.exec("PRAGMA user_version=5");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -261,7 +291,8 @@ export class PhoneDatabase {
       contacts: this.connection.prepare("SELECT * FROM contacts ORDER BY id").all(),
       threads: this.connection.prepare("SELECT * FROM threads ORDER BY id").all(),
       messages: this.connection.prepare("SELECT * FROM messages ORDER BY ts, id").all(),
-      agent_messages: this.connection.prepare("SELECT * FROM agent_messages ORDER BY created_at, id").all()
+      agent_messages: this.connection.prepare("SELECT * FROM agent_messages ORDER BY created_at, id").all(),
+      mcp_tokens: this.connection.prepare("SELECT id, created_at, rotated_at, revoked_at, last_used_at, last_test_at, last_test_status FROM mcp_tokens ORDER BY id").all()
     };
   }
 
@@ -436,5 +467,54 @@ export class PhoneDatabase {
 
   private expireAgentMessages(): void {
     this.connection.prepare("UPDATE agent_messages SET status='expired' WHERE expires_at IS NOT NULL AND expires_at <= ? AND status IN ('unread', 'read')").run(utcNow());
+  }
+
+  mcpTokenRecord(): McpTokenRecord | undefined {
+    return this.connection.prepare("SELECT token_hash, created_at, rotated_at, revoked_at, last_used_at, last_test_at, last_test_status FROM mcp_tokens WHERE id='default'").get() as unknown as McpTokenRecord | undefined;
+  }
+
+  mcpTokenStatus(): McpTokenStatus {
+    const row = this.mcpTokenRecord();
+    return {
+      configured: Boolean(row && !row.revoked_at),
+      created_at: row?.created_at || null,
+      rotated_at: row?.rotated_at || null,
+      revoked_at: row?.revoked_at || null,
+      last_used_at: row?.last_used_at || null,
+      last_test_at: row?.last_test_at || null,
+      last_test_status: row?.last_test_status || null
+    };
+  }
+
+  setMcpTokenHash(tokenHash: string): McpTokenStatus {
+    if (!/^[a-f0-9]{64}$/.test(tokenHash)) throw new Error("Invalid MCP token hash.");
+    const now = utcNow();
+    const existing = this.mcpTokenRecord();
+    this.connection.prepare(`
+      INSERT INTO mcp_tokens(id, token_hash, created_at, rotated_at, revoked_at)
+      VALUES('default', ?, ?, ?, NULL)
+      ON CONFLICT(id) DO UPDATE SET token_hash=excluded.token_hash, rotated_at=excluded.rotated_at, revoked_at=NULL
+    `).run(tokenHash, existing?.created_at || now, now);
+    return this.mcpTokenStatus();
+  }
+
+  revokeMcpToken(): McpTokenStatus {
+    const now = utcNow();
+    const existing = this.mcpTokenRecord();
+    if (!existing) {
+      this.connection.prepare("INSERT INTO mcp_tokens(id, token_hash, created_at, rotated_at, revoked_at) VALUES('default', ?, ?, ?, ?)").run("0".repeat(64), now, now, now);
+    } else {
+      this.connection.prepare("UPDATE mcp_tokens SET revoked_at=? WHERE id='default'").run(now);
+    }
+    return this.mcpTokenStatus();
+  }
+
+  markMcpTokenUsed(): void {
+    this.connection.prepare("UPDATE mcp_tokens SET last_used_at=? WHERE id='default' AND revoked_at IS NULL").run(utcNow());
+  }
+
+  markMcpTest(status: string): McpTokenStatus {
+    this.connection.prepare("UPDATE mcp_tokens SET last_test_at=?, last_test_status=? WHERE id='default'").run(utcNow(), status.slice(0, 80));
+    return this.mcpTokenStatus();
   }
 }

@@ -1,6 +1,6 @@
 # 005 - MCP Token And Install UX
 
-> **Status**: Active.
+> **Status**: Completed 2026-06-15.
 > **Owners**: Desktop Agent, UI Agent, Security Agent, Testing Agent.
 > **Depends on**: Work item `004`.
 
@@ -50,12 +50,29 @@ tools they use.
 
 ## Acceptance Evidence
 
-Close with an evidence run that includes:
+Completed with:
+
+- Settings page **Agent apps / MCP** controls for token-file state, bridge build
+  state, local API state, install commands, token creation/rotation,
+  revocation, and a test message.
+- Desktop-owned MCP token lifecycle writing a local token file at the
+  ForgeLink path and returning only redacted status to the renderer.
+- Backend MCP token storage as a SHA-256 hash with revocation metadata and
+  route gating limited to agent-channel-safe MCP routes.
+- Built-in test message path for validating local MCP access without touching
+  SMS, contacts, exports, uploads, or Twilio credentials.
+- Evidence in `evidence/runs/20260615-mcp-token-install-ux.json`.
+
+## Verification
 
 - `cd Electron && npm test`
 - `cd mcp/forgelink-human && npm test`
-- local system audit
-- RepoPact validation
-- visual screenshot if Settings UI changes
-- a redaction note confirming no token value appears in renderer snapshots or
-  test output.
+- `cd Electron && npm run screenshot`
+- `python scripts/validate_repo.py --root .`
+- `python .local/validate_system.py`
+
+## Remaining Risk
+
+The MCP bridge path is surfaced from the local checkout. Packaged installer
+work may still need to decide whether the bridge ships inside the app bundle or
+continues to install from the repository checkout.

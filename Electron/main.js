@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, Notification, safeStorage, shell, utilityPr
 const fs = require("node:fs");
 const { randomBytes } = require("node:crypto");
 const http = require("node:http");
+const os = require("node:os");
 const path = require("node:path");
 const { createSettingsStore, validateTwilioCredentials } = require("./onboarding");
 
@@ -20,6 +21,50 @@ function settingsState() {
 function baseUrl() {
   const settings = settingsState().settings;
   return `http://${settings.webhook_host}:${settings.webhook_port}`;
+}
+
+function mcpTokenFile() {
+  return path.join(os.homedir(), ".forgelink", "api.token");
+}
+
+function mcpServerPath() {
+  return path.resolve(__dirname, "..", "mcp", "forgelink-human", "dist", "server.js");
+}
+
+async function backendJson(route, init = {}) {
+  const response = await fetch(`${baseUrl()}${route}`, {
+    ...init,
+    headers: { ...(init.headers || {}), Authorization: `Bearer ${apiToken}` }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `ForgeLink backend request failed (${response.status}).`);
+  return payload;
+}
+
+function mcpInstallCommand(target = "all") {
+  const script = path.resolve(__dirname, "..", "scripts", "install", "install-forgelink-mcp.ps1");
+  return `pwsh -NoProfile -ExecutionPolicy Bypass -File "${script}" -Target ${target}`;
+}
+
+async function mcpPublicStatus() {
+  const tokenFile = mcpTokenFile();
+  const bridge = mcpServerPath();
+  const status = await backendJson("/api/mcp/status").catch(() => ({ configured: false, last_test_status: "backend_unavailable" }));
+  return {
+    ...status,
+    base_url: baseUrl(),
+    token_file: tokenFile,
+    token_file_present: fs.existsSync(tokenFile),
+    bridge_server: bridge,
+    bridge_built: fs.existsSync(bridge),
+    install_commands: {
+      all: mcpInstallCommand("all"),
+      vscode: mcpInstallCommand("vscode"),
+      claude: mcpInstallCommand("claude"),
+      codex: mcpInstallCommand("codex"),
+      forgewire: mcpInstallCommand("forgewire")
+    }
+  };
 }
 
 function publicStatus() {
@@ -180,6 +225,23 @@ ipcMain.handle("remove-credentials", async () => {
 ipcMain.handle("stop-server", () => {
   stopBackend();
   return publicStatus();
+});
+ipcMain.handle("mcp-status", () => mcpPublicStatus());
+ipcMain.handle("mcp-create-token", async () => {
+  const result = await backendJson("/api/mcp/token", { method: "POST" });
+  const tokenFile = mcpTokenFile();
+  fs.mkdirSync(path.dirname(tokenFile), { recursive: true });
+  fs.writeFileSync(tokenFile, result.token, { mode: 0o600 });
+  return mcpPublicStatus();
+});
+ipcMain.handle("mcp-revoke-token", async () => {
+  const result = await backendJson("/api/mcp/token/revoke", { method: "POST" });
+  try { fs.unlinkSync(mcpTokenFile()); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  return { ...(await mcpPublicStatus()), status: result.status };
+});
+ipcMain.handle("mcp-test-message", async () => {
+  await backendJson("/api/mcp/test-message", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel_id: "forgewire" }) });
+  return mcpPublicStatus();
 });
 
 app.whenReady().then(async () => {

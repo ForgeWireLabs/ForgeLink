@@ -66,6 +66,35 @@ app.whenReady().then(async () => {
   ipcMain.handle("import-environment", () => ({ running: true, baseUrl }));
   ipcMain.handle("remove-credentials", () => ({ running: true, baseUrl, configured: false }));
   ipcMain.handle("stop-server", () => ({ running: false, baseUrl }));
+  const mcpStatus = (overrides = {}) => ({
+    configured: true,
+    created_at: new Date().toISOString(),
+    rotated_at: new Date().toISOString(),
+    revoked_at: null,
+    last_used_at: null,
+    last_test_at: new Date().toISOString(),
+    last_test_status: "passed",
+    token_file: path.join(process.env.USERPROFILE || process.env.HOME || projectRoot, ".forgelink", "api.token"),
+    token_file_present: true,
+    bridge_server: path.join(projectRoot, "mcp", "forgelink-human", "dist", "server.js"),
+    bridge_built: true,
+    base_url: baseUrl,
+    install_commands: {
+      vscode: "code --add-mcp forgelink-human",
+      claude: "claude mcp add forgelink-human node mcp/forgelink-human/dist/server.js",
+      codex: "codex mcp add forgelink-human -- node mcp/forgelink-human/dist/server.js",
+      forgewire: "forgewire mcp add forgelink-human"
+    },
+    ...overrides
+  });
+  ipcMain.handle("mcp-status", () => mcpStatus());
+  ipcMain.handle("mcp-create-token", () => mcpStatus());
+  ipcMain.handle("mcp-revoke-token", () => mcpStatus({
+    configured: false,
+    revoked_at: new Date().toISOString(),
+    token_file_present: false
+  }));
+  ipcMain.handle("mcp-test-message", () => mcpStatus({ last_test_status: "passed" }));
   ipcMain.handle("notify", () => undefined);
   ipcMain.handle("open-url", () => undefined);
 
@@ -83,7 +112,11 @@ app.whenReady().then(async () => {
   });
   await window.loadFile(path.join(projectRoot, "Electron", "renderer", "index.html"));
   await new Promise((resolve) => setTimeout(resolve, 1000));
-  await window.webContents.executeJavaScript("document.querySelector('.thread-row')?.click()");
+  await window.webContents.executeJavaScript(`
+    const settingsButton = document.querySelector('button[aria-label="Settings"]');
+    if (!settingsButton) throw new Error("Settings navigation button was not found.");
+    settingsButton.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+  `);
   await new Promise((resolve) => setTimeout(resolve, 1200));
   const image = await window.webContents.capturePage();
   const output = path.join(projectRoot, "Electron", "dist", "ui-preview.png");

@@ -128,6 +128,25 @@ test("stores agent channel messages separately with export, actions, expiry, and
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
+test("stores only MCP token hashes and redacted metadata", () => {
+  const directory = mkdtempSync(join(tmpdir(), "twilio-phone-mcp-token-"));
+  const path = join(directory, "phone.sqlite3");
+  const database = new PhoneDatabase(path);
+  try {
+    const hash = "a".repeat(64);
+    const status = database.setMcpTokenHash(hash);
+    assert.equal(status.configured, true);
+    assert.equal(database.mcpTokenRecord()?.token_hash, hash);
+    database.markMcpTokenUsed();
+    database.markMcpTest("passed");
+    const exported = database.exportData() as { mcp_tokens: Array<Record<string, unknown>> };
+    assert.equal(exported.mcp_tokens.length, 1);
+    assert.equal("token_hash" in exported.mcp_tokens[0], false);
+    assert.equal(database.revokeMcpToken().configured, false);
+    assert.ok(database.mcpTokenStatus().revoked_at);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("quarantines a corrupt database and starts a recoverable empty store", () => {
   const directory = mkdtempSync(join(tmpdir(), "twilio-phone-corrupt-"));
   const path = join(directory, "phone.sqlite3");
