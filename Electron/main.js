@@ -27,6 +27,10 @@ function mcpTokenFile() {
   return path.join(os.homedir(), ".forgelink", "api.token");
 }
 
+function channelTokenFile(channelId = "forgewire") {
+  return path.join(os.homedir(), ".forgelink", "channels", `${channelId}.token`);
+}
+
 function mcpServerPath() {
   return path.resolve(__dirname, "..", "mcp", "forgelink-human", "dist", "server.js");
 }
@@ -55,6 +59,8 @@ async function mcpPublicStatus() {
     base_url: baseUrl(),
     token_file: tokenFile,
     token_file_present: fs.existsSync(tokenFile),
+    channel_token_file: channelTokenFile("forgewire"),
+    channel_token_file_present: fs.existsSync(channelTokenFile("forgewire")),
     bridge_server: bridge,
     bridge_built: fs.existsSync(bridge),
     install_commands: {
@@ -242,6 +248,34 @@ ipcMain.handle("mcp-revoke-token", async () => {
 ipcMain.handle("mcp-test-message", async () => {
   await backendJson("/api/mcp/test-message", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel_id: "forgewire" }) });
   return mcpPublicStatus();
+});
+ipcMain.handle("agent-channels", async () => {
+  const channels = await backendJson("/api/agent-channels");
+  return channels.map((channel) => ({ ...channel, token_file: channelTokenFile(channel.channel_id), token_file_present: fs.existsSync(channelTokenFile(channel.channel_id)) }));
+});
+ipcMain.handle("agent-channel-create", async (_, payload = {}) => {
+  const channelId = String(payload.channel_id || "forgewire");
+  const result = await backendJson("/api/agent-channels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel_id: channelId, label: String(payload.label || channelId) }) });
+  const file = channelTokenFile(result.channel.channel_id);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, result.token, { mode: 0o600 });
+  return { ...result.channel, token_file: file, token_file_present: true };
+});
+ipcMain.handle("agent-channel-rotate", async (_, channelId = "forgewire") => {
+  const result = await backendJson(`/api/agent-channels/${encodeURIComponent(String(channelId))}/token`, { method: "POST" });
+  const file = channelTokenFile(result.channel.channel_id);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, result.token, { mode: 0o600 });
+  return { ...result.channel, token_file: file, token_file_present: true };
+});
+ipcMain.handle("agent-channel-revoke", async (_, channelId = "forgewire") => {
+  const result = await backendJson(`/api/agent-channels/${encodeURIComponent(String(channelId))}/revoke`, { method: "POST" });
+  try { fs.unlinkSync(channelTokenFile(result.channel.channel_id)); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  return { ...result.channel, token_file: channelTokenFile(result.channel.channel_id), token_file_present: false };
+});
+ipcMain.handle("agent-channel-enabled", async (_, channelId = "forgewire", enabled = true) => {
+  const result = await backendJson(`/api/agent-channels/${encodeURIComponent(String(channelId))}/${enabled ? "enable" : "disable"}`, { method: "POST" });
+  return { ...result.channel, token_file: channelTokenFile(result.channel.channel_id), token_file_present: fs.existsSync(channelTokenFile(result.channel.channel_id)) };
 });
 
 app.whenReady().then(async () => {

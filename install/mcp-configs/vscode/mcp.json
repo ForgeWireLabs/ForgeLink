@@ -9,6 +9,7 @@
       "env": {
         "FORGELINK_BASE_URL": "http://127.0.0.1:5055",
         "FORGELINK_API_TOKEN_FILE": "${userHome}\\.forgelink\\api.token",
+        "FORGELINK_CHANNEL_TOKEN_FILE": "${userHome}\\.forgelink\\channels\\forgewire.token",
         "FORGELINK_CHANNEL_ID": "forgewire",
         "FORGELINK_SOURCE": "vscode-copilot"
       }

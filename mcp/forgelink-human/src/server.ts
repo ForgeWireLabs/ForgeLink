@@ -54,7 +54,8 @@ const installGuide = `Install by adding this server to an MCP client config.
 Command: node
 Args: ["<repo>/mcp/forgelink-human/dist/server.js"]
 Env: FORGELINK_BASE_URL, FORGELINK_API_TOKEN_FILE or FORGELINK_API_TOKEN,
-FORGELINK_CHANNEL_ID, FORGELINK_SOURCE.
+FORGELINK_CHANNEL_TOKEN_FILE or FORGELINK_CHANNEL_TOKEN, FORGELINK_CHANNEL_ID,
+FORGELINK_SOURCE.
 
 Templates live under install/mcp-configs/.`;
 
@@ -192,6 +193,18 @@ function apiToken(): string {
   throw new Error("Set FORGELINK_API_TOKEN or FORGELINK_API_TOKEN_FILE.");
 }
 
+function secretFromEnv(name: string, fileName: string): string {
+  const direct = process.env[name]?.trim();
+  if (direct) return direct;
+  const file = process.env[fileName]?.trim();
+  if (file) return readFileSync(file, "utf8").trim();
+  return "";
+}
+
+function channelCredential(): string {
+  return secretFromEnv("FORGELINK_CHANNEL_TOKEN", "FORGELINK_CHANNEL_TOKEN_FILE");
+}
+
 function text(value: Json | undefined, label: string, max: number, fallback = ""): string {
   const result = String(value ?? fallback).trim();
   if (!result || result.length > max) throw new Error(`${label} is required and must be <= ${max} characters.`);
@@ -232,6 +245,14 @@ async function forgeFetch(path: string, init?: RequestInit): Promise<Json> {
   return payload;
 }
 
+async function forgeChannelFetch(channel: string, init?: RequestInit): Promise<Json> {
+  const credential = channelCredential();
+  if (!credential) throw new Error("Set FORGELINK_CHANNEL_TOKEN or FORGELINK_CHANNEL_TOKEN_FILE for agent-channel message creation.");
+  const headers = new Headers(init?.headers);
+  headers.set("X-ForgeLink-Channel-Token", credential);
+  return forgeFetch(`/api/agent-channels/${encodeURIComponent(channel)}/messages`, { ...init, headers });
+}
+
 function messagePayload(args: JsonObject, defaultKind: string, includeActions: boolean): JsonObject {
   const payload: JsonObject = {
     source: source(args),
@@ -250,13 +271,13 @@ function messagePayload(args: JsonObject, defaultKind: string, includeActions: b
 
 async function callTool(name: string, args: JsonObject): Promise<Json> {
   if (name === "send_human_message") {
-    return forgeFetch(`/api/agent-channels/${encodeURIComponent(channelId(args))}/messages`, {
+    return forgeChannelFetch(channelId(args), {
       method: "POST",
       body: JSON.stringify(messagePayload(args, "operator_prompt", false))
     });
   }
   if (name === "request_human_approval") {
-    return forgeFetch(`/api/agent-channels/${encodeURIComponent(channelId(args))}/messages`, {
+    return forgeChannelFetch(channelId(args), {
       method: "POST",
       body: JSON.stringify(messagePayload(args, "approval_request", true))
     });

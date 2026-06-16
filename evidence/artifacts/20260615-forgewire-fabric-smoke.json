@@ -393,14 +393,14 @@
     }
   ],
   "transcript": {
-    "created_message_id": "fabric-smoke-1781574782411",
+    "created_message_id": "fabric-smoke-1781576194863",
     "channel_id": "forgewire",
     "source": "forgewire-fabric",
     "kind": "approval_request",
     "urgency": "normal",
     "action_result": {
       "action_id": "approve",
-      "acted_at": "2026-06-16T01:53:02.499Z"
+      "acted_at": "2026-06-16T02:16:35.022Z"
     }
   },
   "redaction_note": "Token values and message body text are omitted from this smoke output."

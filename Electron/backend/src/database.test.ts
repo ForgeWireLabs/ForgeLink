@@ -147,6 +147,26 @@ test("stores only MCP token hashes and redacted metadata", () => {
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
+test("stores agent channel credentials as redacted metadata with audit counters", () => {
+  const directory = mkdtempSync(join(tmpdir(), "twilio-phone-agent-channel-credentials-"));
+  const path = join(directory, "phone.sqlite3");
+  const database = new PhoneDatabase(path);
+  try {
+    const hash = "b".repeat(64);
+    const channel = database.setAgentChannelCredential("forgewire", "ForgeWire Fabric", hash);
+    assert.equal(channel.configured, true);
+    assert.equal(database.agentChannelRecord("forgewire")?.credential_hash, hash);
+    database.markAgentChannelUsed("forgewire", "normal");
+    database.markAgentChannelRejected("forgewire", "urgent", "rate_limited");
+    const exported = database.exportData() as { agent_channels: Array<Record<string, unknown>> };
+    assert.equal(exported.agent_channels.length, 1);
+    assert.equal("credential_hash" in exported.agent_channels[0], false);
+    assert.equal(database.agentChannels()[0].rate_limited_count, 1);
+    assert.equal(database.revokeAgentChannel("forgewire").configured, false);
+    assert.ok(database.agentChannelRecord("forgewire")?.revoked_at);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("quarantines a corrupt database and starts a recoverable empty store", () => {
   const directory = mkdtempSync(join(tmpdir(), "twilio-phone-corrupt-"));
   const path = join(directory, "phone.sqlite3");

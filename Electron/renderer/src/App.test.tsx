@@ -10,6 +10,7 @@ const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
 const message = { id: "SM1", direction: "inbound", body: "Hello", ts: "2026-06-14T18:00:00.000Z", status: "received", media_urls: "" };
 const agentMessage = { id: "agent-1", channel_id: "forgewire", source: "forgewire", kind: "approval_request", urgency: "normal", title: "Release approval", body: "ForgeWire wants approval.", actions: JSON.stringify([{ id: "approve", label: "Approve" }]), status: "unread", action_result: "", created_at: "2026-06-14T18:00:00.000Z", expires_at: "2099-01-01T00:00:00.000Z", last_error: "" };
 const mcpStatus = { configured: false, created_at: null, rotated_at: null, revoked_at: null, last_used_at: null, last_test_at: null, last_test_status: null, token_file: "C:\\Users\\test\\.forgelink\\api.token", token_file_present: false, bridge_server: "C:\\Projects\\TWL_phone\\mcp\\forgelink-human\\dist\\server.js", bridge_built: true, base_url: "http://127.0.0.1:5055", install_commands: { vscode: "install vscode", claude: "install claude", codex: "install codex", forgewire: "install forgewire" } };
+const agentChannel = { channel_id: "forgewire", label: "ForgeWire Fabric", enabled: true, configured: true, created_at: "2026-06-15T22:00:00.000Z", rotated_at: "2026-06-15T22:00:00.000Z", revoked_at: null, last_used_at: null, last_rejected_at: null, rejection_count: 2, rate_limited_count: 1, token_file: "C:\\Users\\test\\.forgelink\\channels\\forgewire.token", token_file_present: true };
 let messagesFixture: Array<Record<string, unknown>>;
 let olderFixture: Array<Record<string, unknown>>;
 let agentMessagesFixture: Array<Record<string, unknown>>;
@@ -34,6 +35,11 @@ beforeEach(() => {
     createMcpToken: vi.fn().mockResolvedValue({ ...mcpStatus, configured: true, token_file_present: true, rotated_at: "2026-06-15T22:00:00.000Z" }),
     revokeMcpToken: vi.fn().mockResolvedValue({ ...mcpStatus, configured: false, token_file_present: false, revoked_at: "2026-06-15T22:01:00.000Z" }),
     testMcpBridge: vi.fn().mockResolvedValue({ ...mcpStatus, configured: true, token_file_present: true, last_test_status: "passed", last_test_at: "2026-06-15T22:02:00.000Z" }),
+    agentChannels: vi.fn().mockResolvedValue([agentChannel]),
+    createAgentChannel: vi.fn().mockResolvedValue(agentChannel),
+    rotateAgentChannel: vi.fn().mockResolvedValue({ ...agentChannel, rotated_at: "2026-06-15T22:03:00.000Z" }),
+    revokeAgentChannel: vi.fn().mockResolvedValue({ ...agentChannel, configured: false, revoked_at: "2026-06-15T22:04:00.000Z", token_file_present: false }),
+    setAgentChannelEnabled: vi.fn().mockResolvedValue({ ...agentChannel, enabled: false }),
     onServerStatus: vi.fn()
   };
   vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -48,7 +54,7 @@ beforeEach(() => {
     if (url.endsWith("/api/threads")) return response([thread]);
     if (url.includes("/api/contacts")) return response(init?.method === "POST" ? { ok: true } : [contact]);
     if (url.endsWith("/api/config-status")) return response({ account_sid: true, auth_token: true, phone_number: true, public_base_url: true });
-    if (url.endsWith("/api/data/status")) return response({ schema_version: 5, latest_backup: "backup-test", backup_count: 1, recovered_from: null, migration_backup: null });
+    if (url.endsWith("/api/data/status")) return response({ schema_version: 6, latest_backup: "backup-test", backup_count: 1, recovered_from: null, migration_backup: null });
     if (url.endsWith("/api/data/backup")) return response({ ok: true, name: "backup-test" });
     if (url.endsWith("/api/data/export")) return response({ ok: true, name: "export-test.json" });
     if (url.endsWith("/api/data/restore-latest")) return response({ ok: true, name: "backup-test" });
@@ -115,7 +121,7 @@ describe("React renderer parity", () => {
   it("backs up, exports, restores, and applies local retention from settings", async () => {
     render(<App/>);
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
-    await screen.findByText("Schema version 5. Backups and exports contain private message and contact data.");
+    await screen.findByText("Schema version 6. Backups and exports contain private message and contact data.");
     await userEvent.click(screen.getByRole("button", { name: "Create backup" }));
     await userEvent.click(screen.getByRole("button", { name: "Export JSON" }));
     await userEvent.click(screen.getByRole("button", { name: "Restore latest backup" }));
@@ -243,6 +249,24 @@ describe("React renderer parity", () => {
     await waitFor(() => expect(window.desktop?.testMcpBridge).toHaveBeenCalled());
     await userEvent.click(screen.getByRole("button", { name: "Revoke token" }));
     await waitFor(() => expect(window.desktop?.revokeMcpToken).toHaveBeenCalled());
+  });
+
+  it("manages agent channel credentials without rendering secret values", async () => {
+    render(<App/>);
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(await screen.findByText("Agent channel credentials")).toBeTruthy();
+    expect(screen.getByText("ForgeWire Fabric")).toBeTruthy();
+    expect(screen.getByText(/Rejected 2/)).toBeTruthy();
+    expect(screen.queryByText(/flchan_/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Create ForgeWire channel" }));
+    await waitFor(() => expect(window.desktop?.createAgentChannel).toHaveBeenCalledWith({ channel_id: "forgewire", label: "ForgeWire Fabric" }));
+    await userEvent.click(screen.getByRole("button", { name: "Rotate" }));
+    await waitFor(() => expect(window.desktop?.rotateAgentChannel).toHaveBeenCalledWith("forgewire"));
+    await userEvent.click(screen.getByRole("button", { name: "Disable" }));
+    await waitFor(() => expect(window.desktop?.setAgentChannelEnabled).toHaveBeenCalledWith("forgewire", false));
+    await userEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    await waitFor(() => expect(window.desktop?.revokeAgentChannel).toHaveBeenCalledWith("forgewire"));
+    expect(screen.queryByText(/flchan_/)).toBeNull();
   });
 
   it("imports complete environment credentials explicitly", async () => {

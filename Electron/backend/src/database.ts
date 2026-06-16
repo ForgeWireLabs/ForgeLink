@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 export interface ThreadRow {
   id: number;
@@ -83,6 +83,27 @@ export interface McpTokenStatus {
 export interface McpTokenRecord extends McpTokenStatus {
   token_hash: string;
 }
+
+export interface AgentChannelStatus {
+  channel_id: string;
+  label: string;
+  enabled: boolean;
+  configured: boolean;
+  created_at: string;
+  rotated_at: string;
+  revoked_at: string | null;
+  last_used_at: string | null;
+  last_rejected_at: string | null;
+  rejection_count: number;
+  rate_limited_count: number;
+}
+
+export interface AgentChannelRecord extends AgentChannelStatus {
+  credential_hash: string;
+}
+
+type AgentChannelDbRow = Omit<AgentChannelStatus, "enabled" | "configured"> & { enabled: number; configured: number };
+type AgentChannelRecordDbRow = Omit<AgentChannelRecord, "enabled" | "configured"> & { enabled: number; configured: number };
 
 export interface DatabaseState {
   schemaVersion: number;
@@ -243,6 +264,34 @@ export class PhoneDatabase {
         version = 5;
         this.connection.exec("PRAGMA user_version=5");
       }
+      if (version === 5) {
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS agent_channels (
+            channel_id TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            credential_hash TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            rotated_at TEXT NOT NULL,
+            revoked_at TEXT,
+            last_used_at TEXT,
+            last_rejected_at TEXT,
+            rejection_count INTEGER NOT NULL DEFAULT 0,
+            rate_limited_count INTEGER NOT NULL DEFAULT 0
+          );
+          CREATE TABLE IF NOT EXISTS agent_channel_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_id TEXT NOT NULL,
+            urgency TEXT NOT NULL,
+            accepted INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            created_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_agent_channel_events_window ON agent_channel_events(channel_id, urgency, accepted, created_at);
+        `);
+        version = 6;
+        this.connection.exec("PRAGMA user_version=6");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -292,7 +341,8 @@ export class PhoneDatabase {
       threads: this.connection.prepare("SELECT * FROM threads ORDER BY id").all(),
       messages: this.connection.prepare("SELECT * FROM messages ORDER BY ts, id").all(),
       agent_messages: this.connection.prepare("SELECT * FROM agent_messages ORDER BY created_at, id").all(),
-      mcp_tokens: this.connection.prepare("SELECT id, created_at, rotated_at, revoked_at, last_used_at, last_test_at, last_test_status FROM mcp_tokens ORDER BY id").all()
+      mcp_tokens: this.connection.prepare("SELECT id, created_at, rotated_at, revoked_at, last_used_at, last_test_at, last_test_status FROM mcp_tokens ORDER BY id").all(),
+      agent_channels: this.connection.prepare("SELECT channel_id, label, enabled, created_at, rotated_at, revoked_at, last_used_at, last_rejected_at, rejection_count, rate_limited_count FROM agent_channels ORDER BY channel_id").all()
     };
   }
 
@@ -516,5 +566,80 @@ export class PhoneDatabase {
   markMcpTest(status: string): McpTokenStatus {
     this.connection.prepare("UPDATE mcp_tokens SET last_test_at=?, last_test_status=? WHERE id='default'").run(utcNow(), status.slice(0, 80));
     return this.mcpTokenStatus();
+  }
+
+  agentChannels(): AgentChannelStatus[] {
+    return (this.connection.prepare(`
+      SELECT channel_id, label, enabled, created_at, rotated_at, revoked_at, last_used_at, last_rejected_at, rejection_count, rate_limited_count,
+             credential_hash <> '' AS configured
+      FROM agent_channels ORDER BY channel_id
+    `).all() as unknown as AgentChannelDbRow[]).map((row) => ({
+      ...row,
+      enabled: Boolean(row.enabled),
+      configured: Boolean(row.configured)
+    }));
+  }
+
+  agentChannelRecord(channelId: string): AgentChannelRecord | undefined {
+    const row = this.connection.prepare(`
+      SELECT channel_id, label, credential_hash, enabled, credential_hash <> '' AS configured,
+             created_at, rotated_at, revoked_at, last_used_at, last_rejected_at, rejection_count, rate_limited_count
+      FROM agent_channels WHERE channel_id=?
+    `).get(channelId) as unknown as AgentChannelRecordDbRow | undefined;
+    return row ? { ...row, enabled: Boolean(row.enabled), configured: Boolean(row.configured) } : undefined;
+  }
+
+  setAgentChannelCredential(channelId: string, label: string, credentialHash: string): AgentChannelStatus {
+    if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(channelId)) throw new Error("Invalid agent channel id.");
+    if (!/^[a-f0-9]{64}$/.test(credentialHash)) throw new Error("Invalid agent channel credential hash.");
+    const now = utcNow();
+    const existing = this.agentChannelRecord(channelId);
+    this.connection.prepare(`
+      INSERT INTO agent_channels(channel_id, label, credential_hash, enabled, created_at, rotated_at, revoked_at)
+      VALUES(?, ?, ?, 1, ?, ?, NULL)
+      ON CONFLICT(channel_id) DO UPDATE SET
+        label=excluded.label,
+        credential_hash=excluded.credential_hash,
+        enabled=1,
+        rotated_at=excluded.rotated_at,
+        revoked_at=NULL
+    `).run(channelId, label.slice(0, 120) || channelId, credentialHash, existing?.created_at || now, now);
+    return this.agentChannelRecord(channelId)!;
+  }
+
+  setAgentChannelEnabled(channelId: string, enabled: boolean): AgentChannelStatus {
+    if (this.connection.prepare("UPDATE agent_channels SET enabled=? WHERE channel_id=?").run(enabled ? 1 : 0, channelId).changes !== 1) throw new Error("Agent channel not found.");
+    return this.agentChannelRecord(channelId)!;
+  }
+
+  revokeAgentChannel(channelId: string): AgentChannelStatus {
+    const now = utcNow();
+    if (this.connection.prepare("UPDATE agent_channels SET revoked_at=?, credential_hash='' WHERE channel_id=?").run(now, channelId).changes !== 1) throw new Error("Agent channel not found.");
+    return this.agentChannelRecord(channelId)!;
+  }
+
+  markAgentChannelUsed(channelId: string, urgency: string): void {
+    const now = utcNow();
+    this.connection.prepare("UPDATE agent_channels SET last_used_at=? WHERE channel_id=?").run(now, channelId);
+    this.connection.prepare("INSERT INTO agent_channel_events(channel_id, urgency, accepted, reason, created_at) VALUES(?, ?, 1, 'accepted', ?)").run(channelId, urgency, now);
+  }
+
+  markAgentChannelRejected(channelId: string, urgency: string, reason: string): void {
+    const now = utcNow();
+    const rateLimited = reason === "rate_limited" ? 1 : 0;
+    this.connection.prepare(`
+      UPDATE agent_channels
+      SET last_rejected_at=?, rejection_count=rejection_count+1, rate_limited_count=rate_limited_count+?
+      WHERE channel_id=?
+    `).run(now, rateLimited, channelId);
+    this.connection.prepare("INSERT INTO agent_channel_events(channel_id, urgency, accepted, reason, created_at) VALUES(?, ?, 0, ?, ?)").run(channelId, urgency || "unknown", reason.slice(0, 80), now);
+  }
+
+  agentChannelAcceptedCount(channelId: string, urgency: string, sinceIso: string): number {
+    const row = this.connection.prepare(`
+      SELECT COUNT(*) AS count FROM agent_channel_events
+      WHERE channel_id=? AND urgency=? AND accepted=1 AND created_at >= ?
+    `).get(channelId, urgency, sinceIso) as { count: number };
+    return Number(row.count);
   }
 }

@@ -5,7 +5,8 @@ param(
     [string]$BaseUrl = "http://127.0.0.1:5055",
     [string]$ChannelId = "forgewire",
     [string]$ApiToken = "",
-    [string]$TokenFile = (Join-Path $HOME ".forgelink\api.token")
+    [string]$TokenFile = (Join-Path $HOME ".forgelink\api.token"),
+    [string]$ChannelTokenFile = (Join-Path $HOME ".forgelink\channels\forgewire.token")
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,6 +28,7 @@ function Json-Config {
         env = @{
             FORGELINK_BASE_URL = $BaseUrl
             FORGELINK_API_TOKEN_FILE = $TokenFile
+            FORGELINK_CHANNEL_TOKEN_FILE = $ChannelTokenFile
             FORGELINK_CHANNEL_ID = $ChannelId
             FORGELINK_SOURCE = $Source
         }
@@ -70,6 +72,7 @@ args = ["$($server.Replace('\', '\\'))"]
 [mcp_servers.forgelink-human.env]
 FORGELINK_BASE_URL = "$BaseUrl"
 FORGELINK_API_TOKEN_FILE = "$($TokenFile.Replace('\', '\\'))"
+FORGELINK_CHANNEL_TOKEN_FILE = "$($ChannelTokenFile.Replace('\', '\\'))"
 FORGELINK_CHANNEL_ID = "$ChannelId"
 FORGELINK_SOURCE = "codex"
 "@

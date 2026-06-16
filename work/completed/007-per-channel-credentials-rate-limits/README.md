@@ -1,6 +1,6 @@
 # 007 - Per-Channel Credentials And Rate Limits
 
-> **Status**: Deferred.
+> **Status**: Completed 2026-06-15.
 > **Owners**: Security Agent, Backend Agent, Data Agent, UI Agent.
 > **Depends on**: Work items `003` and `005`.
 
@@ -36,7 +36,34 @@ credentials, revocation, and rate limits.
 - Should rate limits be token bucket, fixed window, or simple rolling window?
 - Should revocation preserve a channel audit row forever, or follow retention?
 
-## Closeout Evidence
+## Closeout
 
-Close only with backend tests, renderer tests, migration tests, security notes,
-and a redaction audit showing no credential values or message bodies are logged.
+Completed with:
+
+- Schema version 6 agent-channel registry and channel event audit rows.
+- Per-channel SHA-256 credential storage, desktop-written token files, enable,
+  disable, rotate, and revoke flows.
+- Channel-token authentication for agent-channel message creation, separate
+  from renderer/session and MCP tokens.
+- Per-channel urgency limits over a fixed 60-second window: `low=60`,
+  `normal=30`, `high=10`, `urgent=3`.
+- Settings channel administration with token-file paths, enabled/configured
+  state, rejection counts, and rate-limit counts without rendering secrets.
+- MCP bridge support for `FORGELINK_CHANNEL_TOKEN_FILE`.
+- Evidence in
+  `evidence/runs/20260615-per-channel-credentials-rate-limits.json`.
+
+## Verification
+
+- `cd Electron && npm test`
+- `cd mcp/forgelink-human && npm test`
+- `cd mcp/forgelink-human && npm run smoke:fabric`
+- `cd Electron && npm run screenshot`
+- `python .local/validate_system.py`
+
+## Security Notes
+
+Raw channel credentials are returned only once to launch-token-only desktop
+admin calls and are written to local token files by the desktop process. SQLite
+stores only hashes. JSON export includes channel metadata and counters, not
+credential hashes or raw token values.

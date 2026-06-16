@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:
 import { createServer, IncomingMessage, Server, ServerResponse } from "node:http";
 import { extname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
-import { AgentAction, AgentUrgency, PhoneDatabase } from "./database";
+import { AgentAction, AgentChannelRecord, AgentUrgency, PhoneDatabase } from "./database";
 import { utcNow } from "./phone";
 import { loadTwilioConfig, sendTwilioMessage, validateTwilioSignature } from "./twilio";
 
@@ -13,6 +13,7 @@ const MIME_TYPES: Record<string, string> = { ".gif": "image/gif", ".jpeg": "imag
 const BACKUP_FORMAT = "forgelink-backup-v1";
 const LEGACY_BACKUP_FORMAT = "twilio-phone-backup-v1";
 const AGENT_URGENCIES = new Set(["low", "normal", "high", "urgent"]);
+const CHANNEL_LIMITS: Record<string, number> = { low: 60, normal: 30, high: 10, urgent: 3 };
 
 function sendJson(response: ServerResponse, payload: unknown, status = 200): void {
   const data = Buffer.from(JSON.stringify(payload));
@@ -49,7 +50,7 @@ function isPrivateRoute(pathname: string): boolean {
   return pathname === "/health" || pathname === "/upload" || pathname.startsWith("/api/");
 }
 
-type AuthKind = "none" | "launch" | "mcp";
+type AuthKind = "none" | "launch" | "mcp" | "channel";
 
 function bearerToken(request: IncomingMessage): string {
   const authorization = String(request.headers.authorization || "");
@@ -78,10 +79,27 @@ function isMcpSafeRoute(method: string | undefined, pathname: string): boolean {
   if (method === "GET" && pathname === "/api/mcp/status") return true;
   if (method === "POST" && pathname === "/api/mcp/test-message") return true;
   if (method === "GET" && pathname === "/api/agent-messages") return true;
-  if (method === "POST" && /^\/api\/agent-channels\/[A-Za-z0-9_.:-]{1,80}\/messages$/.test(pathname)) return true;
   if (method === "POST" && /^\/api\/agent-messages\/[^/]+\/(read|dismiss)$/.test(pathname)) return true;
   if (method === "POST" && /^\/api\/agent-messages\/[^/]+\/actions\/[^/]+$/.test(pathname)) return true;
   return false;
+}
+
+function channelToken(request: IncomingMessage): string {
+  return String(request.headers["x-forgelink-channel-token"] || "");
+}
+
+function agentChannelPath(pathname: string): string | undefined {
+  return pathname.match(/^\/api\/agent-channels\/([A-Za-z0-9_.:-]{1,80})\/messages$/)?.[1];
+}
+
+function hasValidAgentChannelCredential(token: string, record: AgentChannelRecord): boolean {
+  if (!record.enabled || record.revoked_at || !record.credential_hash || !/^[a-f0-9]{64}$/.test(record.credential_hash)) return false;
+  if (!token) return false;
+  return timingSafeEqual(Buffer.from(record.credential_hash, "hex"), Buffer.from(sha256(token), "hex"));
+}
+
+function rateWindowStart(): string {
+  return new Date(Date.now() - 60_000).toISOString();
 }
 
 function boundedText(value: unknown, label: string, maxLength: number, pattern = /^[\s\S]+$/): string {
@@ -171,13 +189,21 @@ export function createBackend(options: BackendOptions): { server: Server; databa
     try {
       const url = new URL(request.url || "/", `http://${options.host}:${options.port}`);
       if (request.method === "OPTIONS") {
-        response.writeHead(204, { "Access-Control-Allow-Origin": "null", "Access-Control-Allow-Headers": "Authorization, Content-Type", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" });
+        response.writeHead(204, { "Access-Control-Allow-Origin": "null", "Access-Control-Allow-Headers": "Authorization, Content-Type, X-ForgeLink-Channel-Token", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" });
         return response.end();
       }
       let auth: AuthKind = "none";
       if (isPrivateRoute(url.pathname)) {
         const token = bearerToken(request);
-        if (hasValidApiToken(token, options.apiToken)) auth = "launch";
+        const channelId = request.method === "POST" ? agentChannelPath(url.pathname) : undefined;
+        if (channelId) {
+          const record = database.agentChannelRecord(channelId);
+          if (record && hasValidAgentChannelCredential(channelToken(request), record)) auth = "channel";
+          else {
+            database.markAgentChannelRejected(channelId, "unknown", record?.revoked_at ? "revoked" : record && !record.enabled ? "disabled" : "invalid_credential");
+            return sendJson(response, { error: "Unauthorized agent channel credential" }, 401);
+          }
+        } else if (hasValidApiToken(token, options.apiToken)) auth = "launch";
         else {
           const record = database.mcpTokenRecord();
           if (record && !record.revoked_at && hasValidMcpToken(token, record.token_hash) && isMcpSafeRoute(request.method, url.pathname)) {
@@ -198,6 +224,35 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       }
       if (request.method === "GET" && url.pathname === "/api/data/status") return sendJson(response, await dataStatus());
       if (request.method === "GET" && url.pathname === "/api/mcp/status") return sendJson(response, { ...database.mcpTokenStatus(), token_hash_present: Boolean(database.mcpTokenRecord()?.token_hash) });
+      if (request.method === "GET" && url.pathname === "/api/agent-channels") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.agentChannels());
+      }
+      if (request.method === "POST" && url.pathname === "/api/agent-channels") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const channelId = boundedText(payload.channel_id, "channel id", 80, /^[A-Za-z0-9_.:-]+$/);
+        const label = boundedText(payload.label || channelId, "channel label", 120);
+        const token = `flchan_${randomBytes(32).toString("base64url")}`;
+        return sendJson(response, { ok: true, token, channel: database.setAgentChannelCredential(channelId, label, sha256(token)) }, 201);
+      }
+      const channelTokenMatch = url.pathname.match(/^\/api\/agent-channels\/([A-Za-z0-9_.:-]{1,80})\/token$/);
+      if (request.method === "POST" && channelTokenMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const existing = database.agentChannelRecord(channelTokenMatch[1]);
+        const token = `flchan_${randomBytes(32).toString("base64url")}`;
+        return sendJson(response, { ok: true, token, channel: database.setAgentChannelCredential(channelTokenMatch[1], existing?.label || channelTokenMatch[1], sha256(token)) });
+      }
+      const channelRevokeMatch = url.pathname.match(/^\/api\/agent-channels\/([A-Za-z0-9_.:-]{1,80})\/revoke$/);
+      if (request.method === "POST" && channelRevokeMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, { ok: true, channel: database.revokeAgentChannel(channelRevokeMatch[1]) });
+      }
+      const channelEnabledMatch = url.pathname.match(/^\/api\/agent-channels\/([A-Za-z0-9_.:-]{1,80})\/(enable|disable)$/);
+      if (request.method === "POST" && channelEnabledMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, { ok: true, channel: database.setAgentChannelEnabled(channelEnabledMatch[1], channelEnabledMatch[2] === "enable") });
+      }
       if (request.method === "POST" && url.pathname === "/api/mcp/token") {
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         const token = `flmcp_${randomBytes(32).toString("base64url")}`;
@@ -228,9 +283,16 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const payload = await readJson(request);
         const urgency = String(payload.urgency || "normal");
         if (!AGENT_URGENCIES.has(urgency)) throw new Error("urgency is invalid.");
+        const channelId = agentMessageMatch[1];
+        const limit = CHANNEL_LIMITS[urgency] ?? CHANNEL_LIMITS.normal;
+        const count = database.agentChannelAcceptedCount(channelId, urgency, rateWindowStart());
+        if (count >= limit) {
+          database.markAgentChannelRejected(channelId, urgency, "rate_limited");
+          return sendJson(response, { error: "Rate limit exceeded", channel_id: channelId, urgency, limit, retry_after_seconds: 60 }, 429);
+        }
         const message = database.addAgentMessage({
           id: String(payload.id || `agent-${randomUUID()}`).slice(0, 120),
-          channel_id: agentMessageMatch[1],
+          channel_id: channelId,
           source: boundedText(payload.source, "source", 80, /^[A-Za-z0-9_.:-]+$/),
           kind: boundedText(payload.kind, "kind", 80, /^[A-Za-z0-9_.:-]+$/),
           urgency: urgency as AgentUrgency,
@@ -239,6 +301,7 @@ export function createBackend(options: BackendOptions): { server: Server; databa
           actions: agentActions(payload.actions),
           expires_at: optionalIso(payload.expires_at)
         });
+        database.markAgentChannelUsed(channelId, urgency);
         return sendJson(response, { ok: true, message }, 201);
       }
       const agentStatusMatch = url.pathname.match(/^\/api\/agent-messages\/([^/]+)\/(read|dismiss)$/);

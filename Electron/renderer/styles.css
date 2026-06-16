@@ -260,6 +260,12 @@ h1, h2, h3, p { margin: 0; }
   color: var(--muted-bright); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .install-command-grid { margin-top: 14px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.channel-list { margin-top: 12px; display: grid; gap: 10px; }
+.channel-row { border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; background: rgba(255,255,255,.025); }
+.channel-row strong, .channel-row span, .channel-row small, .channel-row code { display: block; min-width: 0; }
+.channel-row span, .channel-row small { color: var(--muted); }
+.channel-row code { margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.channel-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 
 .modal-overlay { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(3,5,8,.72); backdrop-filter: blur(10px); }
 .modal-card { width: min(470px, 100%); border: 1px solid var(--line-strong); border-radius: 22px; background: #151a23; box-shadow: var(--shadow); overflow: hidden; }

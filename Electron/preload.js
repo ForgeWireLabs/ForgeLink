@@ -14,5 +14,10 @@ contextBridge.exposeInMainWorld("desktop", {
   createMcpToken: () => ipcRenderer.invoke("mcp-create-token"),
   revokeMcpToken: () => ipcRenderer.invoke("mcp-revoke-token"),
   testMcpBridge: () => ipcRenderer.invoke("mcp-test-message"),
+  agentChannels: () => ipcRenderer.invoke("agent-channels"),
+  createAgentChannel: (payload) => ipcRenderer.invoke("agent-channel-create", payload),
+  rotateAgentChannel: (channelId) => ipcRenderer.invoke("agent-channel-rotate", channelId),
+  revokeAgentChannel: (channelId) => ipcRenderer.invoke("agent-channel-revoke", channelId),
+  setAgentChannelEnabled: (channelId, enabled) => ipcRenderer.invoke("agent-channel-enabled", channelId, enabled),
   onServerStatus: (callback) => ipcRenderer.on("server-status", (_, status) => callback(status))
 });

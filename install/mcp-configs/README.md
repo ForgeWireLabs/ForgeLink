@@ -21,12 +21,17 @@ Every template uses:
 
 - `FORGELINK_BASE_URL`: ForgeLink local API, usually `http://127.0.0.1:5055`.
 - `FORGELINK_API_TOKEN_FILE`: file containing the ForgeLink local API token.
+- `FORGELINK_CHANNEL_TOKEN_FILE`: file containing the per-channel credential
+  for message creation.
 - `FORGELINK_CHANNEL_ID`: channel id, usually `forgewire`.
 - `FORGELINK_SOURCE`: source app identity, such as `claude-code`, `codex`, or
   `vscode-copilot`.
 
 Use `FORGELINK_API_TOKEN` only for short-lived development sessions. Prefer a
-token file with local-user-only permissions for app configs.
+token file with local-user-only permissions for app configs. Use
+`FORGELINK_CHANNEL_TOKEN` only for short-lived development sessions; app
+configs should point at the channel token file generated from ForgeLink
+Settings.
 
 ## Templates
 

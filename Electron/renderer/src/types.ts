@@ -12,6 +12,7 @@ export interface BackendConnection { baseUrl: string; apiToken: string; }
 export interface DataStatus { schema_version: number; latest_backup: string | null; backup_count: number; recovered_from: string | null; migration_backup: string | null; }
 export interface RetentionResult { deletedMessages: number; deletedThreads: number; deletedUploads: number; deletedAgentMessages: number; }
 export interface McpStatus { configured: boolean; created_at: string | null; rotated_at: string | null; revoked_at: string | null; last_used_at: string | null; last_test_at: string | null; last_test_status: string | null; token_file: string; token_file_present: boolean; bridge_server: string; bridge_built: boolean; base_url: string; install_commands: Record<string, string>; }
+export interface AgentChannelStatus { channel_id: string; label: string; enabled: boolean; configured: boolean; created_at: string; rotated_at: string; revoked_at: string | null; last_used_at: string | null; last_rejected_at: string | null; rejection_count: number; rate_limited_count: number; token_file?: string; token_file_present?: boolean; }
 export interface DesktopStatus { running: boolean; baseUrl: string; configured?: boolean; credential_source?: "none" | "environment" | "stored"; environment_import_available?: boolean; needs_onboarding?: boolean; settings?: DesktopSettings; validation?: ValidationResult; }
 
 declare global {
@@ -30,6 +31,11 @@ declare global {
       createMcpToken(): Promise<McpStatus>;
       revokeMcpToken(): Promise<McpStatus>;
       testMcpBridge(): Promise<McpStatus>;
+      agentChannels(): Promise<AgentChannelStatus[]>;
+      createAgentChannel(payload: { channel_id: string; label: string }): Promise<AgentChannelStatus>;
+      rotateAgentChannel(channelId: string): Promise<AgentChannelStatus>;
+      revokeAgentChannel(channelId: string): Promise<AgentChannelStatus>;
+      setAgentChannelEnabled(channelId: string, enabled: boolean): Promise<AgentChannelStatus>;
       onServerStatus(callback: (status: DesktopStatus) => void): void;
     };
   }

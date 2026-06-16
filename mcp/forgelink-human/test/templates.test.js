@@ -20,6 +20,7 @@ test("JSON MCP templates reference the ForgeLink human server and token file", (
     const parsed = JSON.parse(text);
     assert.match(text, /mcp\\\\forgelink-human\\\\dist\\\\server\.js/);
     assert.match(text, /FORGELINK_API_TOKEN_FILE/);
+    assert.match(text, /FORGELINK_CHANNEL_TOKEN_FILE/);
     assert.match(text, /FORGELINK_CHANNEL_ID/);
     assert.ok(parsed);
   }
@@ -29,6 +30,7 @@ test("Codex MCP template carries the same server contract", () => {
   const text = read("install/mcp-configs/codex/config.toml");
   assert.match(text, /mcp\\\\forgelink-human\\\\dist\\\\server\.js/);
   assert.match(text, /FORGELINK_API_TOKEN_FILE/);
+  assert.match(text, /FORGELINK_CHANNEL_TOKEN_FILE/);
   assert.match(text, /FORGELINK_SOURCE = "codex"/);
 });
 
@@ -37,4 +39,5 @@ test("installer script builds the server before writing app configs", () => {
   assert.match(text, /npm run build/);
   assert.match(text, /forgelink-human/);
   assert.match(text, /FORGELINK_API_TOKEN_FILE/);
+  assert.match(text, /FORGELINK_CHANNEL_TOKEN_FILE/);
 });

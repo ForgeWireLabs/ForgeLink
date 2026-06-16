@@ -86,6 +86,7 @@ async function withMcp(baseUrl, tokenFile, run) {
       ...process.env,
       FORGELINK_BASE_URL: baseUrl,
       FORGELINK_API_TOKEN_FILE: tokenFile,
+      FORGELINK_CHANNEL_TOKEN_FILE: join(tokenFile, "..", "forgelink-channel.token"),
       FORGELINK_CHANNEL_ID: "forgewire",
       FORGELINK_SOURCE: "forgewire-fabric"
     },
@@ -139,6 +140,12 @@ async function main() {
     const created = await backendJson(baseUrl, launchToken, "/api/mcp/token", { method: "POST" });
     const tokenFile = join(dataDir, "forgelink-mcp.token");
     await writeFile(tokenFile, created.token, { mode: 0o600 });
+    const channel = await backendJson(baseUrl, launchToken, "/api/agent-channels", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channel_id: "forgewire", label: "ForgeWire Fabric" })
+    });
+    await writeFile(join(dataDir, "forgelink-channel.token"), channel.token, { mode: 0o600 });
 
     const result = {};
     await withMcp(baseUrl, tokenFile, async (call) => {

@@ -10,6 +10,9 @@ ForgeLink API.
 - `FORGELINK_API_TOKEN`: per-launch local API token.
 - `FORGELINK_API_TOKEN_FILE`: file containing the token, used when the token is
   not placed directly in environment.
+- `FORGELINK_CHANNEL_TOKEN`: per-channel credential for creating messages.
+- `FORGELINK_CHANNEL_TOKEN_FILE`: file containing the channel credential, used
+  when it is not placed directly in environment.
 - `FORGELINK_CHANNEL_ID`: channel id for outgoing agent messages, default
   `forgewire`.
 - `FORGELINK_SOURCE`: source identity, default `forgelink-mcp`.

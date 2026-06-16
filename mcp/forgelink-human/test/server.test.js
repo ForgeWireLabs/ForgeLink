@@ -45,6 +45,7 @@ async function withFakeForgeLink(run) {
     if (request.method === "GET" && url.pathname === "/api/agent-messages") return send(200, messages);
     const create = url.pathname.match(/^\/api\/agent-channels\/([^/]+)\/messages$/);
     if (request.method === "POST" && create) {
+      if (request.headers["x-forgelink-channel-token"] !== "test-channel-token") return send(401, { error: "Unauthorized agent channel credential" });
       let raw = "";
       for await (const chunk of request) raw += chunk;
       const payload = JSON.parse(raw);
@@ -100,6 +101,7 @@ async function withMcp(baseUrl, run) {
       ...process.env,
       FORGELINK_BASE_URL: baseUrl,
       FORGELINK_API_TOKEN: "test-token",
+      FORGELINK_CHANNEL_TOKEN: "test-channel-token",
       FORGELINK_CHANNEL_ID: "forgewire",
       FORGELINK_SOURCE: "forgewire-fabric"
     },

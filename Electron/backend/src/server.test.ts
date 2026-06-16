@@ -9,6 +9,15 @@ import { createBackend } from "./server";
 
 const apiToken = "local-api-test-token";
 const authorized = (headers: HeadersInit = {}): HeadersInit => ({ ...headers, Authorization: `Bearer ${apiToken}` });
+async function createChannel(localUrl: string, channel_id = "forgewire"): Promise<string> {
+  const response = await fetch(`${localUrl}/api/agent-channels`, {
+    method: "POST",
+    headers: authorized({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ channel_id, label: channel_id })
+  });
+  assert.equal(response.status, 201);
+  return ((await response.json()) as { token: string }).token;
+}
 
 function signature(baseUrl: string, pathname: string, fields: Record<string, string>, token: string): string {
   const value = `${baseUrl}${pathname}${Object.keys(fields).sort().map((key) => `${key}${fields[key]}`).join("")}`;
@@ -121,7 +130,7 @@ test("backs up, exports, restores, and reports managed data", async () => {
     assert.equal(readFileSync(join(directory, "uploads", "proof.txt"), "utf8"), "before backup");
 
     const status = await fetch(`${localUrl}/api/data/status`, { headers: authorized() }).then((response) => response.json()) as { schema_version: number; backup_count: number; latest_backup: string };
-    assert.equal(status.schema_version, 5);
+    assert.equal(status.schema_version, 6);
     assert.equal(status.backup_count, 1);
     assert.match(status.latest_backup, /^backup-/);
   } finally {
@@ -143,14 +152,16 @@ test("manages MCP token and restricts it to agent-safe routes", async () => {
     assert.match(createdPayload.token, /^flmcp_/);
     assert.equal(createdPayload.status.configured, true);
     const mcpHeaders = { Authorization: `Bearer ${createdPayload.token}`, "Content-Type": "application/json" };
+    const channelToken = await createChannel(localUrl);
 
     assert.equal((await fetch(`${localUrl}/api/contacts`, { headers: mcpHeaders })).status, 401);
     assert.equal((await fetch(`${localUrl}/api/data/export`, { method: "POST", headers: mcpHeaders })).status, 401);
     assert.equal((await fetch(`${localUrl}/health`, { headers: mcpHeaders })).status, 200);
+    assert.equal((await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, { method: "POST", headers: mcpHeaders, body: "{}" })).status, 401);
 
     const posted = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
       method: "POST",
-      headers: mcpHeaders,
+      headers: { ...mcpHeaders, "X-ForgeLink-Channel-Token": channelToken },
       body: JSON.stringify({ source: "codex", kind: "approval_request", urgency: "normal", title: "MCP approval", body: "Need approval", actions: [{ id: "approve", label: "Approve" }] })
     });
     assert.equal(posted.status, 201);
@@ -175,10 +186,11 @@ test("accepts authenticated agent channel messages and records human actions", a
   try {
     const unauthorized = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
     assert.equal(unauthorized.status, 401);
+    const token = await createChannel(localUrl);
 
     const created = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
       method: "POST",
-      headers: authorized({ "Content-Type": "application/json" }),
+      headers: { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": token },
       body: JSON.stringify({
         id: "agent-http-1",
         source: "forgewire",
@@ -202,7 +214,42 @@ test("accepts authenticated agent channel messages and records human actions", a
     assert.match(actedPayload.message.action_result, /approve/);
 
     const invalid = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ source: "forgewire", kind: "alert", urgency: "loud", title: "Bad", body: "Bad" }) });
-    assert.equal(invalid.status, 400);
+    assert.equal(invalid.status, 401);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("enforces agent channel credentials, revocation, disable, and urgency rate limits", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "twilio-phone-agent-channel-security-"));
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  const message = (id: string, urgency = "urgent") => JSON.stringify({ id, source: "forgewire", kind: "approval_request", urgency, title: `Approval ${id}`, body: "Need approval", actions: [{ id: "approve", label: "Approve" }] });
+  try {
+    const token = await createChannel(localUrl);
+    const headers = { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": token };
+    assert.equal((await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, { method: "POST", headers: { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": "wrong" }, body: message("bad") })).status, 401);
+    for (let index = 0; index < 3; index += 1) {
+      assert.equal((await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, { method: "POST", headers, body: message(`urgent-${index}`) })).status, 201);
+    }
+    const limited = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, { method: "POST", headers, body: message("urgent-limited") });
+    assert.equal(limited.status, 429);
+    assert.deepEqual(await limited.json(), { error: "Rate limit exceeded", channel_id: "forgewire", urgency: "urgent", limit: 3, retry_after_seconds: 60 });
+    let channels = await fetch(`${localUrl}/api/agent-channels`, { headers: authorized() }).then((response) => response.json()) as Array<{ rate_limited_count: number; rejection_count: number }>;
+    assert.equal(channels[0].rate_limited_count, 1);
+    assert.ok(channels[0].rejection_count >= 2);
+
+    assert.equal((await fetch(`${localUrl}/api/agent-channels/forgewire/disable`, { method: "POST", headers: authorized() })).status, 200);
+    assert.equal((await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, { method: "POST", headers, body: message("disabled", "low") })).status, 401);
+    assert.equal((await fetch(`${localUrl}/api/agent-channels/forgewire/enable`, { method: "POST", headers: authorized() })).status, 200);
+    assert.equal((await fetch(`${localUrl}/api/agent-channels/forgewire/revoke`, { method: "POST", headers: authorized() })).status, 200);
+    assert.equal((await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, { method: "POST", headers, body: message("revoked", "low") })).status, 401);
+    const revokedChannels = await fetch(`${localUrl}/api/agent-channels`, { headers: authorized() }).then((response) => response.json()) as Array<{ configured: boolean; revoked_at: string | null }>;
+    assert.equal(revokedChannels[0].configured, false);
+    assert.ok(revokedChannels[0].revoked_at);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(directory, { recursive: true, force: true });

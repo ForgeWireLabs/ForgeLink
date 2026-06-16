@@ -95,6 +95,27 @@ app.whenReady().then(async () => {
     token_file_present: false
   }));
   ipcMain.handle("mcp-test-message", () => mcpStatus({ last_test_status: "passed" }));
+  const channelStatus = (overrides = {}) => ({
+    channel_id: "forgewire",
+    label: "ForgeWire Fabric",
+    enabled: true,
+    configured: true,
+    created_at: new Date().toISOString(),
+    rotated_at: new Date().toISOString(),
+    revoked_at: null,
+    last_used_at: null,
+    last_rejected_at: null,
+    rejection_count: 0,
+    rate_limited_count: 0,
+    token_file: path.join(process.env.USERPROFILE || process.env.HOME || projectRoot, ".forgelink", "channels", "forgewire.token"),
+    token_file_present: true,
+    ...overrides
+  });
+  ipcMain.handle("agent-channels", () => [channelStatus()]);
+  ipcMain.handle("agent-channel-create", () => channelStatus());
+  ipcMain.handle("agent-channel-rotate", () => channelStatus());
+  ipcMain.handle("agent-channel-revoke", () => channelStatus({ configured: false, revoked_at: new Date().toISOString(), token_file_present: false }));
+  ipcMain.handle("agent-channel-enabled", (_, channelId, enabled) => channelStatus({ channel_id: channelId || "forgewire", enabled: Boolean(enabled) }));
   ipcMain.handle("notify", () => undefined);
   ipcMain.handle("open-url", () => undefined);
 
