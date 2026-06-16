@@ -93,7 +93,7 @@ test("creates verified backups, restores data, exports JSON, and applies retenti
     assert.equal(exported.format, "forgelink-export-v1");
     assert.equal(exported.schema_version, CURRENT_SCHEMA_VERSION);
     assert.equal(exported.messages.some((message) => message.id === "AFTER"), false);
-    assert.deepEqual(database.applyRetention(365), { deletedMessages: 1, deletedThreads: 1, deletedAgentMessages: 0 });
+    assert.deepEqual(database.applyRetention(365), { deletedMessages: 1, deletedThreads: 1, deletedAgentMessages: 0, deletedSignalItems: 0 });
     assert.equal((database.exportData().messages as Array<unknown>).length, 1);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
@@ -125,6 +125,29 @@ test("stores agent channel messages separately with export, actions, expiry, and
     database.addAgentMessage({ id: "expired", channel_id: "forgewire", source: "forgewire", kind: "alert", urgency: "high", title: "Old alert", body: "Expired", expires_at: "2020-01-01T00:00:00.000Z" });
     assert.equal(database.agentMessage("expired")?.status, "expired");
     assert.equal(database.applyRetention(365).deletedAgentMessages, 1);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("stores trusted signals separately with duplicate handling, export, archive, and retention", () => {
+  const directory = mkdtempSync(join(tmpdir(), "twilio-phone-signals-"));
+  const path = join(directory, "phone.sqlite3");
+  const database = new PhoneDatabase(path);
+  try {
+    database.addMessage({ id: "SMS", number: "+15551234567", direction: "inbound", body: "person" });
+    const subscription = database.upsertSignalSubscription({ title: "Tech", url: "https://example.com/feed.xml", fetch_interval_minutes: 30, retention_days: 7 });
+    assert.equal(subscription.enabled, true);
+    assert.equal(database.addSignalItem({ subscription_id: subscription.id, external_id: "item-1", title: "Signal", url: "https://example.com/item", summary: "<b>text</b>", published_at: "2026-06-15T00:00:00.000Z" }), true);
+    assert.equal(database.addSignalItem({ subscription_id: subscription.id, external_id: "item-1", title: "Signal duplicate", url: "https://example.com/item" }), false);
+    assert.equal(database.signalItems().length, 1);
+    const exported = database.exportData() as { messages: Array<unknown>; signal_subscriptions: Array<{ id: string }>; signal_items: Array<{ title: string }> };
+    assert.equal(exported.messages.length, 1);
+    assert.equal(exported.signal_subscriptions[0].id, subscription.id);
+    assert.equal(exported.signal_items[0].title, "Signal");
+    assert.equal(database.archiveSignalItem(database.signalItems()[0].id).status, "archived");
+    assert.equal(database.signalItems().length, 0);
+    database.addSignalItem({ subscription_id: subscription.id, external_id: "old", title: "Old", url: "https://example.com/old" });
+    database.connection.prepare("UPDATE signal_items SET received_at='2020-01-01T00:00:00.000Z' WHERE external_id='old'").run();
+    assert.equal(database.applySignalRetention(subscription.id), 1);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 

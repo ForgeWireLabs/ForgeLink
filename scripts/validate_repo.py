@@ -18,6 +18,7 @@ REQUIRED_WORK_FIELDS = {
     "id", "title", "status", "owner_scope", "affected_scopes", "depends_on",
     "acceptance_criteria", "created", "updated",
 }
+PREFLIGHT_REQUIRED_FROM_ID = 10
 
 DECISION_STATUSES = ("proposed", "accepted", "superseded", "deprecated")
 POLICY_STATUSES = ("active", "retired")
@@ -216,6 +217,7 @@ def validate_work(root: Path, owner_scopes: set[str], enforce_disjoint: bool, pr
                 problems.append(Problem(manifest, f"unknown affected_scope '{scope}'"))
         validate_dates(item.data["created"], "created", manifest, problems)
         validate_dates(item.data["updated"], "updated", manifest, problems)
+        validate_work_preflight(item, manifest, problems)
 
         criterion_ids: set[str] = set()
         for criterion in item.data.get("acceptance_criteria", []):
@@ -243,6 +245,28 @@ def validate_work(root: Path, owner_scopes: set[str], enforce_disjoint: bool, pr
     if enforce_disjoint:
         validate_disjoint_scopes(items, problems)
     return all_ids
+
+
+def validate_work_preflight(item: object, manifest: Path, problems: list[Problem]) -> None:
+    try:
+        numeric_id = int(str(item.item_id))
+    except ValueError:
+        return
+    if numeric_id < PREFLIGHT_REQUIRED_FROM_ID:
+        return
+    marker = item.data.get("preflight")
+    if not isinstance(marker, dict):
+        problems.append(Problem(manifest, "work items 010 and later must include a preflight marker"))
+        return
+    if marker.get("created_before_work_started") is not True:
+        problems.append(Problem(manifest, "preflight.created_before_work_started must be true"))
+    created_at = marker.get("created_at")
+    try:
+        datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+    except ValueError:
+        problems.append(Problem(manifest, "preflight.created_at must be an ISO date-time"))
+    if not str(marker.get("note", "")).strip():
+        problems.append(Problem(manifest, "preflight.note must explain when the item was created"))
 
 
 def detect_dependency_cycles(items: list, known_ids: set[str], problems: list[Problem]) -> None:

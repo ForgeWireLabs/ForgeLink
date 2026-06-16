@@ -4,6 +4,7 @@ const { randomBytes } = require("node:crypto");
 const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
+const { evaluateAttention, normalizeAttentionPolicy } = require("./attention");
 const { createSettingsStore, validateTwilioCredentials } = require("./onboarding");
 
 const APP_NAME = "ForgeLink";
@@ -89,7 +90,8 @@ function publicStatus() {
       twilio_number: settings.twilio_number,
       public_base_url: settings.public_base_url,
       webhook_host: settings.webhook_host,
-      webhook_port: settings.webhook_port
+      webhook_port: settings.webhook_port,
+      attention_policy: normalizeAttentionPolicy(settings.attention_policy)
     }
   };
 }
@@ -187,9 +189,11 @@ function createWindow() {
 }
 
 ipcMain.handle("notify", (_, payload = {}) => {
-  if (Notification.isSupported()) {
-    new Notification({ title: payload.title || APP_NAME, body: payload.body || "" }).show();
+  const decision = evaluateAttention(settingsState().settings.attention_policy, payload);
+  if (decision.notify && Notification.isSupported()) {
+    new Notification({ title: decision.title || APP_NAME, body: decision.body || "" }).show();
   }
+  return decision;
 });
 
 ipcMain.handle("open-url", (_, url) => {
@@ -198,6 +202,12 @@ ipcMain.handle("open-url", (_, url) => {
 
 ipcMain.handle("backend-connection", () => ({ baseUrl: baseUrl(), apiToken }));
 ipcMain.handle("get-status", () => publicStatus());
+ipcMain.handle("attention-policy", () => normalizeAttentionPolicy(settingsState().settings.attention_policy));
+ipcMain.handle("attention-policy-save", (_, policy = {}) => {
+  const state = settingsStore.persistAttentionPolicy(policy);
+  broadcastStatus();
+  return normalizeAttentionPolicy(state.settings.attention_policy);
+});
 ipcMain.handle("start-server", async (_, update = {}) => {
   const current = settingsState().settings;
   const candidate = { ...current, ...update, auth_token: update.auth_token || current.auth_token };

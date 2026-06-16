@@ -2,6 +2,9 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("desktop", {
   notify: (title, body) => ipcRenderer.invoke("notify", { title, body }),
+  notifyEvent: (event) => ipcRenderer.invoke("notify", event),
+  attentionPolicy: () => ipcRenderer.invoke("attention-policy"),
+  saveAttentionPolicy: (policy) => ipcRenderer.invoke("attention-policy-save", policy),
   openExternal: (url) => ipcRenderer.invoke("open-url", url),
   backendConnection: () => ipcRenderer.invoke("backend-connection"),
   getStatus: () => ipcRenderer.invoke("get-status"),

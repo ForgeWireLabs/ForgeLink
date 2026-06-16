@@ -5,6 +5,7 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { createSettingsStore, validateTwilioCredentials } = require("./onboarding");
+const { DEFAULT_ATTENTION_POLICY } = require("./attention");
 
 const complete = { account_sid: `AC${"a".repeat(32)}`, auth_token: "secret-token", twilio_number: "+15551234567", public_base_url: "https://phone.example.com", webhook_host: "127.0.0.1", webhook_port: 5055 };
 const safeStorage = { isEncryptionAvailable: () => true, encryptString: value => Buffer.from(`encrypted:${value}`), decryptString: value => value.toString().replace("encrypted:", "") };
@@ -47,6 +48,21 @@ test("imports environment credentials only through an explicit action", () => {
     assert.equal(fs.existsSync(path.join(directory, "settings.json")), false);
     assert.equal(store.importEnvironment().source, "stored");
     assert.equal(fs.existsSync(path.join(directory, "settings.json")), true);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("persists attention policy without exposing credentials", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "forgelink-attention-"));
+  try {
+    const store = createSettingsStore({ fs, path, safeStorage, env: {}, userData: directory });
+    store.load();
+    const saved = store.persistAttentionPolicy({ ...DEFAULT_ATTENTION_POLICY, signal_notifications: "all", muted_sources: ["forgewire"] });
+    assert.equal(saved.settings.attention_policy.signal_notifications, "all");
+    assert.deepEqual(saved.settings.attention_policy.muted_sources, ["forgewire"]);
+    const raw = readFileSync(path.join(directory, "settings.json"), "utf8");
+    assert.equal(raw.includes("secret-token"), false);
+    const reloaded = createSettingsStore({ fs, path, safeStorage, env: {}, userData: directory });
+    assert.equal(reloaded.load().settings.attention_policy.signal_notifications, "all");
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 

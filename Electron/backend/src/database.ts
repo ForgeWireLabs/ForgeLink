@@ -1,9 +1,10 @@
+import { createHash, randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 export interface ThreadRow {
   id: number;
@@ -102,8 +103,56 @@ export interface AgentChannelRecord extends AgentChannelStatus {
   credential_hash: string;
 }
 
+export interface SignalSubscriptionInput {
+  title?: string;
+  url: string;
+  fetch_interval_minutes?: number;
+  retention_days?: number;
+}
+
+export interface SignalSubscriptionRow {
+  id: string;
+  title: string;
+  url: string;
+  enabled: boolean;
+  muted: boolean;
+  fetch_interval_minutes: number;
+  retention_days: number;
+  last_fetch_at: string | null;
+  last_fetch_status: string;
+  last_error: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SignalItemInput {
+  subscription_id: string;
+  external_id: string;
+  title: string;
+  url: string;
+  summary?: string;
+  author?: string;
+  published_at?: string | null;
+}
+
+export interface SignalItemRow {
+  id: string;
+  subscription_id: string;
+  source_title: string;
+  title: string;
+  url: string;
+  summary: string;
+  author: string;
+  published_at: string | null;
+  received_at: string;
+  status: "unread" | "read" | "archived";
+  muted: boolean;
+}
+
 type AgentChannelDbRow = Omit<AgentChannelStatus, "enabled" | "configured"> & { enabled: number; configured: number };
 type AgentChannelRecordDbRow = Omit<AgentChannelRecord, "enabled" | "configured"> & { enabled: number; configured: number };
+type SignalSubscriptionDbRow = Omit<SignalSubscriptionRow, "enabled" | "muted"> & { enabled: number; muted: number };
+type SignalItemDbRow = Omit<SignalItemRow, "muted"> & { muted: number };
 
 export interface DatabaseState {
   schemaVersion: number;
@@ -292,6 +341,42 @@ export class PhoneDatabase {
         version = 6;
         this.connection.exec("PRAGMA user_version=6");
       }
+      if (version === 6) {
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS signal_subscriptions (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            url TEXT NOT NULL UNIQUE,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            muted INTEGER NOT NULL DEFAULT 0,
+            fetch_interval_minutes INTEGER NOT NULL DEFAULT 60,
+            retention_days INTEGER NOT NULL DEFAULT 30,
+            last_fetch_at TEXT,
+            last_fetch_status TEXT NOT NULL DEFAULT 'never',
+            last_error TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+          CREATE TABLE IF NOT EXISTS signal_items (
+            id TEXT PRIMARY KEY,
+            subscription_id TEXT NOT NULL REFERENCES signal_subscriptions(id) ON DELETE CASCADE,
+            external_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            url TEXT NOT NULL,
+            summary TEXT NOT NULL DEFAULT '',
+            author TEXT NOT NULL DEFAULT '',
+            published_at TEXT,
+            received_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'unread',
+            UNIQUE(subscription_id, external_id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_signal_items_received_at ON signal_items(received_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_signal_items_subscription ON signal_items(subscription_id);
+          CREATE INDEX IF NOT EXISTS idx_signal_items_status ON signal_items(status);
+        `);
+        version = 7;
+        this.connection.exec("PRAGMA user_version=7");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -341,22 +426,25 @@ export class PhoneDatabase {
       threads: this.connection.prepare("SELECT * FROM threads ORDER BY id").all(),
       messages: this.connection.prepare("SELECT * FROM messages ORDER BY ts, id").all(),
       agent_messages: this.connection.prepare("SELECT * FROM agent_messages ORDER BY created_at, id").all(),
+      signal_subscriptions: this.connection.prepare("SELECT * FROM signal_subscriptions ORDER BY title, id").all(),
+      signal_items: this.connection.prepare("SELECT * FROM signal_items ORDER BY received_at, id").all(),
       mcp_tokens: this.connection.prepare("SELECT id, created_at, rotated_at, revoked_at, last_used_at, last_test_at, last_test_status FROM mcp_tokens ORDER BY id").all(),
       agent_channels: this.connection.prepare("SELECT channel_id, label, enabled, created_at, rotated_at, revoked_at, last_used_at, last_rejected_at, rejection_count, rate_limited_count FROM agent_channels ORDER BY channel_id").all()
     };
   }
 
-  applyRetention(days: number): { deletedMessages: number; deletedThreads: number; deletedAgentMessages: number } {
+  applyRetention(days: number): { deletedMessages: number; deletedThreads: number; deletedAgentMessages: number; deletedSignalItems: number } {
     if (!Number.isInteger(days) || days < 30 || days > 3650) throw new Error("Retention must be between 30 and 3650 days.");
     const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
     this.connection.exec("BEGIN IMMEDIATE");
     try {
       const deletedMessages = Number(this.connection.prepare("DELETE FROM messages WHERE ts < ?").run(cutoff).changes);
       const deletedAgentMessages = Number(this.connection.prepare("DELETE FROM agent_messages WHERE created_at < ?").run(cutoff).changes);
+      const deletedSignalItems = Number(this.connection.prepare("DELETE FROM signal_items WHERE received_at < ?").run(cutoff).changes);
       const deletedThreads = Number(this.connection.prepare("DELETE FROM threads WHERE NOT EXISTS (SELECT 1 FROM messages WHERE messages.thread_id=threads.id)").run().changes);
       this.connection.prepare("UPDATE threads SET last_msg_ts=(SELECT MAX(ts) FROM messages WHERE messages.thread_id=threads.id)").run();
       this.connection.exec("COMMIT");
-      return { deletedMessages, deletedThreads, deletedAgentMessages };
+      return { deletedMessages, deletedThreads, deletedAgentMessages, deletedSignalItems };
     } catch (error) {
       this.connection.exec("ROLLBACK");
       throw error;
@@ -641,5 +729,91 @@ export class PhoneDatabase {
       WHERE channel_id=? AND urgency=? AND accepted=1 AND created_at >= ?
     `).get(channelId, urgency, sinceIso) as { count: number };
     return Number(row.count);
+  }
+
+  upsertSignalSubscription(input: SignalSubscriptionInput): SignalSubscriptionRow {
+    const url = new URL(input.url);
+    if (!["http:", "https:"].includes(url.protocol)) throw new Error("Feed URL must use http or https.");
+    const now = utcNow();
+    const title = (input.title || url.hostname).trim().slice(0, 160) || url.hostname;
+    const interval = Number(input.fetch_interval_minutes || 60);
+    const retention = Number(input.retention_days || 30);
+    if (!Number.isInteger(interval) || interval < 15 || interval > 10080) throw new Error("Fetch interval must be between 15 minutes and 7 days.");
+    if (!Number.isInteger(retention) || retention < 7 || retention > 3650) throw new Error("Signal retention must be between 7 and 3650 days.");
+    const existing = this.connection.prepare("SELECT id FROM signal_subscriptions WHERE url=?").get(url.toString()) as { id: string } | undefined;
+    const id = existing?.id || `sigsub-${randomUUID()}`;
+    this.connection.prepare(`
+      INSERT INTO signal_subscriptions(id, title, url, enabled, muted, fetch_interval_minutes, retention_days, created_at, updated_at)
+      VALUES(?, ?, ?, 1, 0, ?, ?, ?, ?)
+      ON CONFLICT(url) DO UPDATE SET title=excluded.title, fetch_interval_minutes=excluded.fetch_interval_minutes, retention_days=excluded.retention_days, updated_at=excluded.updated_at
+    `).run(id, title, url.toString(), interval, retention, existing ? now : now, now);
+    return this.signalSubscription(id)!;
+  }
+
+  signalSubscriptions(): SignalSubscriptionRow[] {
+    return (this.connection.prepare("SELECT * FROM signal_subscriptions ORDER BY title, id").all() as unknown as SignalSubscriptionDbRow[]).map((row) => ({ ...row, enabled: Boolean(row.enabled), muted: Boolean(row.muted) }));
+  }
+
+  signalSubscription(id: string): SignalSubscriptionRow | undefined {
+    const row = this.connection.prepare("SELECT * FROM signal_subscriptions WHERE id=?").get(id) as unknown as SignalSubscriptionDbRow | undefined;
+    return row ? { ...row, enabled: Boolean(row.enabled), muted: Boolean(row.muted) } : undefined;
+  }
+
+  setSignalSubscriptionState(id: string, state: Partial<Pick<SignalSubscriptionRow, "enabled" | "muted">>): SignalSubscriptionRow {
+    const current = this.signalSubscription(id);
+    if (!current) throw new Error("Signal subscription not found.");
+    this.connection.prepare("UPDATE signal_subscriptions SET enabled=?, muted=?, updated_at=? WHERE id=?").run((state.enabled ?? current.enabled) ? 1 : 0, (state.muted ?? current.muted) ? 1 : 0, utcNow(), id);
+    return this.signalSubscription(id)!;
+  }
+
+  markSignalFetch(id: string, status: "ok" | "failed", error = ""): void {
+    this.connection.prepare("UPDATE signal_subscriptions SET last_fetch_at=?, last_fetch_status=?, last_error=?, updated_at=? WHERE id=?").run(utcNow(), status, error.slice(0, 500), utcNow(), id);
+  }
+
+  updateSignalSubscriptionTitle(id: string, title: string): void {
+    if (title.trim()) this.connection.prepare("UPDATE signal_subscriptions SET title=?, updated_at=? WHERE id=?").run(title.trim().slice(0, 160), utcNow(), id);
+  }
+
+  addSignalItem(item: SignalItemInput): boolean {
+    const subscription = this.signalSubscription(item.subscription_id);
+    if (!subscription) throw new Error("Signal subscription not found.");
+    const externalId = item.external_id.slice(0, 1000) || item.url || item.title;
+    const id = createHash("sha256").update(`${item.subscription_id}\n${externalId}`).digest("hex");
+    const result = this.connection.prepare(`
+      INSERT OR IGNORE INTO signal_items(id, subscription_id, external_id, title, url, summary, author, published_at, received_at, status)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 'unread')
+    `).run(id, item.subscription_id, externalId, item.title.slice(0, 240), item.url.slice(0, 1000), (item.summary || "").slice(0, 1200), (item.author || "").slice(0, 160), item.published_at || null, utcNow());
+    return result.changes === 1;
+  }
+
+  signalItems(limit = 50): SignalItemRow[] {
+    const boundedLimit = Math.max(1, Math.min(Number(limit) || 50, 100));
+    const rows = this.connection.prepare(`
+      SELECT i.id, i.subscription_id, s.title AS source_title, i.title, i.url, i.summary, i.author, i.published_at, i.received_at, i.status, s.muted
+      FROM signal_items i JOIN signal_subscriptions s ON s.id=i.subscription_id
+      WHERE i.status <> 'archived'
+      ORDER BY COALESCE(i.published_at, i.received_at) DESC, i.received_at DESC, i.id DESC
+      LIMIT ?
+    `).all(boundedLimit) as unknown as SignalItemDbRow[];
+    return rows.map((row) => ({ ...row, muted: Boolean(row.muted) }));
+  }
+
+  archiveSignalItem(id: string): SignalItemRow {
+    if (this.connection.prepare("UPDATE signal_items SET status='archived' WHERE id=?").run(id).changes !== 1) throw new Error("Signal item not found.");
+    const row = this.connection.prepare(`
+      SELECT i.id, i.subscription_id, s.title AS source_title, i.title, i.url, i.summary, i.author, i.published_at, i.received_at, i.status, s.muted
+      FROM signal_items i JOIN signal_subscriptions s ON s.id=i.subscription_id WHERE i.id=?
+    `).get(id) as unknown as SignalItemDbRow;
+    return { ...row, muted: Boolean(row.muted) };
+  }
+
+  applySignalRetention(subscriptionId?: string): number {
+    const subscriptions = subscriptionId ? [this.signalSubscription(subscriptionId)].filter(Boolean) as SignalSubscriptionRow[] : this.signalSubscriptions();
+    let deleted = 0;
+    for (const subscription of subscriptions) {
+      const cutoff = new Date(Date.now() - subscription.retention_days * 86_400_000).toISOString();
+      deleted += Number(this.connection.prepare("DELETE FROM signal_items WHERE subscription_id=? AND received_at < ?").run(subscription.id, cutoff).changes);
+    }
+    return deleted;
   }
 }

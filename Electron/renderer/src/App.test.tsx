@@ -9,11 +9,16 @@ const thread = { id: 1, canonical_number: "+15551234567", name: "Ada Lovelace", 
 const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
 const message = { id: "SM1", direction: "inbound", body: "Hello", ts: "2026-06-14T18:00:00.000Z", status: "received", media_urls: "" };
 const agentMessage = { id: "agent-1", channel_id: "forgewire", source: "forgewire", kind: "approval_request", urgency: "normal", title: "Release approval", body: "ForgeWire wants approval.", actions: JSON.stringify([{ id: "approve", label: "Approve" }]), status: "unread", action_result: "", created_at: "2026-06-14T18:00:00.000Z", expires_at: "2099-01-01T00:00:00.000Z", last_error: "" };
+const signalSubscription = { id: "sigsub-1", title: "Forge Signals", url: "https://example.com/feed.xml", enabled: true, muted: false, fetch_interval_minutes: 60, retention_days: 30, last_fetch_at: "2026-06-15T12:00:00.000Z", last_fetch_status: "ok", last_error: "", created_at: "2026-06-15T10:00:00.000Z", updated_at: "2026-06-15T12:00:00.000Z" };
+const signalItem = { id: "sigitem-1", subscription_id: "sigsub-1", source_title: "Forge Signals", title: "Build note", url: "https://example.com/build", summary: "Release candidate ready.", author: "ForgeWire", published_at: "2026-06-15T12:00:00.000Z", received_at: "2026-06-15T12:01:00.000Z", status: "unread", muted: false };
 const mcpStatus = { configured: false, created_at: null, rotated_at: null, revoked_at: null, last_used_at: null, last_test_at: null, last_test_status: null, token_file: "C:\\Users\\test\\.forgelink\\api.token", token_file_present: false, bridge_server: "C:\\Projects\\TWL_phone\\mcp\\forgelink-human\\dist\\server.js", bridge_built: true, base_url: "http://127.0.0.1:5055", install_commands: { vscode: "install vscode", claude: "install claude", codex: "install codex", forgewire: "install forgewire" } };
 const agentChannel = { channel_id: "forgewire", label: "ForgeWire Fabric", enabled: true, configured: true, created_at: "2026-06-15T22:00:00.000Z", rotated_at: "2026-06-15T22:00:00.000Z", revoked_at: null, last_used_at: null, last_rejected_at: null, rejection_count: 2, rate_limited_count: 1, token_file: "C:\\Users\\test\\.forgelink\\channels\\forgewire.token", token_file_present: true };
+const attentionPolicy = { enabled: true, quiet_hours_enabled: false, quiet_hours_start: "22:00", quiet_hours_end: "07:00", quiet_hours_allow_urgent: false, redact_notification_bodies: true, sms_notifications: "all", agent_notifications: "high_and_urgent", signal_notifications: "off", system_notifications: "all", muted_sources: [] };
 let messagesFixture: Array<Record<string, unknown>>;
 let olderFixture: Array<Record<string, unknown>>;
 let agentMessagesFixture: Array<Record<string, unknown>>;
+let signalSubscriptionsFixture: Array<Record<string, unknown>>;
+let signalItemsFixture: Array<Record<string, unknown>>;
 
 function response(payload: unknown, ok = true): Promise<Response> { return Promise.resolve({ ok, status: ok ? 200 : 400, json: async () => payload } as Response); }
 
@@ -21,11 +26,14 @@ beforeEach(() => {
   messagesFixture = [message];
   olderFixture = [];
   agentMessagesFixture = [agentMessage];
+  signalSubscriptionsFixture = [signalSubscription];
+  signalItemsFixture = [signalItem];
   window.desktop = {
     notify: vi.fn(),
+    notifyEvent: vi.fn().mockResolvedValue({ notify: true, reason: "allowed", title: "ForgeLink", body: "ForgeLink has an update." }),
     openExternal: vi.fn(),
     backendConnection: vi.fn().mockResolvedValue({ baseUrl: "http://127.0.0.1:5055", apiToken: "renderer-api-token" }),
-    getStatus: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored", needs_onboarding: false, settings: { account_sid: "AC123", auth_token_configured: true, twilio_number: "+15550001111", public_base_url: "https://phone.example.com", webhook_host: "127.0.0.1", webhook_port: 5055 } }),
+    getStatus: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored", needs_onboarding: false, settings: { account_sid: "AC123", auth_token_configured: true, twilio_number: "+15550001111", public_base_url: "https://phone.example.com", webhook_host: "127.0.0.1", webhook_port: 5055, attention_policy: attentionPolicy } }),
     validateSettings: vi.fn().mockResolvedValue({ account_name: "Test Account", account_status: "active", phone_number: "+15550002222" }),
     startServer: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5056", configured: true, credential_source: "stored", validation: { account_name: "Test Account", account_status: "active", phone_number: "+15550002222" }, settings: { account_sid: "AC999", auth_token_configured: true, twilio_number: "+15550002222", public_base_url: "https://new.example.com", webhook_host: "127.0.0.1", webhook_port: 5056 } }),
     importEnvironment: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored" }),
@@ -36,6 +44,8 @@ beforeEach(() => {
     revokeMcpToken: vi.fn().mockResolvedValue({ ...mcpStatus, configured: false, token_file_present: false, revoked_at: "2026-06-15T22:01:00.000Z" }),
     testMcpBridge: vi.fn().mockResolvedValue({ ...mcpStatus, configured: true, token_file_present: true, last_test_status: "passed", last_test_at: "2026-06-15T22:02:00.000Z" }),
     agentChannels: vi.fn().mockResolvedValue([agentChannel]),
+    attentionPolicy: vi.fn().mockResolvedValue(attentionPolicy),
+    saveAttentionPolicy: vi.fn().mockResolvedValue({ ...attentionPolicy, signal_notifications: "all", quiet_hours_enabled: true, muted_sources: ["forgewire"] }),
     createAgentChannel: vi.fn().mockResolvedValue(agentChannel),
     rotateAgentChannel: vi.fn().mockResolvedValue({ ...agentChannel, rotated_at: "2026-06-15T22:03:00.000Z" }),
     revokeAgentChannel: vi.fn().mockResolvedValue({ ...agentChannel, configured: false, revoked_at: "2026-06-15T22:04:00.000Z", token_file_present: false }),
@@ -51,14 +61,20 @@ beforeEach(() => {
     if (url.endsWith("/api/agent-messages/agent-1/read")) { agentMessagesFixture = [{ ...agentMessage, status: "read" }]; return response({ ok: true, message: agentMessagesFixture[0] }); }
     if (url.endsWith("/api/agent-messages/agent-1/dismiss")) { agentMessagesFixture = [{ ...agentMessage, status: "dismissed" }]; return response({ ok: true, message: agentMessagesFixture[0] }); }
     if (url.endsWith("/api/agent-messages/agent-1/actions/approve")) { agentMessagesFixture = [{ ...agentMessage, status: "acted", action_result: JSON.stringify({ action_id: "approve" }) }]; return response({ ok: true, message: agentMessagesFixture[0] }); }
+    if (url.endsWith("/api/signals/subscriptions")) return response(init?.method === "POST" ? { ok: true, subscription: signalSubscription } : signalSubscriptionsFixture);
+    if (url.endsWith("/api/signals/subscriptions/sigsub-1/refresh")) return response({ ok: true, added: 1, deleted: 0, subscription: signalSubscription, items: signalItemsFixture });
+    if (url.endsWith("/api/signals/subscriptions/sigsub-1/disable")) { signalSubscriptionsFixture = [{ ...signalSubscription, enabled: false }]; return response({ ok: true, subscription: signalSubscriptionsFixture[0] }); }
+    if (url.endsWith("/api/signals/subscriptions/sigsub-1/mute")) { signalSubscriptionsFixture = [{ ...signalSubscription, muted: true }]; return response({ ok: true, subscription: signalSubscriptionsFixture[0] }); }
+    if (url.endsWith("/api/signals/items?limit=50")) return response(signalItemsFixture);
+    if (url.endsWith("/api/signals/items/sigitem-1/archive")) { signalItemsFixture = []; return response({ ok: true, item: { ...signalItem, status: "archived" } }); }
     if (url.endsWith("/api/threads")) return response([thread]);
     if (url.includes("/api/contacts")) return response(init?.method === "POST" ? { ok: true } : [contact]);
     if (url.endsWith("/api/config-status")) return response({ account_sid: true, auth_token: true, phone_number: true, public_base_url: true });
-    if (url.endsWith("/api/data/status")) return response({ schema_version: 6, latest_backup: "backup-test", backup_count: 1, recovered_from: null, migration_backup: null });
+    if (url.endsWith("/api/data/status")) return response({ schema_version: 7, latest_backup: "backup-test", backup_count: 1, recovered_from: null, migration_backup: null });
     if (url.endsWith("/api/data/backup")) return response({ ok: true, name: "backup-test" });
     if (url.endsWith("/api/data/export")) return response({ ok: true, name: "export-test.json" });
     if (url.endsWith("/api/data/restore-latest")) return response({ ok: true, name: "backup-test" });
-    if (url.endsWith("/api/data/retention")) return response({ ok: true, deletedMessages: 2, deletedThreads: 1, deletedUploads: 1, deletedAgentMessages: 1 });
+    if (url.endsWith("/api/data/retention")) return response({ ok: true, deletedMessages: 2, deletedThreads: 1, deletedUploads: 1, deletedAgentMessages: 1, deletedSignalItems: 1 });
     if (url.includes("/api/draft")) return response(init?.method === "POST" ? { ok: true } : { body: "" });
     if (url.endsWith("/api/send")) return response({ sid: "SM2", status: "queued" });
     if (url.endsWith("/api/retry")) return response({ sid: "SM2", status: "queued" });
@@ -118,10 +134,36 @@ describe("React renderer parity", () => {
     expect(await screen.findByText("Recent outcomes")).toBeTruthy();
   });
 
+  it("shows trusted signals in a separate quiet reading surface", async () => {
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Signals" }));
+    expect(await screen.findByRole("heading", { name: "Signals" })).toBeTruthy();
+    expect(screen.getAllByText("Forge Signals").length).toBeGreaterThan(0);
+    expect(screen.getByText("Build note")).toBeTruthy();
+    expect(screen.queryByText("Ada Lovelace")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Open" }));
+    expect(window.desktop?.openExternal).toHaveBeenCalledWith("https://example.com/build");
+    await userEvent.click(screen.getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(screen.queryByText("Build note")).toBeNull());
+    expect(window.desktop?.notifyEvent).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "signal" }));
+  });
+
+  it("adds and controls signal subscriptions without exposing them to message views", async () => {
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Signals" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add feed" }));
+    await userEvent.type(screen.getByLabelText("Feed URL"), "https://example.com/feed.xml");
+    await userEvent.click(screen.getAllByRole("button", { name: "Add feed" })[1]);
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input, init]) => String(input).endsWith("/api/signals/subscriptions") && init?.method === "POST")).toBe(true));
+    await userEvent.click(screen.getByRole("button", { name: "Pause" }));
+    await userEvent.click(screen.getByRole("button", { name: "Mute" }));
+    expect(screen.queryByRole("heading", { name: "Ada Lovelace" })).toBeNull();
+  });
+
   it("backs up, exports, restores, and applies local retention from settings", async () => {
     render(<App/>);
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
-    await screen.findByText("Schema version 6. Backups and exports contain private message and contact data.");
+    await screen.findByText("Schema version 7. Backups and exports contain private message and contact data.");
     await userEvent.click(screen.getByRole("button", { name: "Create backup" }));
     await userEvent.click(screen.getByRole("button", { name: "Export JSON" }));
     await userEvent.click(screen.getByRole("button", { name: "Restore latest backup" }));
@@ -130,6 +172,21 @@ describe("React renderer parity", () => {
     await userEvent.click(screen.getByRole("button", { name: "Apply retention" }));
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).endsWith("/api/data/retention"))).toBe(true));
     expect(window.confirm).toHaveBeenCalledTimes(2);
+  });
+
+  it("saves explicit attention policy controls from settings", async () => {
+    render(<App/>);
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(await screen.findByRole("heading", { name: "Attention policy" })).toBeTruthy();
+    await userEvent.click(screen.getByLabelText("Quiet hours"));
+    await userEvent.selectOptions(screen.getByLabelText("Trusted signals"), "all");
+    await userEvent.type(screen.getByLabelText("Muted sources or channel IDs"), "forgewire");
+    await userEvent.click(screen.getByRole("button", { name: "Save attention policy" }));
+    await waitFor(() => expect(window.desktop?.saveAttentionPolicy).toHaveBeenCalledWith(expect.objectContaining({
+      quiet_hours_enabled: true,
+      signal_notifications: "all",
+      muted_sources: ["forgewire"]
+    })));
   });
 
   it("opens a modal, closes it with Escape, and restores focus", async () => {
@@ -170,6 +227,8 @@ describe("React renderer parity", () => {
       if (url.includes("/api/draft")) return response(init?.method === "POST" ? { ok: true } : { body: "Saved draft" });
       if (url.includes("/api/messages")) return response(messagesFixture);
       if (url.endsWith("/api/agent-messages")) return response([]);
+      if (url.endsWith("/api/signals/subscriptions")) return response([]);
+      if (url.endsWith("/api/signals/items?limit=50")) return response([]);
       if (url.endsWith("/api/threads")) return response([thread]);
       if (url.includes("/api/contacts")) return response([contact]);
       if (url.endsWith("/api/config-status")) return response({ account_sid: true, auth_token: true, phone_number: true, public_base_url: true });

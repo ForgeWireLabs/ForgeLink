@@ -8,6 +8,19 @@ const host = "127.0.0.1";
 const port = 5100 + Math.floor(Math.random() * 800);
 const baseUrl = `http://${host}:${port}`;
 const apiToken = randomBytes(32).toString("base64url");
+const attentionPolicy = {
+  enabled: true,
+  quiet_hours_enabled: false,
+  quiet_hours_start: "22:00",
+  quiet_hours_end: "07:00",
+  quiet_hours_allow_urgent: false,
+  redact_notification_bodies: true,
+  sms_notifications: "all",
+  agent_notifications: "high_and_urgent",
+  signal_notifications: "off",
+  system_notifications: "all",
+  muted_sources: []
+};
 const projectRoot = path.join(__dirname, "..", "..");
 const visualData = path.join(projectRoot, ".visual-smoke-data");
 let backend;
@@ -36,6 +49,9 @@ app.whenReady().then(async () => {
   const pending = previewDatabase.createPendingMessage("local-preview", "+15551234567", "This message could not be delivered yet.", []);
   previewDatabase.markMessageFailed(pending.id, "Preview failure");
   previewDatabase.saveDraft(pending.thread_id, "A restart-safe draft");
+  const signalSource = previewDatabase.upsertSignalSubscription({ title: "ForgeWire Signals", url: "https://example.com/feed.xml", fetch_interval_minutes: 60, retention_days: 30 });
+  previewDatabase.addSignalItem({ subscription_id: signalSource.id, external_id: "preview-signal", title: "Build lane is ready", url: "https://example.com/build", summary: "A release candidate is available for review without entering the message queue.", author: "ForgeWire", published_at: new Date().toISOString() });
+  previewDatabase.markSignalFetch(signalSource.id, "ok");
   previewDatabase.close();
   backend = utilityProcess.fork(path.join(projectRoot, "Electron", "backend-dist", "index.js"), ["--host", host, "--port", String(port)], {
     env: { ...process.env, FORGELINK_DATA_DIR: visualData, FORGELINK_API_TOKEN: apiToken },
@@ -58,7 +74,8 @@ app.whenReady().then(async () => {
       twilio_number: "",
       public_base_url: "",
       webhook_host: host,
-      webhook_port: port
+      webhook_port: port,
+      attention_policy: attentionPolicy
     }
   }));
   ipcMain.handle("start-server", () => ({ running: true, baseUrl }));
@@ -116,6 +133,8 @@ app.whenReady().then(async () => {
   ipcMain.handle("agent-channel-rotate", () => channelStatus());
   ipcMain.handle("agent-channel-revoke", () => channelStatus({ configured: false, revoked_at: new Date().toISOString(), token_file_present: false }));
   ipcMain.handle("agent-channel-enabled", (_, channelId, enabled) => channelStatus({ channel_id: channelId || "forgewire", enabled: Boolean(enabled) }));
+  ipcMain.handle("attention-policy", () => attentionPolicy);
+  ipcMain.handle("attention-policy-save", (_, policy) => Object.assign(attentionPolicy, policy || {}));
   ipcMain.handle("notify", () => undefined);
   ipcMain.handle("open-url", () => undefined);
 
@@ -133,11 +152,36 @@ app.whenReady().then(async () => {
   });
   await window.loadFile(path.join(projectRoot, "Electron", "renderer", "index.html"));
   await new Promise((resolve) => setTimeout(resolve, 1000));
-  await window.webContents.executeJavaScript(`
-    const settingsButton = document.querySelector('button[aria-label="Settings"]');
-    if (!settingsButton) throw new Error("Settings navigation button was not found.");
-    settingsButton.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+  const settingsRect = await window.webContents.executeJavaScript(`
+    (() => {
+      const button = document.querySelector('button[aria-label="Settings"]');
+      if (!button) throw new Error("Settings navigation button was not found.");
+      const rect = button.getBoundingClientRect();
+      return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+    })()
   `);
+  window.webContents.sendInputEvent({ type: "mouseDown", x: settingsRect.x, y: settingsRect.y, button: "left", clickCount: 1 });
+  window.webContents.sendInputEvent({ type: "mouseUp", x: settingsRect.x, y: settingsRect.y, button: "left", clickCount: 1 });
+  await window.webContents.executeJavaScript(`
+    new Promise((resolve, reject) => {
+      const deadline = Date.now() + 3000;
+      const check = () => {
+        if ([...document.querySelectorAll("h1")].some((heading) => heading.textContent === "Settings")) resolve(true);
+        else if (Date.now() > deadline) reject(new Error("Settings view did not open."));
+        else setTimeout(check, 100);
+      };
+      check();
+    })
+  `);
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const heading = [...document.querySelectorAll("h2")].find((item) => item.textContent === "Attention policy");
+      if (!heading) throw new Error("Attention policy section was not found.");
+      const scroller = document.querySelector(".page-panel") || document.scrollingElement;
+      scroller.scrollTop = heading.getBoundingClientRect().top + scroller.scrollTop - 220;
+    })()
+  `);
+  await new Promise((resolve) => setTimeout(resolve, 400));
   await new Promise((resolve) => setTimeout(resolve, 1200));
   const image = await window.webContents.capturePage();
   const output = path.join(projectRoot, "Electron", "dist", "ui-preview.png");
