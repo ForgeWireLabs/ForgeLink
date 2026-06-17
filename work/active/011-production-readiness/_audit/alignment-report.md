@@ -1,11 +1,11 @@
 ---
 audience: planning agents and reviewers
 status: active
-last_verified: 2026-06-15
-source_of_truth: todos/001-production-readiness/README.md; docs/architecture.md; docs/operations.md
+last_verified: 2026-06-17
+source_of_truth: work/active/011-production-readiness/README.md; work/active/011-production-readiness/work-item.json
 ---
 
-# Todo 001 Alignment Report
+# Work Item 011 Alignment Report
 
 ## Baseline findings
 

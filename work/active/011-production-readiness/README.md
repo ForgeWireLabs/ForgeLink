@@ -1,11 +1,17 @@
 ---
 audience: maintainers and implementation agents
 status: active
-last_verified: 2026-06-15
-source_of_truth: AGENTS.md; docs/_audit/alignment-report.md
+last_verified: 2026-06-17
+source_of_truth: AGENTS.md; work/active/011-production-readiness/_audit/alignment-report.md
 ---
 
-# Todo 001: Production Readiness
+# Work Item 011: Production Readiness
+
+> Lifecycle state for this item lives in [`work-item.json`](work-item.json); this
+> README is the intent and history narrative. Closed phases PR-001 through PR-005
+> are recorded below; open work (PR-006 through PR-016) is tracked as pending
+> acceptance criteria in the manifest. Migrated from the pre-ledger
+> `todos/001-production-readiness` plan on 2026-06-17.
 
 ## Goal
 

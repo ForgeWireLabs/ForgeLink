@@ -1,7 +1,7 @@
 # Repository Dashboard
 
 > Generated from source records. Do not edit manually.
-> Generated: 2026-06-16
+> Generated: 2026-06-17
 > RepoPact spec version: 2.0.1
 
 ## Health
@@ -13,18 +13,18 @@
 | Scope contracts | 2 |
 | Audit registry entries | 2 |
 | Audit findings | 0 |
-| Decision records | 1 |
+| Decision records | 2 |
 | Policy records | 0 |
-| Evidence runs | 11 |
+| Evidence runs | 12 |
 
 ## Work
 
 | Status | Count |
 | --- | ---: |
-| active | 0 |
+| active | 1 |
 | blocked | 0 |
 | deferred | 0 |
-| completed | 11 |
+| completed | 12 |
 
 ## Audit freshness
 
@@ -32,4 +32,4 @@ All audit scopes are within their review cadence.
 
 ## Active items
 
-No active or blocked work.
+- 011: Production Readiness (active)

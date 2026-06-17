@@ -11,13 +11,13 @@
       "notes": "ForgeLink root contract; RepoPact 1.2.0 vendored around it."
     },
     {
-      "path": "work/001-production-readiness",
+      "path": "work/active/011-production-readiness",
       "owner": "planning-agent",
-      "contract": "work/001-production-readiness/AGENTS.md",
-      "last_reviewed": "2026-06-16",
-      "next_review": "2026-09-16",
+      "contract": "work/active/011-production-readiness/AGENTS.md",
+      "last_reviewed": "2026-06-17",
+      "next_review": "2026-09-17",
       "alignment": "current",
-      "notes": "Production-readiness initiative carries its own scoped contract and _audit companion."
+      "notes": "Production-readiness initiative (migrated from pre-ledger todos/001 to work item 011) carries its own scoped contract and _audit companion."
     }
   ]
 }

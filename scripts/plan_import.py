@@ -44,6 +44,12 @@ _STATUS = {
 _EMOJI = {"completed": "✅ Complete", "deferred": "⏸️ Deferred", "blocked": "⛔ Blocked", "active": "📋 Active"}
 
 _SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__"}
+# Index/template/readme files in a plan directory are scaffolding, not plan items.
+_SCAFFOLD_FILES = {"readme.md", "template.md", "index.md", "_index.md"}
+
+
+def _is_scaffold(name: str) -> bool:
+    return name.lower() in _SCAFFOLD_FILES
 
 
 @dataclass
@@ -65,7 +71,9 @@ def _first_heading(text: str, fallback: str) -> str:
 
 
 def _split_num(name: str) -> tuple[str | None, str]:
-    m = re.match(r"(\d+)[-_ ]+(.*)$", name)
+    # Tolerate a leading tracker prefix like TODO-, TASK-, ISSUE-, STORY- before the
+    # number (common in flat todo files: "TODO-001-foo" -> num 001, slug "foo").
+    m = re.match(r"(?:[A-Za-z]{2,}[-_ ])?(\d+)[-_ ]+(.*)$", name)
     if m:
         return m.group(1), adopt_repo._slug(m.group(2))
     return None, adopt_repo._slug(name)
@@ -93,12 +101,12 @@ def _dir_item(directory: Path, lifecycle: str, root: Path) -> PlanItem:
 def collect_from_dir(plan_dir: Path, root: Path) -> list[PlanItem]:
     items: list[PlanItem] = []
     for entry in sorted(plan_dir.iterdir()):
-        if entry.name in _SKIP_DIRS or entry.name.lower() == "readme.md":
+        if entry.name in _SKIP_DIRS or _is_scaffold(entry.name):
             continue
         if entry.is_dir() and entry.name.lower() in LIFECYCLE_DIRS:
             lifecycle = entry.name.lower()
             for sub in sorted(entry.iterdir()):
-                if sub.name.lower() == "readme.md":
+                if _is_scaffold(sub.name):
                     continue
                 if sub.is_dir():
                     items.append(_dir_item(sub, lifecycle, root))
@@ -264,15 +272,25 @@ def import_plan(root: Path, today: date | None = None, dry_run: bool = False,
                   f"> Imported into RepoPact from `{item.source_rel}`; the source is preserved.\n\n"
                   "## Imported plan narrative\n\n")
         rep.write(wi_dir / "README.md", header + (item.narrative or "_(no narrative in source)_\n"), root)
+
+    # A `tracking/` governance system maps to decisions/, findings, and work items.
+    import track_import
+    track_import.import_tracking(root, rep, today)
     return rep
 
 
 def _print(rep: adopt_repo.Report) -> None:
     verb = "Would import" if rep.dry_run else "Imported"
-    print(f"{verb} {len(rep.created) // 2} plan item(s) into work/; skipped {len(rep.skipped)}.")
+    work = sum(1 for r in rep.created if r.endswith("work-item.json"))
+    decisions = sum(1 for r in rep.created if r.startswith("decisions/"))
+    findings = sum(1 for r in rep.created if "audits/findings/" in r)
+    print(f"{verb}: {work} work item(s), {decisions} decision(s), {findings} finding(s); "
+          f"skipped {len(rep.skipped)}.")
     for rel in rep.created:
         if rel.endswith("work-item.json"):
             print(f"  + {rel.rsplit('/', 1)[0]}")
+        elif rel.startswith("decisions/") or "audits/findings/" in rel:
+            print(f"  + {rel}")
 
 
 def main() -> int:

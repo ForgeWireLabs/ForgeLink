@@ -1,0 +1,23 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "012",
+  "title": "Upgrade vendored RepoPact to 1.4.0 and close the orphan-work-dir blind spot",
+  "status": "completed",
+  "owner_scope": "tooling",
+  "affected_scopes": ["tooling", "governance", "work", "evidence", "docs"],
+  "depends_on": [],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-17T00:00:00Z",
+    "note": "Created before mutating vendored RepoPact tooling, schemas, or governance records for this upgrade."
+  },
+  "acceptance_criteria": [
+    {"id": "AC-1", "text": "Vendored RepoPact tooling is brought to 1.4.0 (doctor.py, takeover.py, track_import.py, and refreshed adopt_repo.py/plan_import.py/repopact_cli.py) while preserving ForgeLink's local preflight extension in validate_repo.py and work-item.schema.json.", "state": "satisfied", "evidence": ["20260617-repopact-1-4-0-upgrade"]},
+    {"id": "AC-2", "text": "validate_repo.py fails when a directory under work/ holds planning content (README/AGENTS/_audit) but no work-item.json, so load-bearing planning that is invisible to the ledger and dashboard is a hard error rather than silently passing.", "state": "satisfied", "evidence": ["20260617-repopact-1-4-0-upgrade"]},
+    {"id": "AC-3", "text": "repopact doctor reports dead source_of_truth frontmatter pointers (path-like targets that do not exist) as drift findings.", "state": "satisfied", "evidence": ["20260617-repopact-1-4-0-upgrade"]},
+    {"id": "AC-4", "text": "After the change the repository validates, repopact doctor reports healthy, and a negative test proves the new orphan check rejects a manifest-less planning directory.", "state": "satisfied", "evidence": ["20260617-repopact-1-4-0-upgrade"]},
+    {"id": "AC-5", "text": "A decision record captures that ForgeLink vendors RepoPact 1.4.0 with two local extensions (preflight marker and orphan/dead-pointer detection) and how to re-sync with upstream.", "state": "satisfied", "evidence": ["20260617-repopact-1-4-0-upgrade"]}
+  ],
+  "created": "2026-06-17",
+  "updated": "2026-06-17"
+}

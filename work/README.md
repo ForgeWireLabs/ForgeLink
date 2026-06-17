@@ -1,8 +1,9 @@
 # Work Ledger
 
-ForgeLink uses RepoPact work items for durable agent work. The older `todos/`
-tree remains historical planning context; new cross-cutting product work should
-start here unless a narrower existing todo already owns it.
+ForgeLink uses RepoPact work items for durable agent work. The pre-ledger
+`todos/` tree has been migrated into this ledger (its production-readiness plan
+is now `work/active/011-production-readiness/`); all new cross-cutting product
+work starts here.
 
 Each work item is a directory containing:
 

@@ -1,0 +1,58 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260617-repopact-1-4-0-upgrade",
+  "timestamp": "2026-06-17T00:00:00Z",
+  "work_item": "012",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "pip download repopact==1.4.0 --no-deps; diff vendored scripts/ and schemas/ against the 1.4.0 wheel",
+      "exit_code": 0,
+      "summary": "Vendored base equals 1.4.0 for repo_model, generate_dashboard, init_repo, new, frontmatter, check_frozen_surface, generate_spec, all schemas, and all templates. Missing from vendored: doctor.py, takeover.py, track_import.py, and the doctor/takeover CLI subcommands; adopt_repo.py/plan_import.py were older. Local extension: validate_repo.py and work-item.schema.json carry the preflight marker (24 lines / one property absent upstream)."
+    },
+    {
+      "command": "copy 1.4.0 doctor.py, takeover.py, track_import.py, adopt_repo.py, plan_import.py, repopact_cli.py into scripts/ (validate_repo.py and schemas left intact to preserve preflight)",
+      "exit_code": 0,
+      "summary": "Upgraded vendored tooling to 1.4.0 without clobbering the local preflight extension."
+    },
+    {
+      "command": "python scripts/repopact_cli.py doctor",
+      "exit_code": 0,
+      "summary": "Upgraded 1.4.0 doctor/validate import and run cleanly against the repository."
+    },
+    {
+      "command": "python inline negative/positive test for validate_repo.validate_orphan_work_dirs",
+      "exit_code": 0,
+      "summary": "A work/ subdir with a README but no work-item.json is flagged; the same dir with a manifest and an _audit companion is not. No false positives on tracked items or _audit dirs."
+    },
+    {
+      "command": "python inline test for doctor._dead_source_of_truth",
+      "exit_code": 0,
+      "summary": "A source_of_truth pointer to a missing path is flagged; an existing path and a prose value are not."
+    },
+    {
+      "command": "python scripts/validate_repo.py --root .",
+      "exit_code": 0,
+      "summary": "Repository governance validation passed with the new orphan check active and work items 011 and 012 tracked."
+    }
+  ],
+  "artifacts": [
+    "scripts/doctor.py",
+    "scripts/takeover.py",
+    "scripts/track_import.py",
+    "scripts/adopt_repo.py",
+    "scripts/plan_import.py",
+    "scripts/repopact_cli.py",
+    "scripts/validate_repo.py",
+    "requirements-repopact.txt",
+    "decisions/0002-vendored-repopact-1-4-0-and-local-extensions.md",
+    "work/active/012-repopact-1-4-0-upgrade-orphan-detection/README.md",
+    "work/active/012-repopact-1-4-0-upgrade-orphan-detection/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "Vendored RepoPact upgraded from a pre-1.4.0 base (plus the local preflight extension) to 1.4.0, then extended with a hard orphan-work-dir validation error and a doctor warning for dead source_of_truth pointers. These extensions are candidates to upstream to ForgeWireLabs/repopact."
+  }
+}
