@@ -21,9 +21,9 @@
       "summary": "Installer ForgeLink_2.0.1_x64-setup.exe rebuilt with tunnel.js packaged and the auto-webhook wiring."
     },
     {
-      "command": "elevated silent reinstall of the new installer",
-      "exit_code": 1,
-      "summary": "Reinstall was declined at the Windows UAC prompt, so the new build is not yet installed; the previously installed UI-only build remains running. Live launch of the 014 build and end-to-end inbound delivery are pending operator install + Twilio connect."
+      "command": "elevated silent reinstall of the new installer, then launch",
+      "exit_code": 0,
+      "summary": "Reinstall approved at UAC (exit 0); installed C:\\Program Files\\ForgeLink\\ForgeLink.exe matches the auto-tunnel build timestamp, and the app relaunched cleanly (5 processes, no crash) with the 014 main.js. End-to-end inbound delivery is exercised when the operator connects Twilio (tunnel + webhook provision on start-server)."
     }
   ],
   "artifacts": [

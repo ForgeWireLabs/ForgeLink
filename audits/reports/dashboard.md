@@ -21,10 +21,10 @@
 
 | Status | Count |
 | --- | ---: |
-| active | 2 |
+| active | 1 |
 | blocked | 0 |
 | deferred | 0 |
-| completed | 13 |
+| completed | 14 |
 
 ## Audit freshness
 
@@ -33,4 +33,3 @@ All audit scopes are within their review cadence.
 ## Active items
 
 - 011: Production Readiness (active)
-- 014: Automatic public webhook via cloudflared quick-tunnel (active)

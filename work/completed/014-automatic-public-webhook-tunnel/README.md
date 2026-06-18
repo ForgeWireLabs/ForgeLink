@@ -1,6 +1,6 @@
 ---
 audience: maintainers and implementation agents
-status: active
+status: completed
 last_verified: 2026-06-18
 source_of_truth: Electron/tunnel.js; Electron/main.js; Electron/onboarding.js
 ---
