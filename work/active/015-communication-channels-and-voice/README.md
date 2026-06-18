@@ -2,10 +2,10 @@
 audience: maintainers and implementation agents
 status: active
 last_verified: 2026-06-18
-source_of_truth: README.md; work-item.json
+source_of_truth: work/active/015-communication-channels-and-voice/README.md; work/active/015-communication-channels-and-voice/work-item.json
 ---
 
-# Work Item 012: Communication Channels and Voice
+# Work Item 015: Communication Channels and Voice
 
 > Lifecycle state for this item lives in [`work-item.json`](work-item.json); this
 > README is the intent, scope, sequencing, and closeout narrative. This item
@@ -293,7 +293,7 @@ only if a concrete operator deployment requires it.
 
 ### Phase 4: Voice architecture and telecom edge support
 
-- [ ] **CLV-012 Define the voice runtime and edge-provider contract.** Add
+- [ ] **CLV-015 Define the voice runtime and edge-provider contract.** Add
   provider-neutral voice contracts for local call state, outbound calls, inbound
   call events, call status, call end, caller/callee identity, call log
   persistence, provider errors, and telecom edge boundaries.
@@ -306,7 +306,7 @@ only if a concrete operator deployment requires it.
   - Acceptance: Documentation states that PSTN calling requires a telecom edge
     such as a provider, SIP trunk, carrier partnership, or direct interconnect.
 
-- [ ] **CLV-013 Implement Twilio Voice as the first voice telecom edge adapter.** Restore the
+- [ ] **CLV-016 Implement Twilio Voice as the first voice telecom edge adapter.** Restore the
   useful SCOUT-2 voice capability through the new TypeScript/Electron architecture,
   not by restoring Python code.
   - Acceptance: Outbound call start/end works through the provider contract.
@@ -317,7 +317,7 @@ only if a concrete operator deployment requires it.
     duplicate callback, invalid callback signature where applicable, missing
     credentials, and provider failure.
 
-- [ ] **CLV-014 Decide Twilio Verify scope.** Decide whether phone verification
+- [ ] **CLV-017 Decide Twilio Verify scope.** Decide whether phone verification
   belongs in ForgeLink as a shipped capability, a future provider capability, or
   out of scope.
   - Acceptance: Decision is recorded in `decisions/` or this work item.
@@ -520,5 +520,5 @@ Add or update docs for:
 
 | date | item | evidence | result |
 | --- | --- | --- | --- |
-| 2026-06-18 | planning | Reviewed ForgeLink work ledger conventions and SCOUT-2 Twilio/VoIP lineage | Created item 012 before implementation starts. |
+| 2026-06-18 | planning | Reviewed ForgeLink work ledger conventions and SCOUT-2 Twilio/VoIP lineage | Created item 015 before implementation starts. |
 | 2026-06-18 | planning update | Clarified that ForgeLink should own the native communications runtime while SMS/MMS and PSTN voice use telecom edge adapters when ordinary phone network reachability is required | Promoted local-only human loop and mobile companion design into explicit acceptance criteria. |

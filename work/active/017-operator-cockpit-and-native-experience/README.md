@@ -2,10 +2,10 @@
 audience: maintainers and implementation agents
 status: active
 last_verified: 2026-06-18
-source_of_truth: README.md; work-item.json
+source_of_truth: work/active/017-operator-cockpit-and-native-experience/README.md; work/active/017-operator-cockpit-and-native-experience/work-item.json
 ---
 
-# Work Item 014: Operator Cockpit and Native Experience
+# Work Item 017: Operator Cockpit and Native Experience
 
 > Lifecycle state for this item lives in [`work-item.json`](work-item.json); this
 > README is the intent, scope, sequencing, and closeout narrative. This item
@@ -17,7 +17,7 @@ source_of_truth: README.md; work-item.json
 Turn ForgeLink into the operator cockpit for human attention, agent decisions,
 people, agents, channels, and native device presence.
 
-Work item 013 defines the governance primitives. This item defines how those
+Work item 016 defines the governance primitives. This item defines how those
 primitives become a standout product:
 
 - decision-first inbox;
@@ -56,11 +56,11 @@ The product should optimize for:
 - fast human response from desktop or paired mobile device;
 - durable replay of what happened.
 
-## Relationship to Work Items 012 and 013
+## Relationship to Work Items 015 and 016
 
-- Work item 012 owns the local communications runtime, channels, provider edges,
+- Work item 015 owns the local communications runtime, channels, provider edges,
   contact metadata, voice, and mobile companion protocol foundation.
-- Work item 013 owns governance primitives: Human Cards, agent identity,
+- Work item 016 owns governance primitives: Human Cards, agent identity,
   structured approval, evidence packs, risk tiers, decision records, audit,
   communication firewall, and redaction profiles.
 - This item owns the operator experience: layout, triage, modes, presence,
@@ -161,14 +161,14 @@ The product should optimize for:
 
 ### Phase 4: Summaries and scoped context
 
-- [ ] **OCX-012 Add local semantic thread summaries.** Summarize long threads
+- [ ] **OCX-015 Add local semantic thread summaries.** Summarize long threads
   locally where feasible.
   - Include: what happened, open decisions, pending replies, last human action,
     and agent-relevant constraints.
   - Acceptance: Summaries are derived artifacts, not source of truth.
   - Acceptance: Cloud summarization is opt-in only if ever added.
 
-- [ ] **OCX-013 Add scoped MCP resources.** Expose safe, minimal resources to MCP
+- [ ] **OCX-016 Add scoped MCP resources.** Expose safe, minimal resources to MCP
   clients instead of raw communication dumps.
   - Examples: `get_pending_approvals`, `get_contact_summary`,
     `get_thread_summary`, `get_agent_status`.
@@ -178,7 +178,7 @@ The product should optimize for:
 
 ### Phase 5: External communication UX
 
-- [ ] **OCX-014 Add reviewed outbox.** Provide a visible outbox for agent-drafted
+- [ ] **OCX-017 Add reviewed outbox.** Provide a visible outbox for agent-drafted
   external messages.
   - Acceptance: Drafts can be reviewed, edited, approved, denied, scheduled, or
     sent.
@@ -292,4 +292,4 @@ Add or update docs for:
 
 | date | item | evidence | result |
 | --- | --- | --- | --- |
-| 2026-06-18 | planning | Deep product review identified operator cockpit features needed to make ForgeLink stand out as a state-of-the-art human-boundary app | Created item 014 before implementation starts. |
+| 2026-06-18 | planning | Deep product review identified operator cockpit features needed to make ForgeLink stand out as a state-of-the-art human-boundary app | Created item 017 before implementation starts. |

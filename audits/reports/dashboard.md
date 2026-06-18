@@ -10,8 +10,8 @@
 | --- | ---: |
 | Invariants | 6 |
 | Frozen-surface entries | 5 |
-| Scope contracts | 2 |
-| Audit registry entries | 2 |
+| Scope contracts | 5 |
+| Audit registry entries | 5 |
 | Audit findings | 0 |
 | Decision records | 2 |
 | Policy records | 0 |
@@ -21,7 +21,7 @@
 
 | Status | Count |
 | --- | ---: |
-| active | 1 |
+| active | 4 |
 | blocked | 0 |
 | deferred | 0 |
 | completed | 14 |
@@ -33,3 +33,6 @@ All audit scopes are within their review cadence.
 ## Active items
 
 - 011: Production Readiness (active)
+- 015: Communication Channels and Voice (active)
+- 016: Agent-Human Governance (active)
+- 017: Operator Cockpit and Native Experience (active)

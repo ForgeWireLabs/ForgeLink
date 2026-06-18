@@ -7,8 +7,8 @@
   companion UX, batch approvals, fatigue budget, reputation UI, local summaries,
   scoped MCP resources, reviewed outbox, public screenshots, killer demo, and
   sample workspace.
-- Coordinate with work item 012 for runtime/channel/mobile protocol primitives.
-- Coordinate with work item 013 for governance schemas and policy semantics.
+- Coordinate with work item 015 for runtime/channel/mobile protocol primitives.
+- Coordinate with work item 016 for governance schemas and policy semantics.
 
 ## Required checks
 

@@ -2,10 +2,10 @@
 audience: maintainers and implementation agents
 status: active
 last_verified: 2026-06-18
-source_of_truth: README.md; work-item.json
+source_of_truth: work/active/016-agent-human-governance/README.md; work/active/016-agent-human-governance/work-item.json
 ---
 
-# Work Item 013: Agent-Human Governance
+# Work Item 016: Agent-Human Governance
 
 > Lifecycle state for this item lives in [`work-item.json`](work-item.json); this
 > README is the intent, scope, sequencing, and closeout narrative. This item
@@ -52,9 +52,9 @@ ForgeLink should answer questions ordinary messaging apps cannot answer:
 If ForgeLink answers those questions, it is not a Twilio client, a chat app, or
 a notification panel. It is human-boundary infrastructure.
 
-## Relationship to Work Item 012
+## Relationship to Work Item 015
 
-Work item 012 owns the local communications runtime, channels, telecom edge
+Work item 015 owns the local communications runtime, channels, telecom edge
 adapters, contact metadata, mobile companion protocol foundation, and voice/call
 surface.
 
@@ -74,8 +74,8 @@ This item owns the governance semantics that ride on top of that runtime:
 
 ## Non-goals
 
-- Do not implement new SMS/MMS/voice providers here; use item 012.
-- Do not implement the full mobile companion here; use item 012/014.
+- Do not implement new SMS/MMS/voice providers here; use item 015.
+- Do not implement the full mobile companion here; use item 015/017.
 - Do not add Matrix support.
 - Do not weaken local API authentication.
 - Do not allow arbitrary agents to contact external humans directly.
@@ -179,7 +179,7 @@ This item owns the governance semantics that ride on top of that runtime:
     escalate to another operator, or fail closed.
   - Acceptance: Expired requests are visible and audit-recorded.
 
-- [ ] **AGH-012 Add agent etiquette protocol.** Require agents to explain why they
+- [ ] **AGH-015 Add agent etiquette protocol.** Require agents to explain why they
   are interrupting and whether the request can wait or batch.
   - Required fields: urgency, reason for interrupt, expected response time,
     what-if-no-response, can-batch, can-wait-until.
@@ -188,13 +188,13 @@ This item owns the governance semantics that ride on top of that runtime:
 
 ### Phase 4: Decision records and learning
 
-- [ ] **AGH-013 Add Decision Records.** Persist what the human saw and decided.
+- [ ] **AGH-016 Add Decision Records.** Persist what the human saw and decided.
   - Include: request ID, request hash, evidence hash, operator identity, device
     identity where available, decision, timestamp, selected options, comments,
     and resulting authority grant.
   - Acceptance: A completed decision can be replayed later.
 
-- [ ] **AGH-014 Add Decision Memory.** Convert repeated human decisions into
+- [ ] **AGH-017 Add Decision Memory.** Convert repeated human decisions into
   suggested future policy.
   - Acceptance: ForgeLink can detect repeated approval patterns.
   - Acceptance: Suggested rules require explicit operator confirmation.
@@ -405,4 +405,4 @@ Add or update docs for:
 
 | date | item | evidence | result |
 | --- | --- | --- | --- |
-| 2026-06-18 | planning | Deep product review identified governance primitives needed to make ForgeLink human-boundary infrastructure rather than a messaging wrapper | Created item 013 before implementation starts. |
+| 2026-06-18 | planning | Deep product review identified governance primitives needed to make ForgeLink human-boundary infrastructure rather than a messaging wrapper | Created item 016 before implementation starts. |

@@ -1,0 +1,166 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "016",
+  "title": "Agent-Human Governance",
+  "status": "active",
+  "owner_scope": "work",
+  "affected_scopes": [
+    "work",
+    "backend",
+    "desktop",
+    "ui",
+    "data",
+    "security",
+    "mcp",
+    "agents",
+    "contacts",
+    "policy",
+    "audit",
+    "docs",
+    "tooling"
+  ],
+  "depends_on": [
+    "015"
+  ],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-18T17:06:00Z",
+    "note": "Created before implementation work starts for ForgeLink agent-human governance primitives."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AGH-001",
+      "text": "Add local-first Human Cards so agents can address human authority by alias/role rather than only by phone number or contact string.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-002",
+      "text": "Add authority scopes so approval requests declare required authority and ForgeLink can reject or escalate requests addressed to humans without that authority.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-003",
+      "text": "Add Agent Identity Registry for agents, systems, MCP clients, and local workflow sources, including source, owner, allowed tools/channels, default risk limit, escalation contact, and trust state.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-004",
+      "text": "Add agent trust states and probation so new agents are conservative by default, muted/blocked agents cannot interrupt, and trust changes are explicit/audited.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-005",
+      "text": "Add agent background-check checklist for promoting agents to trusted status based on source, owner, scopes, behavior, tool permissions, and validation history.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-006",
+      "text": "Add structured approval request schema with intent, requested action, reason for interrupt, risk, authority, affected resources, expiration, timeout behavior, deny behavior, and decision options.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-007",
+      "text": "Add Evidence Packs for approval requests, including summary, affected resources, diff summary, proposed operation, checks, rollback plan, links, limitations, and channel-specific redaction.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-008",
+      "text": "Add approval templates/playbooks for file writes, data deletion, git commits, GitHub releases, mirror syncs, external messages, credential changes, network access, purchases, and provider setting changes.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-009",
+      "text": "Add approval dry-run/simulation so agents can learn whether approval is required, risk level, missing evidence, preferred channel, batching/defer recommendation, and validation errors before interrupting.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-010",
+      "text": "Add risk-tiered interruption policy covering log-only, passive notification, normal approval, urgent interrupt, fail-closed critical approval, and multi-party/cannot-proceed states.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-011",
+      "text": "Add explicit timeout and escalation behavior for every approval class, including deny, defer, retry, channel escalation, operator escalation, and fail-closed handling.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-012",
+      "text": "Add agent etiquette protocol requiring urgency, reason for interrupt, expected response time, no-response behavior, batching, and can-wait-until fields.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-013",
+      "text": "Add Decision Records that persist what the human saw and decided, including request/evidence hashes, operator identity, device identity, decision, timestamp, options, comments, and authority grant.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-014",
+      "text": "Add Decision Memory that detects repeated approval patterns and suggests future policy only with explicit operator confirmation.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-015",
+      "text": "Add outcome callbacks so agents report action started/succeeded/failed/expired/cancelled/modified-scope outcomes after approval.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-016",
+      "text": "Add tamper-evident local audit chain for approval requests, evidence packs, decisions, and outcomes using practical local hash-linked records.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-017",
+      "text": "Add approval replay showing request received, risk classified, evidence shown, decision made, action started, outcome reported, and final state.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-018",
+      "text": "Add redacted governance export for approval/audit history, excluding credentials and private message bodies by default.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-019",
+      "text": "Add communication firewall rules controlling how agents may communicate with humans and external channels before dispatch.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-020",
+      "text": "Add draft-don't-send mode for external channels so agents can draft messages while human review/send remains explicit and audited.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-021",
+      "text": "Add external-contact consent ledger covering allowed topics, channels, hours, review requirements, consent source, and last review.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AGH-022",
+      "text": "Add redaction profiles for desktop, mobile lock screen, SMS fallback, email, Discord/status-only, and other channel surfaces.",
+      "state": "pending",
+      "evidence": []
+    }
+  ],
+  "created": "2026-06-18",
+  "updated": "2026-06-18"
+}

@@ -7,8 +7,8 @@
   callbacks, tamper-evident audit, communication firewall, redaction profiles, and
   external contact consent.
 - Keep governance local-first and operator-controlled.
-- Coordinate with work item 012 for channel/runtime/provider implementation.
-- Coordinate with work item 014 for product cockpit, triage, presence, mobile
+- Coordinate with work item 015 for channel/runtime/provider implementation.
+- Coordinate with work item 017 for product cockpit, triage, presence, mobile
   companion UX, and demo experience.
 
 ## Required checks
