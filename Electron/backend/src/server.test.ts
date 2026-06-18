@@ -359,7 +359,9 @@ test("persists failed sends, retries them, and ignores duplicate inbound deliver
 test("serves redacted diagnostics and never leaks secrets", async () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-diag-"));
   const previousToken = process.env.TWILIO_AUTH_TOKEN;
+  const previousVersion = process.env.FORGELINK_APP_VERSION;
   process.env.TWILIO_AUTH_TOKEN = "super-secret-auth-token";
+  process.env.FORGELINK_APP_VERSION = "9.9.9";
   const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
@@ -374,8 +376,10 @@ test("serves redacted diagnostics and never leaks secrets", async () => {
     assert.equal(typeof body.node_version, "string");
     assert.equal(typeof body.schema_version, "number");
     assert.equal(body.credentials_configured, false);
+    assert.equal(body.app_version, "9.9.9");
   } finally {
     if (previousToken === undefined) delete process.env.TWILIO_AUTH_TOKEN; else process.env.TWILIO_AUTH_TOKEN = previousToken;
+    if (previousVersion === undefined) delete process.env.FORGELINK_APP_VERSION; else process.env.FORGELINK_APP_VERSION = previousVersion;
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(directory, { recursive: true, force: true });
   }

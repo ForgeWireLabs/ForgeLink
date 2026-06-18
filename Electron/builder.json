@@ -26,6 +26,7 @@
     "category": "Network"
   },
   "mac": { "category": "public.app-category.productivity" },
+  "publish": { "provider": "github", "owner": "ForgeWireLabs", "repo": "ForgeLink" },
   "win": { "target": ["nsis"], "icon": "assets/icon.ico" },
   "nsis": {
     "oneClick": false,

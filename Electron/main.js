@@ -8,6 +8,7 @@ const { evaluateAttention, normalizeAttentionPolicy } = require("./attention");
 const { createSettingsStore, validateTwilioCredentials, configureNumberWebhook } = require("./onboarding");
 const { createTunnelManager } = require("./tunnel");
 const { findAvailablePort, createRestartPolicy } = require("./lifecycle");
+const { shouldAutoUpdate } = require("./updates");
 
 const APP_NAME = "ForgeLink";
 const BACKEND_ENTRY = path.join(__dirname, "backend-dist", "index.js");
@@ -96,6 +97,7 @@ function publicStatus() {
   const settings = state.settings;
   return {
     running: Boolean(backendProcess),
+    app_version: app.getVersion(),
     baseUrl: baseUrl(),
     configured: state.configured,
     credential_source: state.source,
@@ -138,6 +140,7 @@ async function startBackend() {
       TWILIO_AUTH_TOKEN: settings.auth_token,
       TWILIO_PHONE_NUMBER: settings.twilio_number,
       TWILIO_PUBLIC_BASE_URL: settings.public_base_url || tunnelPublicUrl,
+      FORGELINK_APP_VERSION: app.getVersion(),
       FORGELINK_API_TOKEN: apiToken,
       TWILIO_PHONE_API_TOKEN: apiToken
     },
@@ -381,6 +384,18 @@ app.whenReady().then(async () => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+  // Auto-update (PR-014): only in a packaged build, operator-disableable, and
+  // failure-tolerant (no published feed / offline must never crash the app).
+  if (shouldAutoUpdate({ isPackaged: app.isPackaged, env: process.env })) {
+    try {
+      const { autoUpdater } = require("electron-updater");
+      autoUpdater.autoDownload = true;
+      autoUpdater.on("error", (error) => console.error(`[updater] ${error}`));
+      autoUpdater.checkForUpdatesAndNotify().catch((error) => console.error(`[updater] ${error}`));
+    } catch (error) {
+      console.error(`[updater] unavailable: ${error}`);
+    }
+  }
 });
 
 app.on("window-all-closed", () => {

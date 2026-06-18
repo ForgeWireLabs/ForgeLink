@@ -225,6 +225,7 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       if (request.method === "GET" && url.pathname === "/api/diagnostics") return sendJson(response, {
         ok: true,
         runtime: "node",
+        app_version: process.env.FORGELINK_APP_VERSION || "unknown",
         node_version: process.version,
         platform: process.platform,
         schema_version: database.state.schemaVersion,
