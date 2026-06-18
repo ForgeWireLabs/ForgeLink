@@ -27,6 +27,10 @@ in [`work-item.json`](work-item.json); this is the human summary.
   focuses the first window and starts no competing backend (runtime-verified).
 - **PR-015 support diagnostics** — authenticated `/api/diagnostics` with versions
   and status; credentials/messages/contacts/media excluded (unit-tested).
+- **PR-006 backend lifecycle** — port-conflict detection + dynamic-port fallback,
+  bounded crash-restart, lifecycle diagnostics, clean shutdown, and a recovery
+  message (unit-tested; conflict + restart runtime-verified). Evidence
+  `20260618-pr006-backend-lifecycle`.
 
 **Waived — absorbed by the roadmap** (work continues there, not in 011):
 - **PR-007 contacts** -> 015 (CLV-009/010/011).
@@ -36,7 +40,7 @@ in [`work-item.json`](work-item.json); this is the human summary.
 - **PR-016 voice** -> 015 (CLV-012/013); voice accepted, legacy iframe rejected.
 
 **Remaining genuine baseline** (still pending; 011 stays active):
-- **PR-006** backend lifecycle, **PR-011** security verification (overlaps 016
+- **PR-011** security verification (overlaps 016
   AGH-023), **PR-013** test pyramid, **PR-014** releases — signing/auto-update/
   release notes/checklist remain (icon, installer, checksums done; overlaps 017
   OCX-020).
@@ -71,7 +75,7 @@ in [`work-item.json`](work-item.json); this is the human summary.
 - [x] **PR-005 Harden messaging behavior.** Add optimistic sends, stable pending/failed states, retries, idempotency, drafts, complete delivery receipts, unread correctness, grouping, and pagination.
   - Acceptance: HTTP/database tests for success, timeout, Twilio rejection, duplicate callback, restart, and retry paths.
   - Completion: stable local IDs persist before network calls; local send requests and inbound webhooks are idempotent; failures and interrupted sends are retryable; drafts, attempt counts, provider SIDs, monotonic receipts, date grouping, and existing pagination survive restart.
-- [ ] **PR-006 Harden backend lifecycle.** Detect port conflicts, use dynamic ports where appropriate, restart crashed services with limits, expose diagnostics, and shut down cleanly.
+- [x] **PR-006 Harden backend lifecycle.** Detect port conflicts, use dynamic ports where appropriate, restart crashed services with limits, expose diagnostics, and shut down cleanly.
   - Acceptance: automated process lifecycle tests and clear user-facing recovery instructions.
 
 ### Phase 3: Product workflows
@@ -162,3 +166,4 @@ in [`work-item.json`](work-item.json); this is the human summary.
 - Rollback: restore the schema-2 pre-migration backup, revert local-ID send/retry/draft routes, and restore the previous post-provider-write send behavior.
 - Remaining risk: Twilio does not document provider-side idempotency for message creation. An explicit retry after an ambiguous timeout may create a duplicate; the UI does not retry automatically.
 | 2026-06-18 | reconciliation | Decision 0005: closed PR-010 + PR-015 with evidence; waived PR-007/008/009/012/016 into 015/017; PR-006/011/013/014 remain baseline | 011 reconciled and slimmer; stays active. |
+| 2026-06-18 | PR-006 | Backend lifecycle: dynamic-port fallback + bounded crash-restart, diagnostics, clean shutdown, recovery message; lifecycle unit tests + runtime conflict/restart checks | Closed PR-006 with evidence 20260618-pr006-backend-lifecycle. |

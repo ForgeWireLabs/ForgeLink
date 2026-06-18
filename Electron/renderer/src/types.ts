@@ -18,7 +18,7 @@ export interface AgentChannelStatus { channel_id: string; label: string; enabled
 export interface AttentionPolicy { enabled: boolean; quiet_hours_enabled: boolean; quiet_hours_start: string; quiet_hours_end: string; quiet_hours_allow_urgent: boolean; redact_notification_bodies: boolean; sms_notifications: "all" | "off"; agent_notifications: "all" | "high_and_urgent" | "urgent_only" | "off"; signal_notifications: "all" | "off"; system_notifications: "all" | "failures_only" | "off"; muted_sources: string[]; }
 export interface AttentionEvent { kind: "sms" | "agent" | "signal" | "system"; title?: string; body?: string; source?: string; source_title?: string; channel_id?: string; urgency?: "low" | "normal" | "high" | "urgent"; category?: "info" | "failure"; }
 export interface AttentionDecision { notify: boolean; reason: string; title?: string; body?: string; }
-export interface DesktopStatus { running: boolean; baseUrl: string; configured?: boolean; credential_source?: "none" | "environment" | "stored"; environment_import_available?: boolean; needs_onboarding?: boolean; settings?: DesktopSettings & { attention_policy?: AttentionPolicy }; validation?: ValidationResult; }
+export interface DesktopStatus { running: boolean; baseUrl: string; configured?: boolean; credential_source?: "none" | "environment" | "stored"; environment_import_available?: boolean; needs_onboarding?: boolean; configured_port?: number; effective_port?: number; backend_restarts?: number; last_exit_code?: number | null; recovery_message?: string; settings?: DesktopSettings & { attention_policy?: AttentionPolicy }; validation?: ValidationResult; }
 
 declare global {
   interface Window {

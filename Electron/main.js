@@ -7,6 +7,7 @@ const path = require("node:path");
 const { evaluateAttention, normalizeAttentionPolicy } = require("./attention");
 const { createSettingsStore, validateTwilioCredentials, configureNumberWebhook } = require("./onboarding");
 const { createTunnelManager } = require("./tunnel");
+const { findAvailablePort, createRestartPolicy } = require("./lifecycle");
 
 const APP_NAME = "ForgeLink";
 const BACKEND_ENTRY = path.join(__dirname, "backend-dist", "index.js");
@@ -17,6 +18,10 @@ let mainWindow = null;
 let settingsStore = null;
 let tunnel = null;
 let tunnelPublicUrl = "";
+let effectivePort = 0;
+let lastExitCode = null;
+let recoveryMessage = "";
+const backendRestarts = createRestartPolicy({ maxRestarts: 5, windowMs: 60_000 });
 
 function tunnelService() {
   if (!tunnel) {
@@ -33,7 +38,7 @@ function settingsState() {
 
 function baseUrl() {
   const settings = settingsState().settings;
-  return `http://${settings.webhook_host}:${settings.webhook_port}`;
+  return `http://${settings.webhook_host}:${effectivePort || settings.webhook_port}`;
 }
 
 function mcpTokenFile() {
@@ -96,6 +101,11 @@ function publicStatus() {
     credential_source: state.source,
     environment_import_available: state.environmentAvailable,
     needs_onboarding: !state.configured,
+    configured_port: settings.webhook_port,
+    effective_port: effectivePort || settings.webhook_port,
+    backend_restarts: backendRestarts.count,
+    last_exit_code: lastExitCode,
+    recovery_message: recoveryMessage,
     settings: {
       account_sid: settings.account_sid,
       auth_token_configured: Boolean(settings.auth_token),
@@ -112,10 +122,16 @@ function broadcastStatus() {
   mainWindow?.webContents.send("server-status", publicStatus());
 }
 
-function startBackend() {
+async function startBackend() {
   stopBackend();
   const settings = settingsState().settings;
-  const processHandle = utilityProcess.fork(BACKEND_ENTRY, ["--host", settings.webhook_host, "--port", String(settings.webhook_port)], {
+  const host = settings.webhook_host;
+  const preferred = Number(settings.webhook_port) || 5055;
+  // Detect a port conflict and fall back to a free port (PR-006).
+  effectivePort = await findAvailablePort(preferred, host);
+  if (effectivePort !== preferred) console.warn(`Local port ${preferred} unavailable; using ${effectivePort}.`);
+  recoveryMessage = "";
+  const processHandle = utilityProcess.fork(BACKEND_ENTRY, ["--host", host, "--port", String(effectivePort)], {
     env: {
       ...process.env,
       TWILIO_ACCOUNT_SID: settings.account_sid,
@@ -131,10 +147,22 @@ function startBackend() {
   backendProcess = processHandle;
   processHandle.stdout?.on("data", (chunk) => console.log(`[backend] ${chunk}`.trimEnd()));
   processHandle.stderr?.on("data", (chunk) => console.error(`[backend] ${chunk}`.trimEnd()));
-  processHandle.on("spawn", () => { console.log("Backend utility process started"); broadcastStatus(); });
+  processHandle.on("spawn", () => { console.log(`Backend utility process started on ${host}:${effectivePort}`); broadcastStatus(); });
   processHandle.on("exit", (code) => {
-    if (backendProcess === processHandle) backendProcess = null;
+    // Only the *current* handle drives restart; replaced/intentionally-stopped
+    // handles (backendProcess already nulled) never trigger a restart.
+    const wasCurrent = backendProcess === processHandle;
+    if (wasCurrent) backendProcess = null;
+    lastExitCode = code;
     console.log(`Backend exited with code ${code}`);
+    if (wasCurrent && code !== 0) {
+      if (backendRestarts.allow()) {
+        console.warn(`Backend crashed (code ${code}); restarting (${backendRestarts.count}/5).`);
+        void startBackend();
+        return;
+      }
+      recoveryMessage = `The local service stopped unexpectedly and could not recover automatically. Close and reopen ForgeLink. If it keeps failing, make sure port ${preferred} is free or change the local port in Settings, then start the service again.`;
+    }
     broadcastStatus();
   });
 }
@@ -225,7 +253,7 @@ ipcMain.handle("start-server", async (_, update = {}) => {
   const candidate = { ...current, ...update, auth_token: update.auth_token || current.auth_token };
   const validation = await validateTwilioCredentials(candidate);
   settingsStore.persist(validation.settings);
-  startBackend();
+  await startBackend();
   let ready = await waitForBackend();
   if (!ready) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
   // Auto-provision a public webhook unless the operator set one manually.
@@ -234,7 +262,7 @@ ipcMain.handle("start-server", async (_, update = {}) => {
       const url = await tunnelService().start(baseUrl());
       await configureNumberWebhook(validation.settings, url);
       tunnelPublicUrl = url;
-      startBackend(); // restart so the backend sees TWILIO_PUBLIC_BASE_URL for outbound status callbacks
+      await startBackend(); // restart so the backend sees TWILIO_PUBLIC_BASE_URL for outbound status callbacks
       ready = await waitForBackend();
       if (!ready) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
       console.log("Automatic public webhook configured.");
@@ -259,13 +287,13 @@ ipcMain.handle("import-environment", async () => {
   const candidate = settingsState().settings;
   const validation = await validateTwilioCredentials(candidate);
   settingsStore.importEnvironment();
-  startBackend();
+  await startBackend();
   if (!(await waitForBackend())) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
   return { ...publicStatus(), validation: { account_name: validation.account_name, account_status: validation.account_status, phone_number: validation.phone_number } };
 });
 ipcMain.handle("remove-credentials", async () => {
   settingsStore.removeCredentials();
-  startBackend();
+  await startBackend();
   await waitForBackend();
   return publicStatus();
 });
@@ -346,7 +374,7 @@ app.whenReady().then(async () => {
     legacyUserData: path.join(app.getPath("appData"), "Twilio Phone")
   });
   settingsStore.load();
-  if (!(await backendIsReady())) startBackend();
+  if (!(await backendIsReady())) await startBackend();
   const ready = await waitForBackend();
   if (!ready) console.error(`Backend did not become ready at ${baseUrl()}`);
   createWindow();

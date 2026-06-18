@@ -1,0 +1,46 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260618-pr006-backend-lifecycle",
+  "timestamp": "2026-06-18T23:30:00Z",
+  "work_item": "011",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "node --test lifecycle.test.js",
+      "exit_code": 0,
+      "summary": "5/5: isPortAvailable reflects in-use vs free; findAvailablePort returns the preferred port when free and falls back to a free port when taken; restart policy allows up to the budget then denies within the window and recovers after it elapses."
+    },
+    {
+      "command": "npm test (full suite)",
+      "exit_code": 0,
+      "summary": "Renderer interaction tests + all node tests (incl. lifecycle) + node --check of main.js/lifecycle.js/etc. green."
+    },
+    {
+      "command": "runtime: occupy 127.0.0.1:5055, launch the app, inspect backend listening port",
+      "exit_code": 0,
+      "summary": "PR-006 dynamic port: with 5055 held by a dummy listener, the backend detected the conflict and bound a free port (56288) instead of failing."
+    },
+    {
+      "command": "runtime: launch app, kill the backend child process, observe respawn",
+      "exit_code": 0,
+      "summary": "PR-006 bounded crash-restart: backend on 5055 (pid 18120) was force-killed and the main process restarted it (new pid 12528 on 5055). Intentional stops never restart (current-handle guard); the budget caps auto-restarts at 5/60s and then surfaces a recovery message."
+    }
+  ],
+  "artifacts": [
+    "Electron/lifecycle.js",
+    "Electron/lifecycle.test.js",
+    "Electron/main.js",
+    "Electron/builder.json",
+    "Electron/package.json",
+    "Electron/renderer/src/types.ts",
+    "Electron/renderer/src/App.tsx",
+    "work/active/011-production-readiness/work-item.json",
+    "work/active/011-production-readiness/README.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "PR-006 backend lifecycle: port-conflict detection + dynamic-port fallback, bounded crash-restart (5/60s) with a current-handle guard so intentional stops never restart, lifecycle diagnostics in desktop status (effective/configured port, restart count, last exit code), clean shutdown on quit, and a user-facing recovery message in Settings. Lifecycle logic is unit-tested; conflict and crash-restart are runtime-verified."
+    }
+}
