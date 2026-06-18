@@ -1,0 +1,22 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "014",
+  "title": "Automatic public webhook via cloudflared quick-tunnel",
+  "status": "active",
+  "owner_scope": "desktop",
+  "affected_scopes": ["desktop", "backend", "ui", "security", "release", "docs"],
+  "depends_on": ["013"],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-18T00:00:00Z",
+    "note": "Created before adding the tunnel manager, Twilio webhook auto-config, main-process wiring, and packaging changes."
+  },
+  "acceptance_criteria": [
+    {"id": "AC-1", "text": "A tunnel manager resolves a cloudflared binary (cached under user data, fetched once if absent), starts a quick tunnel to the local service, and parses the public https URL from cloudflared output; URL parsing is unit-tested.", "state": "satisfied", "evidence": ["20260618-automatic-public-webhook-tunnel"]},
+    {"id": "AC-2", "text": "When credentials validate and no manual public webhook URL is set, the app sets the Twilio number's SMS webhook to <tunnel>/webhooks/sms via the Twilio API; the request shaping is unit-tested with a mocked fetch.", "state": "satisfied", "evidence": ["20260618-automatic-public-webhook-tunnel"]},
+    {"id": "AC-3", "text": "The tunnel and webhook are (re)provisioned on each start because quick-tunnel URLs are ephemeral, and the tunnel process is stopped on app quit / stop-service.", "state": "satisfied", "evidence": ["20260618-automatic-public-webhook-tunnel"]},
+    {"id": "AC-4", "text": "Inbound stays private-first: the tunnel only forwards to loopback, a manual public webhook URL still overrides automatic provisioning, and no secrets are logged. Renderer/backend unit suites pass and the app launches the 014 build (awaits operator reinstall).", "state": "pending", "evidence": []}
+  ],
+  "created": "2026-06-18",
+  "updated": "2026-06-18"
+}

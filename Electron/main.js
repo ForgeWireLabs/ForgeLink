@@ -5,7 +5,8 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const { evaluateAttention, normalizeAttentionPolicy } = require("./attention");
-const { createSettingsStore, validateTwilioCredentials } = require("./onboarding");
+const { createSettingsStore, validateTwilioCredentials, configureNumberWebhook } = require("./onboarding");
+const { createTunnelManager } = require("./tunnel");
 
 const APP_NAME = "ForgeLink";
 const BACKEND_ENTRY = path.join(__dirname, "backend-dist", "index.js");
@@ -14,6 +15,17 @@ const apiToken = randomBytes(32).toString("base64url");
 let backendProcess = null;
 let mainWindow = null;
 let settingsStore = null;
+let tunnel = null;
+let tunnelPublicUrl = "";
+
+function tunnelService() {
+  if (!tunnel) {
+    const binDir = path.join(app.getPath("userData"), "bin");
+    const resourcePath = path.join(process.resourcesPath || __dirname, "cloudflared.exe");
+    tunnel = createTunnelManager({ binDir, resourcePath });
+  }
+  return tunnel;
+}
 
 function settingsState() {
   return settingsStore.current();
@@ -88,7 +100,7 @@ function publicStatus() {
       account_sid: settings.account_sid,
       auth_token_configured: Boolean(settings.auth_token),
       twilio_number: settings.twilio_number,
-      public_base_url: settings.public_base_url,
+      public_base_url: settings.public_base_url || tunnelPublicUrl,
       webhook_host: settings.webhook_host,
       webhook_port: settings.webhook_port,
       attention_policy: normalizeAttentionPolicy(settings.attention_policy)
@@ -109,7 +121,7 @@ function startBackend() {
       TWILIO_ACCOUNT_SID: settings.account_sid,
       TWILIO_AUTH_TOKEN: settings.auth_token,
       TWILIO_PHONE_NUMBER: settings.twilio_number,
-      TWILIO_PUBLIC_BASE_URL: settings.public_base_url,
+      TWILIO_PUBLIC_BASE_URL: settings.public_base_url || tunnelPublicUrl,
       FORGELINK_API_TOKEN: apiToken,
       TWILIO_PHONE_API_TOKEN: apiToken
     },
@@ -214,8 +226,27 @@ ipcMain.handle("start-server", async (_, update = {}) => {
   const validation = await validateTwilioCredentials(candidate);
   settingsStore.persist(validation.settings);
   startBackend();
-  const ready = await waitForBackend();
+  let ready = await waitForBackend();
   if (!ready) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
+  // Auto-provision a public webhook unless the operator set one manually.
+  if (!validation.settings.public_base_url) {
+    try {
+      const url = await tunnelService().start(baseUrl());
+      await configureNumberWebhook(validation.settings, url);
+      tunnelPublicUrl = url;
+      startBackend(); // restart so the backend sees TWILIO_PUBLIC_BASE_URL for outbound status callbacks
+      ready = await waitForBackend();
+      if (!ready) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
+      console.log("Automatic public webhook configured.");
+    } catch (cause) {
+      tunnelPublicUrl = "";
+      await tunnelService().stop();
+      console.error(`Automatic webhook setup failed; outbound messaging still works: ${cause instanceof Error ? cause.message : cause}`);
+    }
+  } else {
+    tunnelPublicUrl = "";
+    await tunnelService().stop();
+  }
   broadcastStatus();
   return { ...publicStatus(), validation: { account_name: validation.account_name, account_status: validation.account_status, phone_number: validation.phone_number } };
 });
@@ -240,6 +271,8 @@ ipcMain.handle("remove-credentials", async () => {
 });
 ipcMain.handle("stop-server", () => {
   stopBackend();
+  tunnelPublicUrl = "";
+  void tunnelService().stop();
   return publicStatus();
 });
 ipcMain.handle("mcp-status", () => mcpPublicStatus());
@@ -313,4 +346,5 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   stopBackend();
+  if (tunnel) void tunnel.stop();
 });

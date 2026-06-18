@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { createSettingsStore, validateTwilioCredentials } = require("./onboarding");
+const { createSettingsStore, validateTwilioCredentials, configureNumberWebhook } = require("./onboarding");
 const { DEFAULT_ATTENTION_POLICY } = require("./attention");
 
 const complete = { account_sid: `AC${"a".repeat(32)}`, auth_token: "secret-token", twilio_number: "+15551234567", public_base_url: "https://phone.example.com", webhook_host: "127.0.0.1", webhook_port: 5055 };
@@ -78,4 +78,21 @@ test("validates credentials and confirms the selected Twilio number", async () =
   assert.equal(result.phone_number, complete.twilio_number);
   assert.equal(calls.length, 2);
   await assert.rejects(() => validateTwilioCredentials(complete, async () => ({ ok: false, status: 401, json: async () => ({}) })), /rejected/);
+});
+
+test("configures the Twilio number SMS webhook to the tunnel URL", async () => {
+  const calls = [];
+  const result = await configureNumberWebhook({ ...complete, public_base_url: "" }, "https://swift-bird-42.trycloudflare.com/", async (url, init = {}) => {
+    calls.push({ url, method: init.method || "GET", body: init.body });
+    if (url.includes("IncomingPhoneNumbers.json")) {
+      return { ok: true, json: async () => ({ incoming_phone_numbers: [{ phone_number: complete.twilio_number, sid: "PN0001" }] }) };
+    }
+    return { ok: true, json: async () => ({ sid: "PN0001" }) };
+  });
+  assert.equal(result.sms_url, "https://swift-bird-42.trycloudflare.com/webhooks/sms");
+  const update = calls.find(call => call.method === "POST");
+  assert.ok(update, "expected a POST to update the number");
+  assert.ok(update.url.endsWith("/IncomingPhoneNumbers/PN0001.json"));
+  assert.ok(decodeURIComponent(update.body).includes("SmsUrl=https://swift-bird-42.trycloudflare.com/webhooks/sms"));
+  await assert.rejects(() => configureNumberWebhook({ ...complete, public_base_url: "" }, "http://insecure.example"), /HTTPS/);
 });

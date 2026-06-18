@@ -6,6 +6,7 @@
     "preload.js",
     "onboarding.js",
     "attention.js",
+    "tunnel.js",
     "renderer/index.html",
     "renderer/styles.css",
     "renderer/app.js",

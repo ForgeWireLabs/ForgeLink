@@ -1,0 +1,46 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260618-automatic-public-webhook-tunnel",
+  "timestamp": "2026-06-18T14:20:00Z",
+  "work_item": "014",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "node --test tunnel.test.js onboarding.test.js",
+      "exit_code": 0,
+      "summary": "Tunnel URL extraction, the fake-process start/stop lifecycle, and the Twilio webhook PATCH request shaping all pass."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full suite green: 20 renderer interaction tests, 42 node tests (incl. new tunnel + configureNumberWebhook), and node --check of main.js/tunnel.js/onboarding.js/attention.js."
+    },
+    {
+      "command": "npm run build (electron-builder -c builder.json)",
+      "exit_code": 0,
+      "summary": "Installer ForgeLink_2.0.1_x64-setup.exe rebuilt with tunnel.js packaged and the auto-webhook wiring."
+    },
+    {
+      "command": "elevated silent reinstall of the new installer",
+      "exit_code": 1,
+      "summary": "Reinstall was declined at the Windows UAC prompt, so the new build is not yet installed; the previously installed UI-only build remains running. Live launch of the 014 build and end-to-end inbound delivery are pending operator install + Twilio connect."
+    }
+  ],
+  "artifacts": [
+    "Electron/tunnel.js",
+    "Electron/tunnel.test.js",
+    "Electron/onboarding.js",
+    "Electron/onboarding.test.js",
+    "Electron/main.js",
+    "Electron/builder.json",
+    "Electron/package.json",
+    "Electron/renderer/src/App.tsx",
+    "work/active/014-automatic-public-webhook-tunnel/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "cloudflared is acquired at runtime and cached under user data (not bundled in the installer yet). The tunnel forwards only to loopback; a manual public_base_url still overrides automatic provisioning; auth tokens are never logged. AC-4's app-launch check and end-to-end inbound await the operator approving the reinstall."
+  }
+}

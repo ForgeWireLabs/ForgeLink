@@ -59,6 +59,29 @@ async function validateTwilioCredentials(settings, fetchImpl = fetch) {
   return { settings: next, account_name: String(account.friendly_name || "Twilio account"), account_status: String(account.status || "active"), phone_number: next.twilio_number };
 }
 
+// Point the Twilio number's inbound SMS webhook at <publicBaseUrl>/webhooks/sms.
+// Used to auto-configure delivery once a tunnel URL is known (work item 014).
+async function configureNumberWebhook(settings, publicBaseUrl, fetchImpl = fetch) {
+  const next = validateLocalSettings(settings);
+  const base = String(publicBaseUrl || "").trim().replace(/\/$/, "");
+  if (!base.startsWith("https://")) throw new Error("A public HTTPS base URL is required to configure the Twilio webhook.");
+  const authorization = `Basic ${Buffer.from(`${next.account_sid}:${next.auth_token}`).toString("base64")}`;
+  const lookup = await fetchImpl(`https://api.twilio.com/2010-04-01/Accounts/${next.account_sid}/IncomingPhoneNumbers.json?PhoneNumber=${encodeURIComponent(next.twilio_number)}&PageSize=1`, {
+    headers: { Authorization: authorization }, signal: AbortSignal.timeout(20_000)
+  });
+  if (!lookup.ok) throw new Error(`Twilio phone-number lookup failed (${lookup.status}).`);
+  const data = await lookup.json();
+  const record = Array.isArray(data.incoming_phone_numbers) ? data.incoming_phone_numbers.find((number) => number.phone_number === next.twilio_number) : null;
+  if (!record || !record.sid) throw new Error("That phone number was not found in this Twilio account.");
+  const smsUrl = `${base}/webhooks/sms`;
+  const body = new URLSearchParams({ SmsUrl: smsUrl, SmsMethod: "POST" }).toString();
+  const update = await fetchImpl(`https://api.twilio.com/2010-04-01/Accounts/${next.account_sid}/IncomingPhoneNumbers/${record.sid}.json`, {
+    method: "POST", headers: { Authorization: authorization, "Content-Type": "application/x-www-form-urlencoded" }, body, signal: AbortSignal.timeout(20_000)
+  });
+  if (!update.ok) throw new Error(`Twilio webhook update failed (${update.status}).`);
+  return { sid: record.sid, sms_url: smsUrl };
+}
+
 function createSettingsStore({ fs, path, safeStorage, env, userData, legacyUserData }) {
   const file = path.join(userData, "settings.json");
   const legacyFiles = legacyUserData ? [path.join(legacyUserData, "settings.json")] : [];
@@ -140,4 +163,4 @@ function createSettingsStore({ fs, path, safeStorage, env, userData, legacyUserD
   return { current, importEnvironment, load, persist, persistAttentionPolicy, removeCredentials };
 }
 
-module.exports = { DEFAULT_SETTINGS, createSettingsStore, normalizePhone, validateAttentionPolicy, validateLocalSettings, validateTwilioCredentials };
+module.exports = { DEFAULT_SETTINGS, createSettingsStore, normalizePhone, validateAttentionPolicy, validateLocalSettings, validateTwilioCredentials, configureNumberWebhook };
