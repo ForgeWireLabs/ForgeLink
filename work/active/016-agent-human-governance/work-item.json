@@ -189,6 +189,12 @@
       "text": "Add one end-to-end governance-loop integration test exercising request -> risk classification -> evidence -> decision -> outcome -> audit -> replay, proving the full lifecycle holds together beyond per-primitive unit tests.",
       "state": "pending",
       "evidence": []
+    },
+    {
+      "id": "AGH-028",
+      "text": "Pipe ForgeWire Fabric human-in-the-loop approvals through ForgeLink: when ForgeLink is installed and reachable, Fabric's HITL approval pane automatically routes approval requests to ForgeLink as the governed decision surface (evidence packs, audit, redaction, mobile companion), with an explicit operator opt-out and graceful fallback to Fabric's built-in pane when ForgeLink is absent.",
+      "state": "pending",
+      "evidence": []
     }
   ],
   "created": "2026-06-18",
