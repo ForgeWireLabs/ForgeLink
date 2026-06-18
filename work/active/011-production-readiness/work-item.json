@@ -4,7 +4,17 @@
   "title": "Production Readiness",
   "status": "active",
   "owner_scope": "work",
-  "affected_scopes": ["work", "backend", "desktop", "ui", "data", "security", "release", "tooling", "docs"],
+  "affected_scopes": [
+    "work",
+    "backend",
+    "desktop",
+    "ui",
+    "data",
+    "security",
+    "release",
+    "tooling",
+    "docs"
+  ],
   "depends_on": [],
   "preflight": {
     "created_before_work_started": true,
@@ -12,18 +22,77 @@
     "note": "Migrated the pre-ledger production-readiness plan into the work ledger as item 011. Closed phases PR-001 through PR-005 are recorded as history in README.md and _audit/. The acceptance criteria below cover only the remaining unstarted work (PR-006 through PR-016), which this entry is created before resuming."
   },
   "acceptance_criteria": [
-    {"id": "PR-006", "text": "Harden backend lifecycle: detect port conflicts, dynamic ports where appropriate, bounded crash restarts, diagnostics, clean shutdown, with process lifecycle tests and user-facing recovery instructions.", "state": "pending", "evidence": []},
-    {"id": "PR-007", "text": "Complete contacts: edit/delete confirmation, duplicate merge, CSV import/export, and contact selection during composition.", "state": "pending", "evidence": []},
-    {"id": "PR-008", "text": "Complete media: previews, upload progress, cancellation, validation errors, download/open controls, and retention cleanup.", "state": "pending", "evidence": []},
-    {"id": "PR-009", "text": "Complete notifications and deep links: clicking a notification opens the correct conversation; background and focus behavior are tested.", "state": "pending", "evidence": []},
-    {"id": "PR-010", "text": "Add single-instance behavior: a second launch focuses the first app and cannot start a competing backend.", "state": "pending", "evidence": []},
-    {"id": "PR-011", "text": "Expand security verification: proxy-aware webhook signature tests, local API threat tests, secret scanning, dependency scanning, and diagnostic redaction tests.", "state": "pending", "evidence": []},
-    {"id": "PR-012", "text": "Complete accessibility: keyboard-only navigation, focus restoration, screen-reader labels, WCAG AA contrast, zoom, reduced motion, and high-contrast behavior.", "state": "pending", "evidence": []},
-    {"id": "PR-013", "text": "Build the test pyramid: backend HTTP integration tests, renderer interaction tests, Electron lifecycle tests, installer tests, and opt-in Twilio sandbox/live tests.", "state": "pending", "evidence": []},
-    {"id": "PR-014", "text": "Establish releases: real icon, signed installer, version metadata, release notes, checksums, update strategy, rollback, and reproducible release checklist.", "state": "pending", "evidence": []},
-    {"id": "PR-015", "text": "Add support diagnostics: user-triggered health report with versions and status while excluding credentials, messages, contacts, and media by default.", "state": "pending", "evidence": []},
-    {"id": "PR-016", "text": "Decide Voice scope: design and implement Twilio Voice as a separately tested surface or explicitly reject it from the roadmap. Do not restore the legacy iframe implementation.", "state": "pending", "evidence": []}
+    {
+      "id": "PR-006",
+      "text": "Harden backend lifecycle: detect port conflicts, dynamic ports where appropriate, bounded crash restarts, diagnostics, clean shutdown, with process lifecycle tests and user-facing recovery instructions.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "PR-007",
+      "text": "Complete contacts: edit/delete confirmation, duplicate merge, CSV import/export, and contact selection during composition.",
+      "state": "waived",
+      "evidence": []
+    },
+    {
+      "id": "PR-008",
+      "text": "Complete media: previews, upload progress, cancellation, validation errors, download/open controls, and retention cleanup.",
+      "state": "waived",
+      "evidence": []
+    },
+    {
+      "id": "PR-009",
+      "text": "Complete notifications and deep links: clicking a notification opens the correct conversation; background and focus behavior are tested.",
+      "state": "waived",
+      "evidence": []
+    },
+    {
+      "id": "PR-010",
+      "text": "Add single-instance behavior: a second launch focuses the first app and cannot start a competing backend.",
+      "state": "satisfied",
+      "evidence": [
+        "20260618-011-baseline-hardening"
+      ]
+    },
+    {
+      "id": "PR-011",
+      "text": "Expand security verification: proxy-aware webhook signature tests, local API threat tests, secret scanning, dependency scanning, and diagnostic redaction tests.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "PR-012",
+      "text": "Complete accessibility: keyboard-only navigation, focus restoration, screen-reader labels, WCAG AA contrast, zoom, reduced motion, and high-contrast behavior.",
+      "state": "waived",
+      "evidence": []
+    },
+    {
+      "id": "PR-013",
+      "text": "Build the test pyramid: backend HTTP integration tests, renderer interaction tests, Electron lifecycle tests, installer tests, and opt-in Twilio sandbox/live tests.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "PR-014",
+      "text": "Establish releases: real icon, signed installer, version metadata, release notes, checksums, update strategy, rollback, and reproducible release checklist.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "PR-015",
+      "text": "Add support diagnostics: user-triggered health report with versions and status while excluding credentials, messages, contacts, and media by default.",
+      "state": "satisfied",
+      "evidence": [
+        "20260618-011-baseline-hardening"
+      ]
+    },
+    {
+      "id": "PR-016",
+      "text": "Decide Voice scope: design and implement Twilio Voice as a separately tested surface or explicitly reject it from the roadmap. Do not restore the legacy iframe implementation.",
+      "state": "waived",
+      "evidence": []
+    }
   ],
   "created": "2026-06-17",
-  "updated": "2026-06-17"
+  "updated": "2026-06-18"
 }

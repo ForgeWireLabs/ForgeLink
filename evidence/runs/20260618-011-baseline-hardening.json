@@ -1,0 +1,38 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260618-011-baseline-hardening",
+  "timestamp": "2026-06-18T22:10:00Z",
+  "work_item": "011",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build && node --test backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "PR-015: new authenticated GET /api/diagnostics returns runtime/node_version/platform/schema_version/uptime and redacted booleans; the test asserts 401 without token, 200 with token, and that a set TWILIO_AUTH_TOKEN sentinel never appears in the response. 9/9 server tests pass."
+    },
+    {
+      "command": "node --check main.js",
+      "exit_code": 0,
+      "summary": "PR-010: single-instance lock added before app ready (app.requestSingleInstanceLock(); second-instance focuses the existing window). main.js syntax valid."
+    },
+    {
+      "command": "npx electron-builder -c builder.json --dir; launch ForgeLink.exe twice with PID tracking",
+      "exit_code": 0,
+      "summary": "PR-010 runtime: first instance (pid 18028) stays alive at 5 processes; a second launch (pid 15264) exits and the total stays 5 — the second launch focuses the first window and never forks a competing backend. A control run confirmed one instance stays alive 15s, so the behavior is the lock, not a crash."
+    }
+  ],
+  "artifacts": [
+    "Electron/main.js",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "decisions/0005-reconcile-011-production-readiness-with-015-017.md",
+    "work/active/011-production-readiness/work-item.json",
+    "work/active/011-production-readiness/README.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "Closes PR-010 (single-instance) and PR-015 (support diagnostics) with evidence. Per decision 0005, PR-007/008/009/012/016 are waived into work items 015/017 and PR-006/011/013/014 remain genuine baseline work; 011 stays active."
+  }
+}

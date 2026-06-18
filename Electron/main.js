@@ -321,6 +321,21 @@ ipcMain.handle("agent-channel-enabled", async (_, channelId = "forgewire", enabl
   return { ...result.channel, token_file: channelTokenFile(result.channel.channel_id), token_file_present: fs.existsSync(channelTokenFile(result.channel.channel_id)) };
 });
 
+// Single-instance: a second launch focuses the first window and never starts a
+// competing backend (PR-010). Must run before whenReady so the second process
+// exits before it can fork a backend.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 app.whenReady().then(async () => {
   settingsStore = createSettingsStore({
     fs,

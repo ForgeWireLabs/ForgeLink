@@ -222,6 +222,17 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         if (auth === "none") return sendJson(response, { error: "Unauthorized" }, 401);
       }
       if (request.method === "GET" && url.pathname === "/health") return sendJson(response, { ok: true, runtime: "node" });
+      if (request.method === "GET" && url.pathname === "/api/diagnostics") return sendJson(response, {
+        ok: true,
+        runtime: "node",
+        node_version: process.version,
+        platform: process.platform,
+        schema_version: database.state.schemaVersion,
+        uptime_seconds: Math.round(process.uptime()),
+        // Redacted by design (PR-015): booleans only, never credential/message/contact/media values.
+        credentials_configured: Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER),
+        public_base_url_configured: Boolean(process.env.TWILIO_PUBLIC_BASE_URL)
+      });
       if (request.method === "GET" && url.pathname === "/api/threads") return sendJson(response, database.threads());
       if (request.method === "GET" && url.pathname === "/api/messages") return sendJson(response, database.messages(Number(url.searchParams.get("thread_id") || 0), url.searchParams.get("before") || undefined));
       if (request.method === "GET" && url.pathname === "/api/draft") return sendJson(response, { body: database.draft(Number(url.searchParams.get("thread_id") || 0)) });

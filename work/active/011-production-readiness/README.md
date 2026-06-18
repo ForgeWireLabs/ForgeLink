@@ -17,6 +17,30 @@ source_of_truth: AGENTS.md; work/active/011-production-readiness/_audit/alignmen
 
 Turn Twilio Phone into a secure, installable, recoverable Windows desktop messaging application with predictable operations and trustworthy releases.
 
+## Reconciliation 2026-06-18 (decision 0005)
+
+011 is reconciled against the 015-017 roadmap. Authoritative criterion state is
+in [`work-item.json`](work-item.json); this is the human summary.
+
+**Done this session** (evidence `20260618-011-baseline-hardening`):
+- **PR-010 single-instance** — `app.requestSingleInstanceLock()`; a second launch
+  focuses the first window and starts no competing backend (runtime-verified).
+- **PR-015 support diagnostics** — authenticated `/api/diagnostics` with versions
+  and status; credentials/messages/contacts/media excluded (unit-tested).
+
+**Waived — absorbed by the roadmap** (work continues there, not in 011):
+- **PR-007 contacts** -> 015 (CLV-009/010/011).
+- **PR-008 media** -> 015 (channel/media model).
+- **PR-009 notifications/deep links** -> 015 (CLV-004) + 017.
+- **PR-012 accessibility** -> 017.
+- **PR-016 voice** -> 015 (CLV-012/013); voice accepted, legacy iframe rejected.
+
+**Remaining genuine baseline** (still pending; 011 stays active):
+- **PR-006** backend lifecycle, **PR-011** security verification (overlaps 016
+  AGH-023), **PR-013** test pyramid, **PR-014** releases — signing/auto-update/
+  release notes/checklist remain (icon, installer, checksums done; overlaps 017
+  OCX-020).
+
 ## Priority order
 
 ### Phase 0: TypeScript and React migration
@@ -55,7 +79,7 @@ Turn Twilio Phone into a secure, installable, recoverable Windows desktop messag
 - [ ] **PR-007 Complete contacts.** Add edit/delete confirmation, duplicate merge, CSV import/export, and contact selection during composition.
 - [ ] **PR-008 Complete media.** Add previews, upload progress, cancellation, validation errors, download/open controls, and retention cleanup.
 - [ ] **PR-009 Complete notifications and deep links.** Clicking a notification opens the correct conversation; background and focus behavior are tested.
-- [ ] **PR-010 Add single-instance behavior.** A second launch focuses the first app and cannot start a competing backend.
+- [x] **PR-010 Add single-instance behavior.** A second launch focuses the first app and cannot start a competing backend.
 
 ### Phase 4: Security, quality, and releases
 
@@ -63,7 +87,7 @@ Turn Twilio Phone into a secure, installable, recoverable Windows desktop messag
 - [ ] **PR-012 Complete accessibility.** Keyboard-only navigation, focus restoration, screen-reader labels, WCAG AA contrast, zoom, reduced motion, and high-contrast behavior.
 - [ ] **PR-013 Build the test pyramid.** Backend HTTP integration tests, renderer interaction tests, Electron lifecycle tests, installer tests, and opt-in Twilio sandbox/live tests.
 - [ ] **PR-014 Establish releases.** Real icon, signed installer, version metadata, release notes, checksums, update strategy, rollback, and reproducible release checklist.
-- [ ] **PR-015 Add support diagnostics.** User-triggered health report with versions and status while excluding credentials, messages, contacts, and media by default.
+- [x] **PR-015 Add support diagnostics.** User-triggered health report with versions and status while excluding credentials, messages, contacts, and media by default.
 
 ## Deferred product decision
 
@@ -137,3 +161,4 @@ Turn Twilio Phone into a secure, installable, recoverable Windows desktop messag
 - Delivery evidence: outbound Twilio requests include the signed status callback URL, provider SIDs map to stable local rows, and duplicate/backward callback transitions are ignored.
 - Rollback: restore the schema-2 pre-migration backup, revert local-ID send/retry/draft routes, and restore the previous post-provider-write send behavior.
 - Remaining risk: Twilio does not document provider-side idempotency for message creation. An explicit retry after an ambiguous timeout may create a duplicate; the UI does not retry automatically.
+| 2026-06-18 | reconciliation | Decision 0005: closed PR-010 + PR-015 with evidence; waived PR-007/008/009/012/016 into 015/017; PR-006/011/013/014 remain baseline | 011 reconciled and slimmer; stays active. |

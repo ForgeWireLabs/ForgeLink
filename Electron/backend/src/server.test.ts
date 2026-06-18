@@ -355,3 +355,28 @@ test("persists failed sends, retries them, and ignores duplicate inbound deliver
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("serves redacted diagnostics and never leaks secrets", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-diag-"));
+  const previousToken = process.env.TWILIO_AUTH_TOKEN;
+  process.env.TWILIO_AUTH_TOKEN = "super-secret-auth-token";
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  try {
+    assert.equal((await fetch(`http://127.0.0.1:${port}/api/diagnostics`)).status, 401);
+    const response = await fetch(`http://127.0.0.1:${port}/api/diagnostics`, { headers: authorized() });
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    assert.equal(text.includes("super-secret-auth-token"), false);
+    const body = JSON.parse(text) as Record<string, unknown>;
+    assert.equal(body.runtime, "node");
+    assert.equal(typeof body.node_version, "string");
+    assert.equal(typeof body.schema_version, "number");
+    assert.equal(body.credentials_configured, false);
+  } finally {
+    if (previousToken === undefined) delete process.env.TWILIO_AUTH_TOKEN; else process.env.TWILIO_AUTH_TOKEN = previousToken;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
