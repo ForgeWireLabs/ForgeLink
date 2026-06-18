@@ -1,0 +1,149 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "012",
+  "title": "Communication Channels and Voice",
+  "status": "active",
+  "owner_scope": "work",
+  "affected_scopes": [
+    "work",
+    "backend",
+    "desktop",
+    "ui",
+    "data",
+    "security",
+    "providers",
+    "contacts",
+    "voice",
+    "messaging",
+    "mobile",
+    "local-runtime",
+    "docs",
+    "tooling"
+  ],
+  "depends_on": [
+    "011"
+  ],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-18T15:49:00Z",
+    "note": "Created before implementation work starts for the ForgeLink-owned communications runtime, provider-neutral channels, contact metadata, telecom edge adapters, mobile companion design, and restored voice capability."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "CLV-001",
+      "text": "Define the ForgeLink-owned local communications runtime for local inbox/outbox, message state, call state, approval state, channel registry, contact identity, contact policy, attention policy, retries, reconciliation, diagnostics, and operation without a telecom provider.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-002",
+      "text": "Define native channel, internet adapter, and telecom edge adapter contracts for capability discovery, local delivery, SMS/MMS send, voice call control, inbound webhook normalization, status update normalization, media normalization, provider errors, and credential validation.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-003",
+      "text": "Move existing Twilio SMS/MMS behavior behind the telecom edge adapter contract while preserving onboarding, webhook, status, media, retry, delivery behavior, and current user-visible messaging behavior.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-004",
+      "text": "Add local-only agent-to-human channel support so MCP/local API agent messages, approval requests, dismissals, and action records can be created, displayed, updated, and resolved through ForgeLink without SMS/MMS, voice, or third-party providers.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-005",
+      "text": "Design the ForgeLink mobile companion protocol with pairing, device identity, key exchange, local network transport, optional future relay boundary, redacted notifications, signed approve/deny responses, revocation, lost-device handling, and desktop as source of truth.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-006",
+      "text": "Add mobile companion planning gate with route/schema/stub contracts for future desktop-to-mobile pairing without shipping broken UI paths, unauthenticated routes, or public relay semantics.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-007",
+      "text": "Add Telnyx SMS/MMS telecom edge support with deterministic contract tests for sends, inbound SMS/MMS, delivery status, duplicate/backward events, invalid signatures, missing credentials, provider errors, and documentation.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-008",
+      "text": "Add Plivo and Bandwidth telecom edge planning gates or provider stubs with capability mapping, credential requirements, webhook validation requirements, MMS/media handling, and test fixture requirements without exposing unimplemented providers as shipped.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-009",
+      "text": "Add rich contact metadata including display name, avatar/media reference, notes, company, role/title, tags, favorite/pinned state, trust level, relationship/category, created/updated timestamps, and migration tests without data loss.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-010",
+      "text": "Add contact points and channel identities so contacts can have multiple labeled phone numbers, emails, native/mobile identities, and future channel identities; unknown inbound numbers can be attached, created, ignored, or blocked.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-011",
+      "text": "Add contact-level policy for agent messages, approval requests, urgent interrupts, quiet hours, mute/block behavior, and trust levels without giving unknown inbound contacts implicit privileges.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-012",
+      "text": "Define provider-neutral voice runtime and telecom edge contracts for local call state, outbound calls, inbound call events, call status, call end, caller/callee identity, call log persistence, provider errors, disabled states, and explicit telecom edge boundaries.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-013",
+      "text": "Implement Twilio Voice as the first voice telecom edge adapter through the TypeScript/Electron architecture with outbound call start/end, durable call rows, idempotent status callbacks, redacted errors, and automated tests.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-014",
+      "text": "Decide Twilio Verify scope and record whether phone verification is shipped, deferred as a provider capability, or out of scope; verification must not automatically grant trust without operator policy.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-015",
+      "text": "Add call UI surface with dialpad, selected contact, call/end controls, call status, unavailable/disabled states, provider/configuration hints, keyboard support, visual smoke, and renderer interaction tests.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-016",
+      "text": "Add durable contact-linked call history with direction, provider, from/to, contact resolution, status, timestamps, duration when available, provider ID, redacted error summary, retention/export/backup behavior, and diagnostics exclusion by default.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-017",
+      "text": "Add contact timeline merging SMS/MMS messages, future voice calls, local/mobile companion events, and agent-originated requests while preserving separation between ordinary communication and private agent approval details.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-018",
+      "text": "Add roadmap records for email, push, Telegram, WhatsApp, Discord, RSS, and related adapters, including intended use, privacy/security notes, likely credentials, inbound/outbound capability, quick-action support, failure modes, and Matrix exclusion rationale.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-019",
+      "text": "Add direct telecom research record covering SIP trunking, SMPP, SMSC/MMSC access, phone number provisioning, A2P/10DLC, STIR/SHAKEN, caller ID reputation, CNAM, E911/emergency scope, toll-free/short-code options, carrier partnership, costs, and why direct telecom is not the first implementation path.",
+      "state": "pending",
+      "evidence": []
+    }
+  ],
+  "created": "2026-06-18",
+  "updated": "2026-06-18"
+}
