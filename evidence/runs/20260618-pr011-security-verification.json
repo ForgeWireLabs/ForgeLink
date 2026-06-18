@@ -1,0 +1,49 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260618-pr011-security-verification",
+  "timestamp": "2026-06-19T00:30:00Z",
+  "work_item": "011",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "node --test backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "New 'hardens webhook signatures (proxy-aware) and the local API surface' test: a signature computed against the local URL is rejected, a public-URL signature passes even with hostile X-Forwarded-Host/Host headers, a host-forged signature is rejected, private /api routes require the bearer token, media path-traversal attempts never return 200, and /api/config-status is redacted to booleans. 10/10 server tests pass."
+    },
+    {
+      "command": "node --test security.test.js",
+      "exit_code": 0,
+      "summary": "Secret scanner unit tests (3/3): scanText flags private keys, AWS keys, assigned Twilio auth tokens, and generic secret assignments; ignores clean source; scanFiles detects a planted secret and skips node_modules and *.test.js."
+    },
+    {
+      "command": "npm run scan:secrets",
+      "exit_code": 0,
+      "summary": "Repo-wide secret scan over git-tracked files reports clean (no committed secrets), exercising the CLI end-to-end."
+    },
+    {
+      "command": "npm run scan:deps (npm audit --omit=dev --audit-level=high)",
+      "exit_code": 0,
+      "summary": "Production dependency audit: found 0 vulnerabilities."
+    },
+    {
+      "command": "npm test (full suite)",
+      "exit_code": 0,
+      "summary": "Renderer interaction tests + all node tests (incl. security + lifecycle) + node --check of all entry modules green."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/security.js",
+    "Electron/security.test.js",
+    "Electron/package.json",
+    "work/active/011-production-readiness/work-item.json",
+    "work/active/011-production-readiness/README.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "PR-011 security verification: proxy-aware webhook signature tests (validation binds to the configured public URL, not the request Host), local API threat tests (auth required, media traversal rejected, redacted config status), a git-tracked secret scanner (scan:secrets) with unit tests, a production dependency audit (scan:deps), and diagnostic redaction coverage. The webhook tunnel hardening posture (decision 0003 / 016 AGH-023) is reinforced by these tests."
+  }
+}

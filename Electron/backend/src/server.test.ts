@@ -380,3 +380,46 @@ test("serves redacted diagnostics and never leaks secrets", async () => {
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("hardens webhook signatures (proxy-aware) and the local API surface", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-sec-"));
+  const previous = { authToken: process.env.TWILIO_AUTH_TOKEN, publicBaseUrl: process.env.TWILIO_PUBLIC_BASE_URL };
+  process.env.TWILIO_AUTH_TOKEN = "test-token";
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  const publicUrl = "https://phone.example.com";
+  process.env.TWILIO_PUBLIC_BASE_URL = publicUrl;
+  const inbound = { From: "+15550001111", Body: "ping", MessageSid: "SM-SEC" };
+  const post = (sig: string, headers: Record<string, string> = {}, fields = inbound) =>
+    fetch(`${localUrl}/webhooks/sms`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Twilio-Signature": sig, ...headers }, body: new URLSearchParams(fields) });
+  try {
+    // Proxy-aware: validation uses the configured public URL, not the request Host.
+    // A signature a proxy-unaware server would accept (computed against the local URL) is rejected.
+    assert.equal((await post(signature(localUrl, "/webhooks/sms", inbound, "test-token"))).status, 403);
+    // Hostile forwarding headers do not change the validation base: a correct public-URL signature still passes.
+    assert.equal((await post(signature(publicUrl, "/webhooks/sms", inbound, "test-token"), { Host: "evil.example", "X-Forwarded-Host": "evil.example", "X-Forwarded-Proto": "http" })).status, 200);
+    // ...and a signature forged against the spoofed host is rejected.
+    const forged = { ...inbound, MessageSid: "SM-FORGE" };
+    assert.equal((await post(signature("https://evil.example", "/webhooks/sms", forged, "test-token"), { "X-Forwarded-Host": "evil.example" }, forged)).status, 403);
+
+    // Local API threat surface: private routes require the bearer token.
+    for (const path of ["/api/threads", "/api/diagnostics", "/api/contacts"]) {
+      assert.equal((await fetch(`${localUrl}${path}`)).status, 401);
+    }
+    // Path traversal on media is rejected (never 200).
+    for (const attempt of ["/media/../server.js", "/media/..%2f..%2fpackage.json", "/media/nested/passwd"]) {
+      assert.notEqual((await fetch(`${localUrl}${attempt}`)).status, 200);
+    }
+    // Config status is redacted: booleans only, never the token value.
+    const cfgText = await (await fetch(`${localUrl}/api/config-status`, { headers: authorized() })).text();
+    assert.equal(cfgText.includes("test-token"), false);
+    assert.equal((JSON.parse(cfgText) as { auth_token: unknown }).auth_token, true);
+  } finally {
+    if (previous.authToken === undefined) delete process.env.TWILIO_AUTH_TOKEN; else process.env.TWILIO_AUTH_TOKEN = previous.authToken;
+    if (previous.publicBaseUrl === undefined) delete process.env.TWILIO_PUBLIC_BASE_URL; else process.env.TWILIO_PUBLIC_BASE_URL = previous.publicBaseUrl;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -59,8 +59,10 @@
     {
       "id": "PR-011",
       "text": "Expand security verification: proxy-aware webhook signature tests, local API threat tests, secret scanning, dependency scanning, and diagnostic redaction tests.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260618-pr011-security-verification"
+      ]
     },
     {
       "id": "PR-012",
