@@ -299,8 +299,20 @@ h1, h2, h3, p { margin: 0; }
 .modal-actions { padding: 14px 22px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); background: rgba(0,0,0,.12); }
 .form-stack { display: grid; gap: 15px; }
 .field { display: grid; gap: 7px; color: var(--muted-bright); font-size: 11px; font-weight: 650; }
+.field-control { display: grid; gap: 7px; }
 .field input, .field textarea, .field select { width: 100%; padding: 11px 12px; border: 1px solid var(--line-strong); border-radius: 11px; color: var(--text); background: #0f131a; resize: vertical; }
-.field small { color: var(--muted); font-weight: 400; }
+.field small { color: var(--muted); font-weight: 400; line-height: 1.5; }
+.field small code, .setup-help code { background: rgba(255, 255, 255, 0.08); padding: 1px 5px; border-radius: 5px; font-size: 11px; }
+.help-link { color: var(--accent-bright); font-weight: 650; text-decoration: none; cursor: pointer; }
+.help-link:hover { text-decoration: underline; }
+.setup-help { display: grid; gap: 6px; padding: 12px 14px; margin-bottom: 16px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--accent-soft); }
+.setup-help strong { color: var(--text); font-size: 12px; font-weight: 700; }
+.setup-help span { color: var(--muted-bright); font-size: 12px; line-height: 1.5; }
+.setup-help-links { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 2px; font-size: 12px; }
+.setup-advanced { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+.setup-advanced > summary { color: var(--muted-bright); font-size: 11px; font-weight: 650; cursor: pointer; list-style: revert; }
+.setup-advanced > summary:hover { color: var(--text); }
+.setup-advanced .form-stack { margin-top: 12px; }
 .modal-error { margin-top: 14px; padding: 10px; border-radius: 9px; color: #ffd5da; background: rgba(255,112,130,.12); font-size: 11px; }
 .contact-picker { max-height: 310px; display: grid; gap: 5px; overflow-y: auto; }
 .contact-picker-row { width: 100%; padding: 9px; display: grid; grid-template-columns: 36px 1fr 16px; align-items: center; gap: 10px; border: 0; border-radius: 11px; text-align: left; background: transparent; cursor: pointer; }

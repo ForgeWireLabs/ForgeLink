@@ -1,0 +1,54 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "013",
+  "title": "Guided first-run setup: instructions and links in the Twilio connection screen",
+  "status": "completed",
+  "owner_scope": "ui",
+  "affected_scopes": [
+    "ui",
+    "desktop",
+    "docs"
+  ],
+  "depends_on": [],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-17T00:00:00Z",
+    "note": "Created before editing the renderer onboarding screen, styles, or rebuilding for this UX change."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "text": "The first-run connection screen explains where to find each Twilio value and links out to Twilio signup and the Console, so an unfamiliar user is not stuck.",
+      "state": "satisfied",
+      "evidence": [
+        "20260617-guided-first-run-setup"
+      ]
+    },
+    {
+      "id": "AC-2",
+      "text": "Only the three Twilio values are first-run fields; Public webhook URL, Local host, and Local port are moved into a collapsed Advanced section noted as managed automatically (webhook is inbound-only and optional), so the user is not asked to configure anything except Twilio.",
+      "state": "satisfied",
+      "evidence": [
+        "20260617-guided-first-run-setup"
+      ]
+    },
+    {
+      "id": "AC-3",
+      "text": "Field labels are unchanged, the renderer builds, and the existing renderer interaction tests pass.",
+      "state": "satisfied",
+      "evidence": [
+        "20260617-guided-first-run-setup"
+      ]
+    },
+    {
+      "id": "AC-4",
+      "text": "No personal data is hardcoded into the UI; only generic placeholders and official Twilio links ship.",
+      "state": "satisfied",
+      "evidence": [
+        "20260617-guided-first-run-setup"
+      ]
+    }
+  ],
+  "created": "2026-06-17",
+  "updated": "2026-06-17"
+}
