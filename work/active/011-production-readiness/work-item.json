@@ -73,8 +73,10 @@
     {
       "id": "PR-013",
       "text": "Build the test pyramid: backend HTTP integration tests, renderer interaction tests, Electron lifecycle tests, installer tests, and opt-in Twilio sandbox/live tests.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260618-pr013-test-pyramid"
+      ]
     },
     {
       "id": "PR-014",

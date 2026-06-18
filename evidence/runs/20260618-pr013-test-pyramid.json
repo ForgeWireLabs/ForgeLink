@@ -1,0 +1,37 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260618-pr013-test-pyramid",
+  "timestamp": "2026-06-19T01:30:00Z",
+  "work_item": "011",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "node --test packaging.test.js",
+      "exit_code": 0,
+      "summary": "New installer/packaging tests: every local module a packaged module requires is itself in builder.json files (prevents the attention.js-style missing-module crash); test files are excluded; renderer bundle + backend + icon are packaged and source maps are not; if an unpacked build exists it contains ForgeLink.exe. 4/4 pass."
+    },
+    {
+      "command": "node --test live-twilio.test.js",
+      "exit_code": 0,
+      "summary": "Opt-in live Twilio test is present and skipped by default; it runs validateTwilioCredentials against the real API only when FORGELINK_LIVE_TWILIO=1 and TWILIO_* are set, so CI never needs network or a real account."
+    },
+    {
+      "command": "npm test (full pyramid)",
+      "exit_code": 0,
+      "summary": "All layers green: backend HTTP integration (server.test.ts), renderer interaction (App.test.tsx, 20), Electron lifecycle (lifecycle.test.js, tunnel.test.js), security (security.test.js), and the new packaging tests; the live test reports skipped. node --check covers every entry module."
+    }
+  ],
+  "artifacts": [
+    "Electron/packaging.test.js",
+    "Electron/live-twilio.test.js",
+    "Electron/package.json",
+    "work/active/011-production-readiness/work-item.json",
+    "work/active/011-production-readiness/README.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "PR-013 test pyramid: the base (unit), middle (backend HTTP integration + renderer interaction), and lifecycle layers already existed; this adds the two missing layers - static installer/packaging completeness tests and an opt-in live Twilio test - completing the pyramid. Electron main-process integration (utilityProcess crash/restart, single-instance) remains runtime-verified rather than unit-tested because it needs a live Electron process; the pure lifecycle logic behind it is unit-tested."
+  }
+}

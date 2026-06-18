@@ -36,6 +36,11 @@ in [`work-item.json`](work-item.json); this is the human summary.
   media traversal, redacted config), a git-tracked secret scanner (`scan:secrets`)
   with unit tests, and a production dependency audit (`scan:deps`). Evidence
   `20260618-pr011-security-verification`.
+- **PR-013 test pyramid** — added the two missing layers: static installer/
+  packaging-completeness tests (catch the missing-module crash class) and an
+  opt-in live Twilio test (skipped unless FORGELINK_LIVE_TWILIO=1). Backend
+  HTTP, renderer interaction, and lifecycle layers already existed. Evidence
+  `20260618-pr013-test-pyramid`.
 
 **Waived — absorbed by the roadmap** (work continues there, not in 011):
 - **PR-007 contacts** -> 015 (CLV-009/010/011).
@@ -45,7 +50,7 @@ in [`work-item.json`](work-item.json); this is the human summary.
 - **PR-016 voice** -> 015 (CLV-012/013); voice accepted, legacy iframe rejected.
 
 **Remaining genuine baseline** (still pending; 011 stays active):
-- **PR-013** test pyramid, **PR-014** releases — signing/auto-update/
+- **PR-014** releases — signing/auto-update/
   release notes/checklist remain (icon, installer, checksums done; overlaps 017
   OCX-020).
 
@@ -93,7 +98,7 @@ in [`work-item.json`](work-item.json); this is the human summary.
 
 - [x] **PR-011 Expand security verification.** Add proxy-aware webhook signature tests, local API threat tests, secret scanning, dependency scanning, and diagnostic redaction tests.
 - [ ] **PR-012 Complete accessibility.** Keyboard-only navigation, focus restoration, screen-reader labels, WCAG AA contrast, zoom, reduced motion, and high-contrast behavior.
-- [ ] **PR-013 Build the test pyramid.** Backend HTTP integration tests, renderer interaction tests, Electron lifecycle tests, installer tests, and opt-in Twilio sandbox/live tests.
+- [x] **PR-013 Build the test pyramid.** Backend HTTP integration tests, renderer interaction tests, Electron lifecycle tests, installer tests, and opt-in Twilio sandbox/live tests.
 - [ ] **PR-014 Establish releases.** Real icon, signed installer, version metadata, release notes, checksums, update strategy, rollback, and reproducible release checklist.
 - [x] **PR-015 Add support diagnostics.** User-triggered health report with versions and status while excluding credentials, messages, contacts, and media by default.
 
@@ -172,3 +177,4 @@ in [`work-item.json`](work-item.json); this is the human summary.
 | 2026-06-18 | reconciliation | Decision 0005: closed PR-010 + PR-015 with evidence; waived PR-007/008/009/012/016 into 015/017; PR-006/011/013/014 remain baseline | 011 reconciled and slimmer; stays active. |
 | 2026-06-18 | PR-006 | Backend lifecycle: dynamic-port fallback + bounded crash-restart, diagnostics, clean shutdown, recovery message; lifecycle unit tests + runtime conflict/restart checks | Closed PR-006 with evidence 20260618-pr006-backend-lifecycle. |
 | 2026-06-18 | PR-011 | Proxy-aware webhook signature tests, local API threat tests, secret scanner (scan:secrets) + unit tests, dependency audit (scan:deps), redaction coverage | Closed PR-011 with evidence 20260618-pr011-security-verification. |
+| 2026-06-18 | PR-013 | Installer/packaging completeness tests + opt-in live Twilio test; pyramid layers (backend HTTP, renderer, lifecycle, security) confirmed green | Closed PR-013 with evidence 20260618-pr013-test-pyramid. |
