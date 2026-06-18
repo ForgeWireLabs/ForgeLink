@@ -2,7 +2,7 @@
 
 > Generated from source records. Do not edit manually.
 > Generated: 2026-06-17
-> RepoPact spec version: 2.0.1
+> RepoPact spec version: 1.4.0
 
 ## Health
 

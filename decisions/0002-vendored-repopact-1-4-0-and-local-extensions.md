@@ -46,6 +46,13 @@ Vendor RepoPact **1.4.0** and keep two ForgeLink-local extensions on top of it:
     validation rather than merely warning.
   - `doctor._dead_source_of_truth`: a warning when a record's `source_of_truth`
     frontmatter names a path-like target that does not exist.
+- **Decouple the dashboard's RepoPact version from the adopter's product
+  version.** Upstream uses the root `VERSION` file as the RepoPact version, but
+  ForgeLink uses `VERSION` for its own product version (2.0.1).
+  `generate_dashboard._spec_version` now prefers `scripts/REPOPACT_VERSION`
+  (the vendored RepoPact version) and falls back to `VERSION`, so the dashboard
+  reports the real RepoPact version (1.4.0) instead of the product version. The
+  fallback keeps upstream behaviour unchanged.
 
 These extensions are candidates to upstream to
 [ForgeWireLabs/repopact](https://github.com/ForgeWireLabs/repopact); until then
