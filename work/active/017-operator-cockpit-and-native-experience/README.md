@@ -161,14 +161,14 @@ The product should optimize for:
 
 ### Phase 4: Summaries and scoped context
 
-- [ ] **OCX-015 Add local semantic thread summaries.** Summarize long threads
+- [ ] **OCX-012 Add local semantic thread summaries.** Summarize long threads
   locally where feasible.
   - Include: what happened, open decisions, pending replies, last human action,
     and agent-relevant constraints.
   - Acceptance: Summaries are derived artifacts, not source of truth.
   - Acceptance: Cloud summarization is opt-in only if ever added.
 
-- [ ] **OCX-016 Add scoped MCP resources.** Expose safe, minimal resources to MCP
+- [ ] **OCX-013 Add scoped MCP resources.** Expose safe, minimal resources to MCP
   clients instead of raw communication dumps.
   - Examples: `get_pending_approvals`, `get_contact_summary`,
     `get_thread_summary`, `get_agent_status`.
@@ -178,7 +178,7 @@ The product should optimize for:
 
 ### Phase 5: External communication UX
 
-- [ ] **OCX-017 Add reviewed outbox.** Provide a visible outbox for agent-drafted
+- [ ] **OCX-014 Add reviewed outbox.** Provide a visible outbox for agent-drafted
   external messages.
   - Acceptance: Drafts can be reviewed, edited, approved, denied, scheduled, or
     sent.
@@ -211,6 +211,11 @@ The product should optimize for:
   - Acceptance: Sample mode includes fake contacts, fake agents, fake approvals,
     fake outcomes, and fake channel states.
   - Acceptance: Sample data cannot be confused with real data.
+
+### Phase 7: Summary safety and distribution (added 2026-06-18 gap review)
+
+- [ ] **OCX-019 Make local summaries injection-resistant.** Treat thread/agent content as untrusted, use injection-resistant prompting, show provenance, keep summaries advisory, and never let summarized content elevate authority or trigger actions.
+- [ ] **OCX-020 Define distribution and update strategy.** Code-signed desktop releases + auto-update channel, and a signed build/update path for the mobile companion, as a prerequisite for shipping the mobile companion (OCX-007/008) and the public demo; coordinate with 011 PR-014.
 
 ## Suggested UI structure
 
@@ -293,3 +298,4 @@ Add or update docs for:
 | date | item | evidence | result |
 | --- | --- | --- | --- |
 | 2026-06-18 | planning | Deep product review identified operator cockpit features needed to make ForgeLink stand out as a state-of-the-art human-boundary app | Created item 017 before implementation starts. |
+| 2026-06-18 | gap review | Roadmap gap review with operator: local-only onboarding, public-tunnel hardening, untrusted agent content, key management, agent-facing contract, conformance/integration testing, migration coordination, and distribution/updates | Added acceptance criteria and fixed README acceptance-criteria numbering to match work-item.json. |

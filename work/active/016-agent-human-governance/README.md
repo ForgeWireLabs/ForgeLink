@@ -179,7 +179,7 @@ This item owns the governance semantics that ride on top of that runtime:
     escalate to another operator, or fail closed.
   - Acceptance: Expired requests are visible and audit-recorded.
 
-- [ ] **AGH-015 Add agent etiquette protocol.** Require agents to explain why they
+- [ ] **AGH-012 Add agent etiquette protocol.** Require agents to explain why they
   are interrupting and whether the request can wait or batch.
   - Required fields: urgency, reason for interrupt, expected response time,
     what-if-no-response, can-batch, can-wait-until.
@@ -188,13 +188,13 @@ This item owns the governance semantics that ride on top of that runtime:
 
 ### Phase 4: Decision records and learning
 
-- [ ] **AGH-016 Add Decision Records.** Persist what the human saw and decided.
+- [ ] **AGH-013 Add Decision Records.** Persist what the human saw and decided.
   - Include: request ID, request hash, evidence hash, operator identity, device
     identity where available, decision, timestamp, selected options, comments,
     and resulting authority grant.
   - Acceptance: A completed decision can be replayed later.
 
-- [ ] **AGH-017 Add Decision Memory.** Convert repeated human decisions into
+- [ ] **AGH-014 Add Decision Memory.** Convert repeated human decisions into
   suggested future policy.
   - Acceptance: ForgeLink can detect repeated approval patterns.
   - Acceptance: Suggested rules require explicit operator confirmation.
@@ -256,6 +256,14 @@ This item owns the governance semantics that ride on top of that runtime:
     minimal, email summarized, Discord/status-only.
   - Acceptance: Evidence packs and notifications use the selected redaction
     profile.
+
+### Phase 7: Boundary hardening, key management, and agent contract (added 2026-06-18 gap review)
+
+- [ ] **AGH-023 Harden public ingress / tunnel boundary.** Reconcile the automatic public webhook tunnel (item 014) with private-first: document the inbound attack surface, ensure only signature-validated provider requests reach handlers, rate-limit and lock down exposed webhook routes, scope what the tunnel exposes, and record a decision on the boundary.
+- [ ] **AGH-024 Treat agent-supplied content as untrusted.** Evidence packs, approval text, and agent messages are untrusted input: labeled agent-provided/unverified, never auto-executed or auto-trusted, sanitized, with an approval surface that resists spoofed system text, fabricated urgency, and look-alike operator prompts.
+- [ ] **AGH-025 Define decision/audit key management.** Key and device-key generation, OS-backed storage, rotation, lost-device revocation, and recovery behind decision signing and the tamper-evident chain; state the real integrity guarantee.
+- [ ] **AGH-026 Specify the agent-facing governance contract.** How agents submit a request, await a decision, and receive the outcome, mapped onto the MCP bridge and ForgeWire Fabric dispatch/await_result, including timeouts, deferral, and outcome reporting.
+- [ ] **AGH-027 Add an end-to-end governance-loop integration test.** request -> risk -> evidence -> decision -> outcome -> audit -> replay, proving the lifecycle holds together beyond unit tests.
 
 ## Suggested data model direction
 
@@ -406,3 +414,4 @@ Add or update docs for:
 | date | item | evidence | result |
 | --- | --- | --- | --- |
 | 2026-06-18 | planning | Deep product review identified governance primitives needed to make ForgeLink human-boundary infrastructure rather than a messaging wrapper | Created item 016 before implementation starts. |
+| 2026-06-18 | gap review | Roadmap gap review with operator: local-only onboarding, public-tunnel hardening, untrusted agent content, key management, agent-facing contract, conformance/integration testing, migration coordination, and distribution/updates | Added acceptance criteria and fixed README acceptance-criteria numbering to match work-item.json. |

@@ -142,6 +142,24 @@
       "text": "Add direct telecom research record covering SIP trunking, SMPP, SMSC/MMSC access, phone number provisioning, A2P/10DLC, STIR/SHAKEN, caller ID reputation, CNAM, E911/emergency scope, toll-free/short-code options, carrier partnership, costs, and why direct telecom is not the first implementation path.",
       "state": "pending",
       "evidence": []
+    },
+    {
+      "id": "CLV-020",
+      "text": "Make first-run provider-optional: the app installs and onboards into a usable local-only state (agent approvals and the local human loop) with no telecom provider configured, and a 'Start local-only' path is offered so users are never forced to enter Twilio credentials; adding a provider is an explicit later step.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-021",
+      "text": "Add a shared provider conformance test kit: one reusable suite every SMS/MMS and voice edge adapter must pass (send success, send rejection, inbound message, duplicate inbound webhook, delivery status update, backward/duplicate status transition, invalid signature, missing credentials, media handling) so new providers meet one bar rather than ad hoc tests.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLV-022",
+      "text": "Establish a schema-migration coordination convention across the concurrently-active items 015/016/017 (sequential schema-version ownership and documented migration order) so their database changes do not collide, with each migration tested from the previously shipped schema.",
+      "state": "pending",
+      "evidence": []
     }
   ],
   "created": "2026-06-18",

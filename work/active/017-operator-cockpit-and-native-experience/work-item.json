@@ -137,6 +137,18 @@
       "text": "Add optional first-run sample workspace with fake contacts, fake agents, fake approvals, fake outcomes, and fake channel states that cannot be confused with real data.",
       "state": "pending",
       "evidence": []
+    },
+    {
+      "id": "OCX-019",
+      "text": "Make local semantic summaries (OCX-012) injection-resistant: treat thread and agent content as untrusted, use injection-resistant prompting, show clear provenance, keep summaries advisory only, and never let summarized content elevate authority or trigger actions.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "OCX-020",
+      "text": "Define the distribution and update strategy for the expanded surface: code-signed desktop releases with an auto-update channel and a signed build/update path for the mobile companion, as a prerequisite for shipping the mobile companion (OCX-007/008) and the public demo; coordinate with item 011 PR-014.",
+      "state": "pending",
+      "evidence": []
     }
   ],
   "created": "2026-06-18",

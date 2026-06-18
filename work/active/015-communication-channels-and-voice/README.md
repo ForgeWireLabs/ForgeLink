@@ -376,6 +376,12 @@ only if a concrete operator deployment requires it.
   - Acceptance: Record identifies the lowest-friction future path if ForgeLink
     ever wants a more direct telecom edge.
 
+### Phase 7: Local-only onboarding, provider conformance, and migration safety (added 2026-06-18 gap review)
+
+- [ ] **CLV-020 Make first-run provider-optional.** Install and onboard into a usable local-only state (agent approvals + local human loop) with no telecom provider; offer a 'Start local-only' path so Twilio credentials are never forced. Resolves the mismatch where the shipped first-run requires Twilio while CLV-004 promises provider-free operation.
+- [ ] **CLV-021 Add a shared provider conformance test kit.** One reusable suite every SMS/MMS and voice edge adapter must pass (send/reject, inbound, duplicate webhook, status transitions, invalid signature, missing credentials, media) so providers meet one bar.
+- [ ] **CLV-022 Coordinate concurrent schema migrations.** Sequential schema-version ownership across 015/016/017 with documented migration order, each tested from the previously shipped schema.
+
 ## Suggested data model direction
 
 This is a planning target, not a required literal schema. Implementation agents
@@ -522,3 +528,4 @@ Add or update docs for:
 | --- | --- | --- | --- |
 | 2026-06-18 | planning | Reviewed ForgeLink work ledger conventions and SCOUT-2 Twilio/VoIP lineage | Created item 015 before implementation starts. |
 | 2026-06-18 | planning update | Clarified that ForgeLink should own the native communications runtime while SMS/MMS and PSTN voice use telecom edge adapters when ordinary phone network reachability is required | Promoted local-only human loop and mobile companion design into explicit acceptance criteria. |
+| 2026-06-18 | gap review | Roadmap gap review with operator: local-only onboarding, public-tunnel hardening, untrusted agent content, key management, agent-facing contract, conformance/integration testing, migration coordination, and distribution/updates | Added acceptance criteria and fixed README acceptance-criteria numbering to match work-item.json. |
