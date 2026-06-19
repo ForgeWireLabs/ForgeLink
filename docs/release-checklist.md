@@ -38,6 +38,13 @@ pending until one is provisioned.
 - [ ] Write/refresh `dist/SHA256SUMS.txt`.
 
 ## 6. Publish + auto-update feed
+
+> **Note:** GitHub Releases publishing is currently **payment-locked** for this
+> account, so the steps below (and any `latest.yml` auto-update feed) are blocked.
+> Until that is resolved, distribute the locally built
+> `ForgeLink_<version>_x64-setup.exe` + `SHA256SUMS.txt` directly, or use an
+> alternative host.
+
 - [x] `electron-updater` is bundled into the asar (the `builder.json` `files`
       config uses `**/*` + negations so production `node_modules` are included).
       Confirm with

@@ -6,7 +6,11 @@ versions tracked in `VERSION` and `Electron/package.json`.
 
 ## [Unreleased]
 
-## [2.0.2] - 2026-06-18 (prerelease, unsigned)
+## [2.0.2] - 2026-06-18 (local build, unsigned)
+
+> Built locally as `Electron/dist/ForgeLink_2.0.2_x64-setup.exe`
+> (SHA-256 `5042bb82…0584d8e`). Not published to GitHub Releases — that route is
+> currently payment-locked; distribute the local installer directly for now.
 
 ### Added
 - Windows NSIS installer with desktop + Start Menu shortcuts (PR-014 in progress).
