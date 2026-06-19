@@ -6,7 +6,8 @@ import { Readable } from "node:stream";
 import { AgentAction, AgentChannelRecord, AgentUrgency, PhoneDatabase } from "./database";
 import { utcNow } from "./phone";
 import { fetchTrustedSignalFeed } from "./signals";
-import { loadTwilioConfig, sendTwilioMessage, validateTwilioSignature } from "./twilio";
+import { loadTwilioConfig, sendTwilioMessage, validateTwilioSignature, createTwilioAdapter } from "./twilio";
+import { createChannelRegistry } from "./channels";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const ALLOWED_UPLOADS = new Set([".gif", ".jpeg", ".jpg", ".pdf", ".png", ".txt", ".webp"]);
@@ -151,6 +152,11 @@ export function createBackend(options: BackendOptions): { server: Server; databa
   const exportsDir = join(options.dataDir, "exports");
   const database = new PhoneDatabase(join(options.dataDir, "phone.sqlite3"));
   const sendMessage = options.sendMessage || sendTwilioMessage;
+  // Provider-neutral channel registry (work item 015). Twilio is the first
+  // SMS/MMS edge adapter; its send delegates to the injectable sendMessage seam.
+  const channels = createChannelRegistry();
+  const twilioAdapter = createTwilioAdapter(sendMessage);
+  channels.register(twilioAdapter);
 
   const datedName = (prefix: string, suffix = "") => `${prefix}-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomBytes(4).toString("hex")}${suffix}`;
   const backupNames = async () => (await readdir(backupsDir, { withFileTypes: true }).catch(() => []))
@@ -431,10 +437,10 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         if (existing) return sendJson(response, { ok: true, duplicate: true, local_id: localId, status: existing.status }, 202);
         const pending = database.createPendingMessage(localId, String(payload.to || ""), String(payload.body || ""), media);
         try {
-          const result = await sendMessage(pending.number, pending.body, media);
-          database.markMessageSent(localId, String(result.sid || ""), String(result.status || "queued"));
+          const result = await channels.select("sms_send").send({ to: pending.number, body: pending.body, mediaUrls: media });
+          database.markMessageSent(localId, result.providerMessageId || "", result.status);
           database.saveDraft(pending.thread_id, "");
-          return sendJson(response, { ok: true, local_id: localId, sid: result.sid, status: result.status || "queued" });
+          return sendJson(response, { ok: true, local_id: localId, sid: result.providerMessageId, status: result.status });
         } catch (error) {
           const message = error instanceof Error ? error.message : "Message delivery failed.";
           database.markMessageFailed(localId, message);
@@ -446,9 +452,9 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const pending = database.beginRetry(String(payload.id || ""));
         try {
           const media = pending.media_urls ? pending.media_urls.split(",") : [];
-          const result = await sendMessage(pending.number, pending.body, media);
-          database.markMessageSent(pending.id, String(result.sid || ""), String(result.status || "queued"));
-          return sendJson(response, { ok: true, local_id: pending.id, sid: result.sid, status: result.status || "queued" });
+          const result = await channels.select("sms_send").send({ to: pending.number, body: pending.body, mediaUrls: media });
+          database.markMessageSent(pending.id, result.providerMessageId || "", result.status);
+          return sendJson(response, { ok: true, local_id: pending.id, sid: result.providerMessageId, status: result.status });
         } catch (error) {
           const message = error instanceof Error ? error.message : "Message delivery failed.";
           database.markMessageFailed(pending.id, message);
@@ -487,8 +493,8 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       if (request.method === "POST" && url.pathname === "/webhooks/sms") {
         const fields = await readForm(request);
         if (!validateTwilioSignature(url.pathname, fields, String(request.headers["x-twilio-signature"] || ""))) return sendJson(response, { error: "Invalid Twilio signature" }, 403);
-        const media = Object.keys(fields).filter((key) => key.startsWith("MediaUrl")).sort().map((key) => fields[key]);
-        database.addMessage({ id: fields.MessageSid || randomBytes(16).toString("hex"), number: fields.From || "", direction: "inbound", body: fields.Body || "", media_urls: media, status: "received", ts: utcNow() });
+        const inbound = twilioAdapter.parseInbound!(fields);
+        database.addMessage({ id: inbound.providerMessageId || randomBytes(16).toString("hex"), number: inbound.from, direction: "inbound", body: inbound.body, media_urls: inbound.mediaUrls, status: "received", ts: utcNow() });
         const xml = Buffer.from('<?xml version="1.0" encoding="UTF-8"?><Response/>');
         response.writeHead(200, { "Content-Type": "application/xml", "Content-Length": xml.length });
         return response.end(xml);
@@ -496,7 +502,8 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       if (request.method === "POST" && url.pathname === "/webhooks/status") {
         const fields = await readForm(request);
         if (!validateTwilioSignature(url.pathname, fields, String(request.headers["x-twilio-signature"] || ""))) return sendJson(response, { error: "Invalid Twilio signature" }, 403);
-        database.updateDeliveryStatus(fields.MessageSid || "", fields.MessageStatus || "");
+        const update = twilioAdapter.parseStatus!(fields);
+        database.updateDeliveryStatus(update.providerMessageId, update.status);
         return sendJson(response, { ok: true });
       }
       return sendJson(response, { error: "Not found" }, 404);

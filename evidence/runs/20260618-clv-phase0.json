@@ -1,0 +1,34 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260618-clv-phase0",
+  "timestamp": "2026-06-18T23:00:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "node --test backend-dist/server.test.js backend-dist/channels.test.js backend-dist/twilio.test.js",
+      "exit_code": 0,
+      "summary": "16/16. The send/retry paths now go through channels.select('sms_send').send(...) and the webhooks through the Twilio adapter's parseInbound/parseStatus; all existing server HTTP-contract tests stay green, proving behaviour is unchanged. A new test proves the Twilio adapter conforms to the channel contract (capabilities, send mapping, inbound/status normalization)."
+    },
+    {
+      "command": "npm test (full suite)",
+      "exit_code": 0,
+      "summary": "62 node tests pass, 1 skipped (opt-in live Twilio), renderer interaction suite green; node --check across entry modules."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/channels.ts",
+    "Electron/backend/src/twilio.ts",
+    "Electron/backend/src/twilio.test.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/renderer/src/App.tsx",
+    "docs/communications-runtime.md",
+    "work/active/015-communication-channels-and-voice/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "015 Phase 0 complete. CLV-001: docs/communications-runtime.md documents the ForgeLink-owned model and the boundary to transport/provider state, and how existing SMS/MMS map in. CLV-002: provider-neutral contracts + registry with provider selection and clean rejection of unsupported capabilities, and existing Twilio behaviour now runs through the adapter boundary. CLV-003: Twilio is the first SMS/MMS edge adapter (send + inbound/status normalization behind the contract), existing server tests prove unchanged behaviour, a contract-compliance test was added, and the UI describes Twilio as the configured provider. Twilio-specific fields (provider message ID) are stored only for reconciliation."
+  }
+}

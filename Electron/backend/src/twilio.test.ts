@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import test from "node:test";
-import { sendTwilioMessage, validateTwilioSignature } from "./twilio";
+import { sendTwilioMessage, validateTwilioSignature, createTwilioAdapter } from "./twilio";
 
 test("validates Twilio webhook signatures", () => {
   const previousToken = process.env.TWILIO_AUTH_TOKEN;
@@ -42,4 +42,25 @@ test("sends status callbacks without exposing provider error bodies", async () =
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
   }
+});
+
+test("Twilio adapter conforms to the channel contract (CLV-003)", async () => {
+  const adapter = createTwilioAdapter(async (to, body, media) => ({ sid: "SM-ADAPT", status: "queued", to, body, mediaCount: media.length }));
+  const caps = adapter.capabilities();
+  assert.equal(caps.provider, "twilio");
+  assert.equal(caps.kind, "sms_mms_edge");
+  assert.ok(adapter.supports("sms_send") && adapter.supports("mms_send") && adapter.supports("inbound_sms"));
+  assert.ok(!adapter.supports("voice_call"));
+
+  const result = await adapter.send({ to: "+15551234567", body: "hi", mediaUrls: ["https://x/y.jpg"] });
+  assert.equal(result.providerMessageId, "SM-ADAPT");
+  assert.equal(result.status, "queued");
+
+  const inbound = adapter.parseInbound!({ From: "+15550001111", To: "+15550002222", Body: "yo", MessageSid: "SM-IN", NumMedia: "1", MediaUrl0: "https://m/1.jpg" });
+  assert.equal(inbound.from, "+15550001111");
+  assert.equal(inbound.body, "yo");
+  assert.deepEqual(inbound.mediaUrls, ["https://m/1.jpg"]);
+  assert.equal(inbound.providerMessageId, "SM-IN");
+
+  assert.deepEqual(adapter.parseStatus!({ MessageSid: "SM-IN", MessageStatus: "delivered" }), { providerMessageId: "SM-IN", status: "delivered" });
 });

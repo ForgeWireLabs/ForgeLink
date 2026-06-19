@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { normalizeNumber } from "./phone";
+import { ChannelAdapter, ChannelCapabilities, DeliveryStatusUpdate, InboundMessage, OutboundMessage, SendResult } from "./channels";
 
 export interface TwilioConfig {
   accountSid: string;
@@ -45,4 +46,44 @@ export function validateTwilioSignature(pathname: string, fields: Record<string,
   const actualBuffer = Buffer.from(signature);
   const expectedBuffer = Buffer.from(expected);
   return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+// --- Channel adapter (work item 015, CLV-003) ---------------------------------
+// Normalize Twilio's form-encoded webhook payloads into the provider-neutral
+// contracts so the rest of the app never touches Twilio-specific field names.
+
+export function parseTwilioInbound(fields: Record<string, string>): InboundMessage {
+  const mediaUrls = Object.keys(fields).filter((key) => key.startsWith("MediaUrl")).sort().map((key) => fields[key]);
+  return { from: fields.From || "", to: fields.To || "", body: fields.Body || "", mediaUrls, providerMessageId: fields.MessageSid || null };
+}
+
+export function parseTwilioStatus(fields: Record<string, string>): DeliveryStatusUpdate {
+  return { providerMessageId: fields.MessageSid || "", status: fields.MessageStatus || "" };
+}
+
+const TWILIO_CAPABILITIES: ChannelCapabilities = {
+  kind: "sms_mms_edge",
+  provider: "twilio",
+  displayName: "Twilio",
+  capabilities: ["sms_send", "mms_send", "inbound_sms", "delivery_status", "media"]
+};
+
+// The adapter delegates outbound send to the provided sender (defaults to the
+// real Twilio call), preserving the existing injectable send seam and behaviour.
+export function createTwilioAdapter(sender: typeof sendTwilioMessage = sendTwilioMessage): ChannelAdapter {
+  return {
+    capabilities: () => TWILIO_CAPABILITIES,
+    supports: (capability) => TWILIO_CAPABILITIES.capabilities.includes(capability),
+    validateCredentials: async () => {
+      const config = loadTwilioConfig();
+      const ok = Boolean(config.accountSid && config.authToken && config.phoneNumber);
+      return ok ? { ok, phoneNumber: config.phoneNumber } : { ok, error: "Twilio account SID, auth token, and phone number are required." };
+    },
+    send: async (message: OutboundMessage): Promise<SendResult> => {
+      const raw = await sender(message.to, message.body, message.mediaUrls || []);
+      return { providerMessageId: raw.sid ? String(raw.sid) : null, status: String(raw.status || "queued"), raw };
+    },
+    parseInbound: parseTwilioInbound,
+    parseStatus: parseTwilioStatus
+  };
 }

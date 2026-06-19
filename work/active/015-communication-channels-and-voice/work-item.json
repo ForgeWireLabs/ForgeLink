@@ -32,20 +32,27 @@
     {
       "id": "CLV-001",
       "text": "Define the ForgeLink-owned local communications runtime for local inbox/outbox, message state, call state, approval state, channel registry, contact identity, contact policy, attention policy, retries, reconciliation, diagnostics, and operation without a telecom provider.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260618-clv-phase0"
+      ]
     },
     {
       "id": "CLV-002",
       "text": "Define native channel, internet adapter, and telecom edge adapter contracts for capability discovery, local delivery, SMS/MMS send, voice call control, inbound webhook normalization, status update normalization, media normalization, provider errors, and credential validation.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260618-clv-channel-contracts",
+        "20260618-clv-phase0"
+      ]
     },
     {
       "id": "CLV-003",
       "text": "Move existing Twilio SMS/MMS behavior behind the telecom edge adapter contract while preserving onboarding, webhook, status, media, retry, delivery behavior, and current user-visible messaging behavior.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260618-clv-phase0"
+      ]
     },
     {
       "id": "CLV-004",
