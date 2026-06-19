@@ -57,20 +57,26 @@
     {
       "id": "CLV-004",
       "text": "Add local-only agent-to-human channel support so MCP/local API agent messages, approval requests, dismissals, and action records can be created, displayed, updated, and resolved through ForgeLink without SMS/MMS, voice, or third-party providers.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260618-clv-phase1"
+      ]
     },
     {
       "id": "CLV-005",
       "text": "Design the ForgeLink mobile companion protocol with pairing, device identity, key exchange, local network transport, optional future relay boundary, redacted notifications, signed approve/deny responses, revocation, lost-device handling, and desktop as source of truth.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260618-clv-phase1"
+      ]
     },
     {
       "id": "CLV-006",
       "text": "Add mobile companion planning gate with route/schema/stub contracts for future desktop-to-mobile pairing without shipping broken UI paths, unauthenticated routes, or public relay semantics.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260618-clv-phase1"
+      ]
     },
     {
       "id": "CLV-007",

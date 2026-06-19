@@ -1,0 +1,32 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260618-clv-phase1",
+  "timestamp": "2026-06-19T00:30:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "node --test backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "New test 'exposes local-only channels and a gated companion route': /api/diagnostics reports local_only=true with no provider, lists the local + twilio channels, and companion='planned'; /api/companion/status requires the bearer token (401) and is disabled by default (503, enabled=false, status=planned)."
+    },
+    {
+      "command": "npm test (full suite)",
+      "exit_code": 0,
+      "summary": "63 node tests pass, 1 skipped (live Twilio), renderer interaction suite green."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/App.tsx",
+    "decisions/0006-mobile-companion-protocol.md",
+    "work/active/015-communication-channels-and-voice/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "015 Phase 1 complete. CLV-004: a native 'local' channel adapter delivers into the local inbox with no provider; /api/diagnostics reports local-only mode and the channel list; Settings shows local-only mode; the agent-to-human approval loop (agent_messages) is already local and is covered by existing renderer tests. CLV-005: decisions/0006 designs the LAN-first mobile companion protocol (QR pairing, Ed25519 device identity, key exchange, signed decisions, redaction, revocation/lost-device, desktop as source of truth, LAN vs future relay distinction, approvals without SMS). CLV-006: a planned companion route is authenticated and disabled by default (503) with no public relay semantics, unit-tested."
+  }
+}

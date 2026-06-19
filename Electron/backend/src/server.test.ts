@@ -427,3 +427,33 @@ test("hardens webhook signatures (proxy-aware) and the local API surface", async
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("exposes local-only channels and a gated companion route (CLV-004/006)", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-channels-"));
+  const previous = { sid: process.env.TWILIO_ACCOUNT_SID, token: process.env.TWILIO_AUTH_TOKEN, number: process.env.TWILIO_PHONE_NUMBER };
+  delete process.env.TWILIO_ACCOUNT_SID; delete process.env.TWILIO_AUTH_TOKEN; delete process.env.TWILIO_PHONE_NUMBER;
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  try {
+    const diag = await (await fetch(`${localUrl}/api/diagnostics`, { headers: authorized() })).json() as { local_only: boolean; channels: Array<{ provider: string }>; companion: string };
+    assert.equal(diag.local_only, true); // no telecom provider configured
+    assert.ok(diag.channels.some((c) => c.provider === "local"));
+    assert.ok(diag.channels.some((c) => c.provider === "twilio"));
+    assert.equal(diag.companion, "planned");
+    // Companion route: authenticated and disabled by default.
+    assert.equal((await fetch(`${localUrl}/api/companion/status`)).status, 401);
+    const companion = await fetch(`${localUrl}/api/companion/status`, { headers: authorized() });
+    assert.equal(companion.status, 503);
+    const body = await companion.json() as { enabled: boolean; status: string };
+    assert.equal(body.enabled, false);
+    assert.equal(body.status, "planned");
+  } finally {
+    for (const [k, v] of Object.entries({ TWILIO_ACCOUNT_SID: previous.sid, TWILIO_AUTH_TOKEN: previous.token, TWILIO_PHONE_NUMBER: previous.number })) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

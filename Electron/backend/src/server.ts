@@ -157,6 +157,21 @@ export function createBackend(options: BackendOptions): { server: Server; databa
   const channels = createChannelRegistry();
   const twilioAdapter = createTwilioAdapter(sendMessage);
   channels.register(twilioAdapter);
+  // Native local channel (CLV-004): delivers into the local inbox with no provider,
+  // so the human loop works when no telecom provider is configured.
+  channels.register({
+    capabilities: () => ({ kind: "native", provider: "local", displayName: "Local", capabilities: ["local_delivery"] }),
+    supports: (capability) => capability === "local_delivery",
+    validateCredentials: async () => ({ ok: true }),
+    send: async (message) => {
+      const id = `local-${randomUUID()}`;
+      database.addMessage({ id, number: message.to || "local", direction: "inbound", body: message.body, media_urls: message.mediaUrls || [], status: "received", ts: utcNow() });
+      return { providerMessageId: id, status: "delivered" };
+    }
+  });
+  // Mobile companion (CLV-006): planned, authenticated, disabled unless explicitly
+  // enabled, and never any public relay.
+  const companionEnabled = process.env.FORGELINK_COMPANION_ENABLED === "1";
 
   const datedName = (prefix: string, suffix = "") => `${prefix}-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomBytes(4).toString("hex")}${suffix}`;
   const backupNames = async () => (await readdir(backupsDir, { withFileTypes: true }).catch(() => []))
@@ -238,8 +253,17 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         uptime_seconds: Math.round(process.uptime()),
         // Redacted by design (PR-015): booleans only, never credential/message/contact/media values.
         credentials_configured: Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER),
-        public_base_url_configured: Boolean(process.env.TWILIO_PUBLIC_BASE_URL)
+        public_base_url_configured: Boolean(process.env.TWILIO_PUBLIC_BASE_URL),
+        local_only: !Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER),
+        channels: channels.list(),
+        companion: companionEnabled ? "enabled" : "planned"
       });
+      if (url.pathname === "/api/companion/pair" || url.pathname === "/api/companion/status") {
+        // CLV-006 planning gate: disabled by default, authenticated (under /api/),
+        // LAN-only by design, never a public relay.
+        if (!companionEnabled) return sendJson(response, { enabled: false, status: "planned", message: "Mobile companion pairing is not enabled in this build." }, 503);
+        return sendJson(response, { enabled: true, status: "available", transport: "lan", relay: "none" });
+      }
       if (request.method === "GET" && url.pathname === "/api/threads") return sendJson(response, database.threads());
       if (request.method === "GET" && url.pathname === "/api/messages") return sendJson(response, database.messages(Number(url.searchParams.get("thread_id") || 0), url.searchParams.get("before") || undefined));
       if (request.method === "GET" && url.pathname === "/api/draft") return sendJson(response, { body: database.draft(Number(url.searchParams.get("thread_id") || 0)) });
