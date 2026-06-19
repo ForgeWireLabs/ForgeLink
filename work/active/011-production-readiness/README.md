@@ -55,10 +55,11 @@ in [`work-item.json`](work-item.json); this is the human summary.
   metadata, release notes (`CHANGELOG.md`), a reproducible release checklist
   (`docs/release-checklist.md`), and auto-update *wiring* (tested helper + guarded
   main-process check + GitHub publish config + electron-updater dependency) are
-  done. **Remaining (keeps PR-014 pending):** a code-signing certificate
-  (operator-provided), electron-updater bundled into the asar, and a published
-  release feed before auto-update is functional and trust-anchored. Overlaps 017
-  OCX-020.
+  done. electron-updater is now **bundled into the asar** (verified). **Remaining
+  (keeps PR-014 pending):** a code-signing certificate (operator-provided) and a
+  published auto-update feed (`latest.yml`), which is held until signing so the
+  channel is not unauthenticated. A manual-download release is fine now. Overlaps
+  017 OCX-020.
 
 ## Priority order
 

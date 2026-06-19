@@ -38,13 +38,14 @@ pending until one is provisioned.
 - [ ] Write/refresh `dist/SHA256SUMS.txt`.
 
 ## 6. Publish + auto-update feed
-- [ ] **[release-pipeline]** Ensure `electron-updater` is bundled into the asar.
-      The current `files` allowlist in `builder.json` excludes production
-      `node_modules`, so the dependency is not yet packaged and the wired
-      auto-update path stays inert in installed builds. Resolve the packaging
-      config (rely on electron-builder's production-dependency detection, or add
-      the dependency explicitly) and confirm with
-      `npx asar list dist/win-unpacked/resources/app.asar | findstr electron-updater`.
+- [x] `electron-updater` is bundled into the asar (the `builder.json` `files`
+      config uses `**/*` + negations so production `node_modules` are included).
+      Confirm with
+      `npx @electron/asar list dist/win-unpacked/resources/app.asar | findstr electron-updater`.
+- [ ] **[hold until signing]** Publish `latest.yml` (the auto-update feed) only
+      after the build is signed, so installed clients are never on an
+      unauthenticated update channel. Until then, publish the installer for
+      **manual download** without `latest.yml`.
 - [ ] Tag the release and publish with the GitHub provider so electron-builder
       uploads the installer, `.blockmap`, and `latest.yml`:
       `GH_TOKEN=… npm run build -- --publish always` (publish config in

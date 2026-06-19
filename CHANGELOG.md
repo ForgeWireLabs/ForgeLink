@@ -23,21 +23,22 @@ versions tracked in `VERSION` and `Electron/package.json`.
   tests, a git-tracked secret scanner (`npm run scan:secrets`), and a production
   dependency audit (`npm run scan:deps`) (PR-011).
 - Installer/packaging completeness tests and an opt-in live-Twilio test (PR-013).
-- Auto-update wiring via electron-updater: a tested decision helper, a
-  failure-tolerant guarded check in the main process (operator-disableable with
-  `FORGELINK_DISABLE_UPDATES=1`), and a GitHub publish config. It activates once
-  the release pipeline bundles electron-updater into the build and publishes a
-  release feed (see the release checklist) — and is trust-anchored by signing.
+- Auto-update via electron-updater: a tested decision helper, a failure-tolerant
+  guarded check in the main process (operator-disableable with
+  `FORGELINK_DISABLE_UPDATES=1`), a GitHub publish config, and electron-updater
+  bundled into the packaged build (verified in the asar). It delivers updates
+  once a release feed (`latest.yml`) is published; the feed is held until signing
+  so the channel is not unauthenticated.
 - App version surfaced in desktop status and diagnostics.
 
 ### Known limitations
 - The installer is **not yet code-signed**, so Windows SmartScreen warns on first
   run and auto-update is not yet trust-anchored. Signing closes PR-014; it
   requires a code-signing certificate.
-- Auto-update is **wired but not yet active**: electron-updater is not packaged
-  into the asar under the current `files` allowlist, and no release feed is
-  published. Both are tracked in the release checklist; neither crashes the app
-  (the updater path is guarded).
+- Auto-update is **bundled and wired but not yet delivering**: no release feed
+  (`latest.yml`) is published, and the feed is intentionally held until signing
+  so installed clients are never on an unauthenticated update channel. The
+  updater path is guarded and never crashes the app.
 - A dev-only `undici` advisory exists in the build toolchain; the shipped
   (production) dependency tree audits clean (`npm run scan:deps`).
 

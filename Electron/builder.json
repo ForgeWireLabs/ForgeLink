@@ -1,21 +1,21 @@
 {
   "appId": "dev.forgelink.desktop",
   "productName": "ForgeLink",
-  "files": [
-    "main.js",
-    "preload.js",
-    "onboarding.js",
-    "attention.js",
-    "tunnel.js",
-    "lifecycle.js",
-    "updates.js",
-    "renderer/index.html",
-    "renderer/styles.css",
-    "renderer/app.js",
-    "backend-dist/**/*",
-    "!backend-dist/**/*.test.js",
-    "assets/**/*",
-    "package.json"
+    "files": [
+    "**/*",
+    "!**/*.ts",
+    "!**/*.tsx",
+    "!**/*.map",
+    "!**/*.test.js",
+    "!**/tsconfig*.json",
+    "!backend/**",
+    "!renderer/src/**",
+    "!scripts/**",
+    "!security.js",
+    "!builder.json",
+    "!*.md",
+    "!.gitignore",
+    "!dist/**"
   ],
   "directories": {
     "buildResources": "assets",
