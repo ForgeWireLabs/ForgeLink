@@ -1,0 +1,51 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260618-pr014-release-unblocked",
+  "timestamp": "2026-06-19T03:00:00Z",
+  "work_item": "011",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "node --test updates.test.js",
+      "exit_code": 0,
+      "summary": "Auto-update decision helper: only runs in a packaged build and honours FORGELINK_DISABLE_UPDATES=1 opt-out."
+    },
+    {
+      "command": "node --test backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Diagnostics now reports app_version (FORGELINK_APP_VERSION=9.9.9 asserted) alongside the existing redaction checks."
+    },
+    {
+      "command": "npx electron-builder --dir; npx asar list ...; launch ForgeLink.exe",
+      "exit_code": 0,
+      "summary": "packaging.test.js caught that main.js required ./updates without updates.js being in builder.json files (the missing-module crash class from PR-013); after adding it, updates.js is bundled and the app launches fully (5 processes). electron-updater itself is not yet in the asar under the current files allowlist, so the guarded auto-update path stays inert in installed builds (documented in the release checklist)."
+    },
+    {
+      "command": "npm run scan:secrets && npm run scan:deps",
+      "exit_code": 0,
+      "summary": "Repo secret scan clean (CHANGELOG/docs added no secrets); production dependency audit reports 0 vulnerabilities. A dev-only undici advisory introduced by electron-updater's dev tree is out of the shipped tree."
+    },
+    {
+      "command": "npm test (full suite)",
+      "exit_code": 0,
+      "summary": "Full suite green (live Twilio skipped); validate_repo + repopact doctor healthy."
+    }
+  ],
+  "artifacts": [
+    "Electron/updates.js",
+    "Electron/updates.test.js",
+    "Electron/main.js",
+    "Electron/builder.json",
+    "Electron/package.json",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "CHANGELOG.md",
+    "docs/release-checklist.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "PR-014 unblocked items delivered: version metadata (status + diagnostics app_version), release notes (CHANGELOG.md), a reproducible release checklist (docs/release-checklist.md), and auto-update WIRING (tested helper + guarded main-process check + GitHub publish config + electron-updater dependency). PR-014 stays PENDING: it needs a code-signing certificate (operator-provided), electron-updater bundled into the asar, and a published release feed before auto-update is functional and trust-anchored. These remaining steps are enumerated in the release checklist."
+  }
+}

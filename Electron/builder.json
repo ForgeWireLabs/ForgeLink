@@ -8,6 +8,7 @@
     "attention.js",
     "tunnel.js",
     "lifecycle.js",
+    "updates.js",
     "renderer/index.html",
     "renderer/styles.css",
     "renderer/app.js",

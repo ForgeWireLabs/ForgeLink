@@ -50,9 +50,15 @@ in [`work-item.json`](work-item.json); this is the human summary.
 - **PR-016 voice** -> 015 (CLV-012/013); voice accepted, legacy iframe rejected.
 
 **Remaining genuine baseline** (still pending; 011 stays active):
-- **PR-014** releases — signing/auto-update/
-  release notes/checklist remain (icon, installer, checksums done; overlaps 017
-  OCX-020).
+- **PR-014** releases — **partially landed** (evidence
+  `20260618-pr014-release-unblocked`): real icon, installer, checksums, version
+  metadata, release notes (`CHANGELOG.md`), a reproducible release checklist
+  (`docs/release-checklist.md`), and auto-update *wiring* (tested helper + guarded
+  main-process check + GitHub publish config + electron-updater dependency) are
+  done. **Remaining (keeps PR-014 pending):** a code-signing certificate
+  (operator-provided), electron-updater bundled into the asar, and a published
+  release feed before auto-update is functional and trust-anchored. Overlaps 017
+  OCX-020.
 
 ## Priority order
 
@@ -178,3 +184,4 @@ in [`work-item.json`](work-item.json); this is the human summary.
 | 2026-06-18 | PR-006 | Backend lifecycle: dynamic-port fallback + bounded crash-restart, diagnostics, clean shutdown, recovery message; lifecycle unit tests + runtime conflict/restart checks | Closed PR-006 with evidence 20260618-pr006-backend-lifecycle. |
 | 2026-06-18 | PR-011 | Proxy-aware webhook signature tests, local API threat tests, secret scanner (scan:secrets) + unit tests, dependency audit (scan:deps), redaction coverage | Closed PR-011 with evidence 20260618-pr011-security-verification. |
 | 2026-06-18 | PR-013 | Installer/packaging completeness tests + opt-in live Twilio test; pyramid layers (backend HTTP, renderer, lifecycle, security) confirmed green | Closed PR-013 with evidence 20260618-pr013-test-pyramid. |
+| 2026-06-18 | PR-014 (partial) | Version metadata, release notes (CHANGELOG), reproducible release checklist (docs), and auto-update wiring; packaging test caught + fixed a missing-module regression | Unblocked items landed (evidence 20260618-pr014-release-unblocked); PR-014 stays pending on signing, electron-updater asar bundling, and a published feed. |
