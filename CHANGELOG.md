@@ -6,6 +6,8 @@ versions tracked in `VERSION` and `Electron/package.json`.
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-06-18 (prerelease, unsigned)
+
 ### Added
 - Windows NSIS installer with desktop + Start Menu shortcuts (PR-014 in progress).
 - Automatic public webhook via a bundled cloudflared quick-tunnel, so inbound SMS
