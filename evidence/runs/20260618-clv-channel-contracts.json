@@ -1,0 +1,36 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260618-clv-channel-contracts",
+  "timestamp": "2026-06-18T21:30:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "New backend/src/channels.ts compiles under strict TypeScript: provider-neutral contracts for channel kinds, capability discovery, outbound send, send results, inbound webhook normalization, delivery-status normalization, media refs, redacted provider errors, credential validation, and voice call control, plus a channel registry."
+    },
+    {
+      "command": "node --test backend-dist/channels.test.js",
+      "exit_code": 0,
+      "summary": "4/4: the registry discovers capabilities and lists providers, selects a provider that supports a capability, and rejects unsupported capabilities cleanly (UnsupportedCapabilityError for an unknown capability, a provider that lacks it, and an unknown provider); send conforms to the SendResult contract."
+    },
+    {
+      "command": "npm test (full suite)",
+      "exit_code": 0,
+      "summary": "Full suite green with channels.test.js wired into the pipeline; existing messaging/renderer/lifecycle/security behaviour unchanged."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/channels.ts",
+    "Electron/backend/src/channels.test.ts",
+    "Electron/package.json",
+    "work/active/015-communication-channels-and-voice/README.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "First slice of work item 015 Phase 0. Delivers the CLV-002 provider-neutral channel/adapter contracts and the capability registry with provider selection and clean rejection of unsupported capabilities. It does NOT yet move existing Twilio SMS/MMS behind the boundary (CLV-002's second acceptance bullet and CLV-003) and does not yet write the runtime-model document (CLV-001), so CLV-001/002/003 remain pending; those are the next slices. The existing Twilio path is untouched."
+  }
+}

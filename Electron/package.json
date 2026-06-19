@@ -12,7 +12,7 @@
     "dev": "npm run backend:build && npm run renderer:build && electron .",
     "start": "npm run dev",
     "build": "npm run backend:build && npm run renderer:build && electron-builder -c builder.json",
-    "test": "npm run backend:build && npm run renderer:build && vitest run renderer/src/App.test.tsx && node --test attention.test.js onboarding.test.js tunnel.test.js lifecycle.test.js security.test.js updates.test.js packaging.test.js live-twilio.test.js backend-dist/database.test.js backend-dist/migration.test.js backend-dist/server.test.js backend-dist/signals.test.js backend-dist/twilio.test.js && node --check main.js && node --check preload.js && node --check onboarding.js && node --check attention.js && node --check tunnel.js && node --check lifecycle.js && node --check security.js && node --check updates.js",
+    "test": "npm run backend:build && npm run renderer:build && vitest run renderer/src/App.test.tsx && node --test attention.test.js onboarding.test.js tunnel.test.js lifecycle.test.js security.test.js updates.test.js packaging.test.js live-twilio.test.js backend-dist/channels.test.js backend-dist/database.test.js backend-dist/migration.test.js backend-dist/server.test.js backend-dist/signals.test.js backend-dist/twilio.test.js && node --check main.js && node --check preload.js && node --check onboarding.js && node --check attention.js && node --check tunnel.js && node --check lifecycle.js && node --check security.js && node --check updates.js",
     "scan:secrets": "node security.js",
     "scan:deps": "npm audit --omit=dev --audit-level=high",
     "screenshot": "npm run backend:build && npm run renderer:build && electron scripts/visual-smoke.js"
