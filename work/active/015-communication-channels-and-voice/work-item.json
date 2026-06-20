@@ -137,8 +137,10 @@
     {
       "id": "CLV-014",
       "text": "Decide Twilio Verify scope and record whether phone verification is shipped, deferred as a provider capability, or out of scope; verification must not automatically grant trust without operator policy.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260620-clv014-twilio-verify-scope"
+      ]
     },
     {
       "id": "CLV-015",

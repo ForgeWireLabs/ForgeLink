@@ -80,3 +80,14 @@ evidence before the UI may present them as available.
 Provider failures are redacted. ForgeLink records short actionable summaries such
 as `Twilio rejected the call (500).` and never stores provider response bodies,
 credentials, account IDs, real call audio, or recordings in diagnostics.
+
+## Verify
+
+Twilio Verify is not shipped in the current ForgeLink runtime. Decision
+[`0008`](../decisions/0008-twilio-verify-scope.md) defers phone verification as a
+future provider-neutral capability.
+
+If verification is later added, it must not automatically create trust. A
+successful verification may at most become a contact-point verification signal;
+approval privileges, urgent interrupts, unblock behavior, and trust-level changes
+remain explicit operator policy decisions.

@@ -1,0 +1,37 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260620-clv014-twilio-verify-scope",
+  "timestamp": "2026-06-20T20:50:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Local system audit passed after marking CLV-014 satisfied: required files, work item manifests, stale README checks, and Markdown link/date checks are current."
+    },
+    {
+      "command": "python scripts/validate_repo.py",
+      "exit_code": 0,
+      "summary": "Repository governance validation passed with the new decision record and CLV-014 evidence."
+    },
+    {
+      "command": "python scripts/repopact_cli.py dashboard",
+      "exit_code": 0,
+      "summary": "RepoPact dashboard regenerated after CLV-014 evidence and decision updates."
+    }
+  ],
+  "artifacts": [
+    "audits/reports/dashboard.md",
+    "decisions/0008-twilio-verify-scope.md",
+    "docs/twilio.md",
+    "work/active/015-communication-channels-and-voice/README.md",
+    "work/active/015-communication-channels-and-voice/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "015 CLV-014 (Twilio Verify scope). Twilio Verify is deferred as a future provider-neutral capability, not shipped in the current runtime/UI. A future verification signal may not create contacts, unblock contacts, allow approvals, allow urgent interrupts, or raise trust level without an explicit operator contact-policy decision."
+  }
+}

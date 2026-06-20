@@ -317,7 +317,7 @@ only if a concrete operator deployment requires it.
     duplicate callback, invalid callback signature where applicable, missing
     credentials, and provider failure.
 
-- [ ] **CLV-014 Decide Twilio Verify scope.** Decide whether phone verification
+- [x] **CLV-014 Decide Twilio Verify scope.** Decide whether phone verification
   belongs in ForgeLink as a shipped capability, a future provider capability, or
   out of scope.
   - Acceptance: Decision is recorded in `decisions/` or this work item.
@@ -540,3 +540,4 @@ Add or update docs for:
 | 2026-06-20 | CLV-011 complete | Contact policy editor + API client methods; inbound SMS from muted/blocked contact points persists without unread attention; contact-resolved agent messages enforce allow-agent, approval-request, urgent-interrupt, muted, and blocked policy gates | CLV-011 satisfied (evidence 20260620-clv011-contact-policy). Phase 3 contact metadata/policy complete; voice runtime criteria are next. |
 | 2026-06-20 | CLV-012 complete | Provider-neutral voice runtime contract added with local call/request/result/status/persistence shapes, adapter hooks for voice availability/start/end/inbound/status, deterministic contract tests, and `docs/voice-runtime.md` boundary documentation | CLV-012 satisfied (evidence 20260620-clv012-voice-contracts). Twilio Voice implementation remains CLV-013. |
 | 2026-06-20 | CLV-013 complete | Twilio Voice edge adapter added with outbound start/end, schema v10 durable call rows, signed voice status callbacks, inbound call-row creation, idempotent status transitions, redacted provider errors, and deterministic database/adapter/server tests | CLV-013 satisfied (evidence 20260620-clv013-twilio-voice-edge). Twilio Verify scope decision remains CLV-014. |
+| 2026-06-20 | CLV-014 complete | Decision `0008` records Twilio Verify as deferred future provider-neutral capability; `docs/twilio.md` documents that Verify is not shipped and cannot grant trust, approvals, urgent interrupts, or unblock behavior without explicit operator policy | CLV-014 satisfied (evidence 20260620-clv014-twilio-verify-scope). Voice UI surface remains CLV-015. |
