@@ -1,0 +1,29 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260618-clv-phase3-data",
+  "timestamp": "2026-06-19T04:00:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "node --test backend-dist/database.test.js",
+      "exit_code": 0,
+      "summary": "Schema migration to v8 (the existing version-upgrade test now asserts schemaVersion === 8 with a pre-migration backup and no data loss). New test: contact metadata (company/role/tags/notes/pinned/favorite) round-trips; upsert creates a primary phone contact point; multiple labeled numbers/emails with a re-assignable primary; resolveContactIdByValue finds known values and returns null for unknown; contact policy persists with trusted level, and unknown contacts default to no approval/urgent privileges; delete removes the contact and its points/policy."
+    },
+    {
+      "command": "npm test (full suite)",
+      "exit_code": 0,
+      "summary": "Full suite green after the schema bump — existing messaging, data-safety, and renderer tests unaffected."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/database.test.ts"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "015 Phase 3 DATA FOUNDATION. A transactional, backed-up v8 migration adds contact metadata columns, a contact_points table (multiple labeled numbers/emails with one primary, backfilled for existing contacts), and a contact_policy table, plus the backend methods (updateContact, deleteContact, contact-point CRUD, resolveContactIdByValue, get/setContactPolicy). CLV-009/010/011 remain PENDING: the server API endpoints, the renderer contact-editing UI (CLV-009 create/edit/delete metadata + tests), unknown-inbound attach/new/ignore/block handling (CLV-010), and attention-policy enforcement of blocked/muted (CLV-011) are the remaining slices. No criterion is marked satisfied yet."
+  }
+}

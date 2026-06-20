@@ -203,3 +203,35 @@ test("quarantines a corrupt database and starts a recoverable empty store", () =
     database.close();
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+test("stores contact metadata, points, and policy (CLV-009/010/011)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-contacts-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const id = database.upsertContact("Grace", "+15551230000");
+    database.updateContact(id, { company: "Navy", role: "Rear Admiral", tags: "vip,mentor", notes: "COBOL", pinned: true, favorite: true });
+    const contact = database.contacts().find((c) => c.id === id) as Record<string, unknown>;
+    assert.equal(contact.company, "Navy");
+    assert.equal(contact.pinned, 1);
+    assert.equal(contact.favorite, 1);
+    // upsert created a primary phone point
+    assert.ok(database.contactPoints(id).some((p) => p.value === "+15551230000" && p.is_primary === 1));
+    // multiple labeled numbers + email; new primary
+    database.addContactPoint(id, "phone", "+15559990000", "work", true);
+    database.addContactPoint(id, "email", "grace@example.com", "work");
+    assert.equal(database.resolveContactIdByValue("+15559990000"), id);
+    assert.equal(database.resolveContactIdByValue("+19999999999"), null);
+    assert.equal((database.contactPoints(id).find((p) => p.is_primary === 1) as Record<string, unknown>).value, "+15559990000");
+    // policy: trusted; unknown contacts default to no approval/urgent privileges
+    const policy = database.setContactPolicy(id, { trust_level: "trusted", allow_approval_requests: true });
+    assert.equal(policy.trust_level, "trusted");
+    assert.equal(policy.allow_approval_requests, 1);
+    const unknown = database.getContactPolicy(99999);
+    assert.equal(unknown.allow_approval_requests, 0);
+    assert.equal(unknown.allow_urgent_interrupts, 0);
+    // delete removes the contact and its points/policy
+    database.deleteContact(id);
+    assert.equal(database.contacts().some((c) => c.id === id), false);
+    assert.equal(database.contactPoints(id).length, 0);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});

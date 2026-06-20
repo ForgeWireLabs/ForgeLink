@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 
 export interface ThreadRow {
   id: number;
@@ -377,6 +377,55 @@ export class PhoneDatabase {
         version = 7;
         this.connection.exec("PRAGMA user_version=7");
       }
+      if (version === 7) {
+        // Contact metadata, contact points, and contact policy (work item 015, CLV-009/010/011).
+        this.connection.exec(`
+          ALTER TABLE contacts ADD COLUMN notes TEXT NOT NULL DEFAULT '';
+          ALTER TABLE contacts ADD COLUMN company TEXT NOT NULL DEFAULT '';
+          ALTER TABLE contacts ADD COLUMN role TEXT NOT NULL DEFAULT '';
+          ALTER TABLE contacts ADD COLUMN tags TEXT NOT NULL DEFAULT '';
+          ALTER TABLE contacts ADD COLUMN relationship TEXT NOT NULL DEFAULT '';
+          ALTER TABLE contacts ADD COLUMN trust_level TEXT NOT NULL DEFAULT 'unknown';
+          ALTER TABLE contacts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE contacts ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE contacts ADD COLUMN avatar_media_id TEXT NOT NULL DEFAULT '';
+          ALTER TABLE contacts ADD COLUMN created_at TEXT NOT NULL DEFAULT '';
+          ALTER TABLE contacts ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+          CREATE TABLE IF NOT EXISTS contact_points (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL DEFAULT 'phone',
+            value TEXT NOT NULL,
+            label TEXT NOT NULL DEFAULT '',
+            is_primary INTEGER NOT NULL DEFAULT 0,
+            verified_at TEXT,
+            blocked_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(contact_id, value)
+          );
+          CREATE INDEX IF NOT EXISTS idx_contact_points_value ON contact_points(value);
+          CREATE TABLE IF NOT EXISTS contact_policy (
+            contact_id INTEGER PRIMARY KEY REFERENCES contacts(id) ON DELETE CASCADE,
+            trust_level TEXT NOT NULL DEFAULT 'unknown',
+            allow_agent_messages INTEGER NOT NULL DEFAULT 1,
+            allow_approval_requests INTEGER NOT NULL DEFAULT 0,
+            allow_urgent_interrupts INTEGER NOT NULL DEFAULT 0,
+            muted_until TEXT,
+            blocked INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+        `);
+        // Backfill timestamps + a primary phone contact point for existing contacts (no data loss).
+        const now = utcNow();
+        this.connection.prepare("UPDATE contacts SET created_at=?, updated_at=? WHERE created_at=''").run(now, now);
+        for (const row of this.connection.prepare("SELECT id, number FROM contacts WHERE number IS NOT NULL AND number<>''").all() as Array<{ id: number; number: string }>) {
+          this.connection.prepare("INSERT OR IGNORE INTO contact_points(contact_id, kind, value, label, is_primary, created_at, updated_at) VALUES(?, 'phone', ?, 'primary', 1, ?, ?)").run(row.id, row.number, now, now);
+        }
+        version = 8;
+        this.connection.exec("PRAGMA user_version=8");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -560,8 +609,71 @@ export class PhoneDatabase {
 
   upsertContact(nameValue: string, numberValue: string): number {
     const number = normalizeNumber(numberValue);
-    this.connection.prepare("INSERT INTO contacts(name, number, last_seen) VALUES(?, ?, ?) ON CONFLICT(number) DO UPDATE SET name=excluded.name, last_seen=excluded.last_seen").run((nameValue || "").trim(), number, utcNow());
-    return (this.connection.prepare("SELECT id FROM contacts WHERE number=?").get(number) as { id: number }).id;
+    const now = utcNow();
+    this.connection.prepare("INSERT INTO contacts(name, number, last_seen, created_at, updated_at) VALUES(?, ?, ?, ?, ?) ON CONFLICT(number) DO UPDATE SET name=excluded.name, last_seen=excluded.last_seen, updated_at=excluded.updated_at").run((nameValue || "").trim(), number, now, now, now);
+    const id = (this.connection.prepare("SELECT id FROM contacts WHERE number=?").get(number) as { id: number }).id;
+    this.connection.prepare("INSERT OR IGNORE INTO contact_points(contact_id, kind, value, label, is_primary, created_at, updated_at) VALUES(?, 'phone', ?, 'primary', 1, ?, ?)").run(id, number, now, now);
+    return id;
+  }
+
+  // Contact metadata (CLV-009)
+  updateContact(id: number, fields: Record<string, unknown>): void {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    for (const key of ["name", "notes", "company", "role", "tags", "relationship", "trust_level", "avatar_media_id"]) {
+      if (key in fields) { sets.push(`${key}=?`); values.push(String(fields[key] ?? "")); }
+    }
+    if ("pinned" in fields) { sets.push("pinned=?"); values.push(fields.pinned ? 1 : 0); }
+    if ("favorite" in fields) { sets.push("favorite=?"); values.push(fields.favorite ? 1 : 0); }
+    if (!sets.length) return;
+    sets.push("updated_at=?"); values.push(utcNow()); values.push(id);
+    if (this.connection.prepare(`UPDATE contacts SET ${sets.join(", ")} WHERE id=?`).run(...values as never[]).changes !== 1) throw new Error("Contact not found.");
+  }
+
+  deleteContact(id: number): void {
+    this.connection.prepare("UPDATE threads SET contact_id=NULL WHERE contact_id=?").run(id);
+    this.connection.prepare("DELETE FROM contact_points WHERE contact_id=?").run(id);
+    this.connection.prepare("DELETE FROM contact_policy WHERE contact_id=?").run(id);
+    this.connection.prepare("DELETE FROM contacts WHERE id=?").run(id);
+  }
+
+  // Contact points (CLV-010)
+  contactPoints(contactId: number): Record<string, unknown>[] {
+    return this.connection.prepare("SELECT * FROM contact_points WHERE contact_id=? ORDER BY is_primary DESC, id").all(contactId) as Record<string, unknown>[];
+  }
+
+  addContactPoint(contactId: number, kind: string, value: string, label = "", isPrimary = false): number {
+    const now = utcNow();
+    const normalized = kind === "phone" ? normalizeNumber(value) : value.trim();
+    if (isPrimary) this.connection.prepare("UPDATE contact_points SET is_primary=0 WHERE contact_id=?").run(contactId);
+    this.connection.prepare("INSERT INTO contact_points(contact_id, kind, value, label, is_primary, created_at, updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(contact_id, value) DO UPDATE SET kind=excluded.kind, label=excluded.label, is_primary=excluded.is_primary, updated_at=excluded.updated_at").run(contactId, kind, normalized, label, isPrimary ? 1 : 0, now, now);
+    return (this.connection.prepare("SELECT id FROM contact_points WHERE contact_id=? AND value=?").get(contactId, normalized) as { id: number }).id;
+  }
+
+  setContactPointBlocked(pointId: number, blocked: boolean): void {
+    this.connection.prepare("UPDATE contact_points SET blocked_at=?, updated_at=? WHERE id=?").run(blocked ? utcNow() : null, utcNow(), pointId);
+  }
+
+  // Resolve contact identity through contact points rather than a flat number.
+  resolveContactIdByValue(value: string): number | null {
+    const normalized = normalizeNumber(value);
+    const row = this.connection.prepare("SELECT contact_id FROM contact_points WHERE value=? OR value=?").get(normalized, value) as { contact_id: number } | undefined;
+    return row ? row.contact_id : null;
+  }
+
+  // Contact policy (CLV-011)
+  getContactPolicy(contactId: number): Record<string, unknown> {
+    return (this.connection.prepare("SELECT * FROM contact_policy WHERE contact_id=?").get(contactId) as Record<string, unknown> | undefined)
+      || { contact_id: contactId, trust_level: "unknown", allow_agent_messages: 1, allow_approval_requests: 0, allow_urgent_interrupts: 0, muted_until: null, blocked: 0 };
+  }
+
+  setContactPolicy(contactId: number, policy: Record<string, unknown>): Record<string, unknown> {
+    const now = utcNow();
+    const trust = String(policy.trust_level ?? "unknown");
+    this.connection.prepare("INSERT INTO contact_policy(contact_id, trust_level, allow_agent_messages, allow_approval_requests, allow_urgent_interrupts, muted_until, blocked, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(contact_id) DO UPDATE SET trust_level=excluded.trust_level, allow_agent_messages=excluded.allow_agent_messages, allow_approval_requests=excluded.allow_approval_requests, allow_urgent_interrupts=excluded.allow_urgent_interrupts, muted_until=excluded.muted_until, blocked=excluded.blocked, updated_at=excluded.updated_at")
+      .run(contactId, trust, policy.allow_agent_messages ? 1 : 0, policy.allow_approval_requests ? 1 : 0, policy.allow_urgent_interrupts ? 1 : 0, policy.muted_until ? String(policy.muted_until) : null, policy.blocked ? 1 : 0, now, now);
+    this.connection.prepare("UPDATE contacts SET trust_level=?, updated_at=? WHERE id=?").run(trust, now, contactId);
+    return this.getContactPolicy(contactId);
   }
 
   linkThread(threadId: number, contactId: number): void {
