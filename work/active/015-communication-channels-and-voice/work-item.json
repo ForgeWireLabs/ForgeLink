@@ -153,8 +153,10 @@
     {
       "id": "CLV-016",
       "text": "Add durable contact-linked call history with direction, provider, from/to, contact resolution, status, timestamps, duration when available, provider ID, redacted error summary, retention/export/backup behavior, and diagnostics exclusion by default.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260620-clv016-call-history"
+      ]
     },
     {
       "id": "CLV-017",

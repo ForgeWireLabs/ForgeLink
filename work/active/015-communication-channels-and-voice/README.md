@@ -334,7 +334,7 @@ only if a concrete operator deployment requires it.
   - Acceptance: UI does not imply live audio features that are not implemented.
   - Acceptance: Visual smoke and renderer interaction tests cover call UI states.
 
-- [ ] **CLV-016 Add call history.** Persist and display contact-linked call
+- [x] **CLV-016 Add call history.** Persist and display contact-linked call
   history.
   - Include: direction, provider, from/to, contact resolution, status, start time,
     end time, duration when available, provider ID, and redacted error summary.
@@ -542,3 +542,4 @@ Add or update docs for:
 | 2026-06-20 | CLV-013 complete | Twilio Voice edge adapter added with outbound start/end, schema v10 durable call rows, signed voice status callbacks, inbound call-row creation, idempotent status transitions, redacted provider errors, and deterministic database/adapter/server tests | CLV-013 satisfied (evidence 20260620-clv013-twilio-voice-edge). Twilio Verify scope decision remains CLV-014. |
 | 2026-06-20 | CLV-014 complete | Decision `0008` records Twilio Verify as deferred future provider-neutral capability; `docs/twilio.md` documents that Verify is not shipped and cannot grant trust, approvals, urgent interrupts, or unblock behavior without explicit operator policy | CLV-014 satisfied (evidence 20260620-clv014-twilio-verify-scope). Voice UI surface remains CLV-015. |
 | 2026-06-20 | CLV-015 complete | Added Calls rail view with dialpad, contact selector, call/end controls, active status, disabled provider hints, keyboard shortcuts, recent calls, renderer interaction tests, and Calls visual smoke screenshot | CLV-015 satisfied (evidence 20260620-clv015-call-ui). Durable call-history UX remains CLV-016. |
+| 2026-06-20 | CLV-016 complete | Enriched durable call history rows with contact names/contact-point labels for the Calls UI; retained direction/provider/from-to/status/timestamps/duration/provider ID/redacted errors; added retention deletion for old calls while keeping backup/export coverage; asserted diagnostics exclude call IDs and phone numbers by default | CLV-016 satisfied (evidence 20260620-clv016-call-history). Contact timeline remains CLV-017. |

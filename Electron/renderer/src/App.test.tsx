@@ -11,7 +11,7 @@ const message = { id: "SM1", direction: "inbound", body: "Hello", ts: "2026-06-1
 const agentMessage = { id: "agent-1", channel_id: "forgewire", source: "forgewire", kind: "approval_request", urgency: "normal", title: "Release approval", body: "ForgeWire wants approval.", actions: JSON.stringify([{ id: "approve", label: "Approve" }]), status: "unread", action_result: "", created_at: "2026-06-14T18:00:00.000Z", expires_at: "2099-01-01T00:00:00.000Z", last_error: "" };
 const signalSubscription = { id: "sigsub-1", title: "Forge Signals", url: "https://example.com/feed.xml", enabled: true, muted: false, fetch_interval_minutes: 60, retention_days: 30, last_fetch_at: "2026-06-15T12:00:00.000Z", last_fetch_status: "ok", last_error: "", created_at: "2026-06-15T10:00:00.000Z", updated_at: "2026-06-15T12:00:00.000Z" };
 const signalItem = { id: "sigitem-1", subscription_id: "sigsub-1", source_title: "Forge Signals", title: "Build note", url: "https://example.com/build", summary: "Release candidate ready.", author: "ForgeWire", published_at: "2026-06-15T12:00:00.000Z", received_at: "2026-06-15T12:01:00.000Z", status: "unread", muted: false };
-const callRow = { id: 1, local_call_id: "call-1", provider_kind: "voice_edge", provider_name: "twilio", provider_call_id: "CA1", direction: "outbound", from_number: "+15550001111", to_number: "+15557654321", contact_id: 7, contact_point_id: 70, status: "in_progress", started_at: "2026-06-20T21:00:00.000Z", answered_at: "2026-06-20T21:00:10.000Z", ended_at: null, duration_seconds: null, redacted_error: "", created_at: "2026-06-20T21:00:00.000Z", updated_at: "2026-06-20T21:00:10.000Z" };
+const callRow = { id: 1, local_call_id: "call-1", provider_kind: "voice_edge", provider_name: "twilio", provider_call_id: "CA1", direction: "outbound", from_number: "+15550001111", to_number: "+15557654321", contact_id: 7, contact_point_id: 70, status: "in_progress", started_at: "2026-06-20T21:00:00.000Z", answered_at: "2026-06-20T21:00:10.000Z", ended_at: null, duration_seconds: null, redacted_error: "", created_at: "2026-06-20T21:00:00.000Z", updated_at: "2026-06-20T21:00:10.000Z", contact_name: "Grace Hopper", contact_point_label: "primary", contact_point_value: "+15557654321" };
 const mcpStatus = { configured: false, created_at: null, rotated_at: null, revoked_at: null, last_used_at: null, last_test_at: null, last_test_status: null, token_file: "C:\\Users\\test\\.forgelink\\api.token", token_file_present: false, bridge_server: "C:\\Projects\\TWL_phone\\mcp\\forgelink-human\\dist\\server.js", bridge_built: true, base_url: "http://127.0.0.1:5055", install_commands: { vscode: "install vscode", claude: "install claude", codex: "install codex", forgewire: "install forgewire" } };
 const agentChannel = { channel_id: "forgewire", label: "ForgeWire Fabric", enabled: true, configured: true, created_at: "2026-06-15T22:00:00.000Z", rotated_at: "2026-06-15T22:00:00.000Z", revoked_at: null, last_used_at: null, last_rejected_at: null, rejection_count: 2, rate_limited_count: 1, token_file: "C:\\Users\\test\\.forgelink\\channels\\forgewire.token", token_file_present: true };
 const attentionPolicy = { enabled: true, quiet_hours_enabled: false, quiet_hours_start: "22:00", quiet_hours_end: "07:00", quiet_hours_allow_urgent: false, redact_notification_bodies: true, sms_notifications: "all", agent_notifications: "high_and_urgent", signal_notifications: "off", system_notifications: "all", muted_sources: [] };
@@ -102,7 +102,7 @@ beforeEach(() => {
     if (url.endsWith("/api/data/backup")) return response({ ok: true, name: "backup-test" });
     if (url.endsWith("/api/data/export")) return response({ ok: true, name: "export-test.json" });
     if (url.endsWith("/api/data/restore-latest")) return response({ ok: true, name: "backup-test" });
-    if (url.endsWith("/api/data/retention")) return response({ ok: true, deletedMessages: 2, deletedThreads: 1, deletedUploads: 1, deletedAgentMessages: 1, deletedSignalItems: 1 });
+    if (url.endsWith("/api/data/retention")) return response({ ok: true, deletedMessages: 2, deletedThreads: 1, deletedUploads: 1, deletedAgentMessages: 1, deletedSignalItems: 1, deletedCalls: 1 });
     if (url.includes("/api/draft")) return response(init?.method === "POST" ? { ok: true } : { body: "" });
     if (url.endsWith("/api/send")) return response({ sid: "SM2", status: "queued" });
     if (url.endsWith("/api/retry")) return response({ sid: "SM2", status: "queued" });
@@ -160,7 +160,10 @@ describe("React renderer parity", () => {
     expect((screen.getByLabelText("Dial number") as HTMLInputElement).value).toBe("+15557654321");
     await userEvent.click(screen.getByRole("button", { name: "Call" }));
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).endsWith("/api/calls/start"))).toBe(true));
-    expect(await screen.findByText("in progress · twilio")).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByText("Grace Hopper").length).toBeGreaterThan(0));
+    expect(screen.getByText(/outbound · twilio · in progress/)).toBeTruthy();
+    expect(screen.getByText(/\+15550001111 -> \+15557654321/)).toBeTruthy();
+    expect(screen.getByText(/CA1/)).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "End call" }));
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).endsWith("/api/calls/end"))).toBe(true));
   });

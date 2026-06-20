@@ -81,6 +81,9 @@ export interface CallRow {
   redacted_error: string;
   created_at: string;
   updated_at: string;
+  contact_name?: string | null;
+  contact_point_label?: string | null;
+  contact_point_value?: string | null;
 }
 
 export interface AgentMessageRow {
@@ -556,7 +559,7 @@ export class PhoneDatabase {
     };
   }
 
-  applyRetention(days: number): { deletedMessages: number; deletedThreads: number; deletedAgentMessages: number; deletedSignalItems: number } {
+  applyRetention(days: number): { deletedMessages: number; deletedThreads: number; deletedAgentMessages: number; deletedSignalItems: number; deletedCalls: number } {
     if (!Number.isInteger(days) || days < 30 || days > 3650) throw new Error("Retention must be between 30 and 3650 days.");
     const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
     this.connection.exec("BEGIN IMMEDIATE");
@@ -564,10 +567,11 @@ export class PhoneDatabase {
       const deletedMessages = Number(this.connection.prepare("DELETE FROM messages WHERE ts < ?").run(cutoff).changes);
       const deletedAgentMessages = Number(this.connection.prepare("DELETE FROM agent_messages WHERE created_at < ?").run(cutoff).changes);
       const deletedSignalItems = Number(this.connection.prepare("DELETE FROM signal_items WHERE received_at < ?").run(cutoff).changes);
+      const deletedCalls = Number(this.connection.prepare("DELETE FROM calls WHERE COALESCE(ended_at, started_at, created_at) < ?").run(cutoff).changes);
       const deletedThreads = Number(this.connection.prepare("DELETE FROM threads WHERE NOT EXISTS (SELECT 1 FROM messages WHERE messages.thread_id=threads.id)").run().changes);
       this.connection.prepare("UPDATE threads SET last_msg_ts=(SELECT MAX(ts) FROM messages WHERE messages.thread_id=threads.id)").run();
       this.connection.exec("COMMIT");
-      return { deletedMessages, deletedThreads, deletedAgentMessages, deletedSignalItems };
+      return { deletedMessages, deletedThreads, deletedAgentMessages, deletedSignalItems, deletedCalls };
     } catch (error) {
       this.connection.exec("ROLLBACK");
       throw error;
@@ -693,16 +697,35 @@ export class PhoneDatabase {
   }
 
   callByLocalId(localCallId: string): CallRow | undefined {
-    return this.connection.prepare("SELECT * FROM calls WHERE local_call_id=?").get(localCallId) as unknown as CallRow | undefined;
+    return this.connection.prepare(`
+      SELECT calls.*, contacts.name AS contact_name, contact_points.label AS contact_point_label, contact_points.value AS contact_point_value
+      FROM calls
+      LEFT JOIN contacts ON contacts.id=calls.contact_id
+      LEFT JOIN contact_points ON contact_points.id=calls.contact_point_id
+      WHERE calls.local_call_id=?
+    `).get(localCallId) as unknown as CallRow | undefined;
   }
 
   callByProviderCallId(providerCallId: string): CallRow | undefined {
-    return this.connection.prepare("SELECT * FROM calls WHERE provider_call_id=?").get(providerCallId) as unknown as CallRow | undefined;
+    return this.connection.prepare(`
+      SELECT calls.*, contacts.name AS contact_name, contact_points.label AS contact_point_label, contact_points.value AS contact_point_value
+      FROM calls
+      LEFT JOIN contacts ON contacts.id=calls.contact_id
+      LEFT JOIN contact_points ON contact_points.id=calls.contact_point_id
+      WHERE calls.provider_call_id=?
+    `).get(providerCallId) as unknown as CallRow | undefined;
   }
 
   calls(limit = 100): CallRow[] {
     const boundedLimit = Math.max(1, Math.min(Number(limit) || 100, 500));
-    return this.connection.prepare("SELECT * FROM calls ORDER BY created_at DESC, id DESC LIMIT ?").all(boundedLimit) as unknown as CallRow[];
+    return this.connection.prepare(`
+      SELECT calls.*, contacts.name AS contact_name, contact_points.label AS contact_point_label, contact_points.value AS contact_point_value
+      FROM calls
+      LEFT JOIN contacts ON contacts.id=calls.contact_id
+      LEFT JOIN contact_points ON contact_points.id=calls.contact_point_id
+      ORDER BY calls.created_at DESC, calls.id DESC
+      LIMIT ?
+    `).all(boundedLimit) as unknown as CallRow[];
   }
 
   markCallStarted(localCallId: string, providerCallId: string | null, status: CallStatus): CallRow {

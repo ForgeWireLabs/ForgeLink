@@ -1,0 +1,88 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260620-clv016-call-history",
+  "timestamp": "2026-06-20T20:59:26Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed after enriching call history read models and adding call retention behavior."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "Renderer interaction coverage passed: 24/24 tests. Calls coverage now asserts contact-linked history details including contact name, direction/provider/status, endpoint, and provider call ID."
+    },
+    {
+      "command": "node --test backend-dist/database.test.js backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Focused backend database/server coverage passed: 29/29 tests. CLV-016 coverage verifies exportable call history, contact resolution, retention deletion for old calls, and diagnostics exclusion of call IDs and phone numbers."
+    },
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript build and esbuild bundle passed after the call-history UI/type updates."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron suite passed: 78 tests passed and 1 opt-in live Twilio test skipped by design."
+    },
+    {
+      "command": "npm run screenshot",
+      "exit_code": 0,
+      "summary": "Visual smoke passed and refreshed Electron/dist/ui-preview.png plus Electron/dist/ui-calls-preview.png. The Calls screenshot shows the durable call-history row with provider/status/duration/endpoint/provider ID details."
+    },
+    {
+      "command": "python scripts/repopact_cli.py dashboard",
+      "exit_code": 0,
+      "summary": "Regenerated audits/reports/dashboard.md so Repopact reflects CLV-016 as satisfied with the new evidence run."
+    },
+    {
+      "command": "python scripts/repopact_cli.py doctor",
+      "exit_code": 0,
+      "summary": "Repopact doctor reported the repository healthy after CLV-016 records were updated."
+    },
+    {
+      "command": "python scripts/validate_repo.py",
+      "exit_code": 0,
+      "summary": "Repository governance validation passed with the CLV-016 work item and evidence metadata current."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Local system audit passed: required files, work item manifests, stale README checks, and markdown link/date checks are valid."
+    },
+    {
+      "command": "npm run scan:secrets",
+      "exit_code": 0,
+      "summary": "Secret scan completed cleanly."
+    },
+    {
+      "command": "npm run scan:deps",
+      "exit_code": 0,
+      "summary": "Production dependency audit completed with 0 high-or-higher vulnerabilities."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/src/types.ts",
+    "Electron/renderer/app.js",
+    "Electron/dist/ui-calls-preview.png",
+    "audits/reports/dashboard.md",
+    "work/active/015-communication-channels-and-voice/README.md",
+    "work/active/015-communication-channels-and-voice/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "015 CLV-016 (durable contact-linked call history). ForgeLink now returns call rows with contact and contact-point labels for the UI, displays call history with direction, provider, endpoint, status, timestamps, duration, provider ID, and redacted errors, includes calls in export/backup paths, deletes old calls through retention with a pre-retention backup through the existing API flow, and keeps support diagnostics free of call IDs and phone numbers by default."
+  }
+}

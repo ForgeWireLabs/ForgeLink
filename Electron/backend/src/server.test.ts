@@ -27,7 +27,18 @@ function signature(baseUrl: string, pathname: string, fields: Record<string, str
 
 test("serves health and contact HTTP contracts", async () => {
   const directory = mkdtempSync(join(tmpdir(), "twilio-phone-http-"));
-  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  database.createCall({
+    localCallId: "call-diagnostic-private",
+    providerKind: "voice_edge",
+    providerName: "twilio",
+    providerCallId: "CA-DIAGNOSTIC-PRIVATE",
+    direction: "outbound",
+    from: "+15550000000",
+    to: "+15551234567",
+    status: "failed",
+    redactedError: "Provider rejected request: [redacted]"
+  });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
   try {
@@ -476,6 +487,9 @@ test("serves redacted diagnostics and never leaks secrets", async () => {
     assert.equal(response.status, 200);
     const text = await response.text();
     assert.equal(text.includes("super-secret-auth-token"), false);
+    assert.equal(text.includes("CA-DIAGNOSTIC-PRIVATE"), false);
+    assert.equal(text.includes("+15551234567"), false);
+    assert.equal(text.includes("call-diagnostic-private"), false);
     const body = JSON.parse(text) as Record<string, unknown>;
     assert.equal(body.runtime, "node");
     assert.equal(typeof body.node_version, "string");

@@ -93,7 +93,7 @@ test("creates verified backups, restores data, exports JSON, and applies retenti
     assert.equal(exported.format, "forgelink-export-v1");
     assert.equal(exported.schema_version, CURRENT_SCHEMA_VERSION);
     assert.equal(exported.messages.some((message) => message.id === "AFTER"), false);
-    assert.deepEqual(database.applyRetention(365), { deletedMessages: 1, deletedThreads: 1, deletedAgentMessages: 0, deletedSignalItems: 0 });
+    assert.deepEqual(database.applyRetention(365), { deletedMessages: 1, deletedThreads: 1, deletedAgentMessages: 0, deletedSignalItems: 0, deletedCalls: 0 });
     assert.equal((database.exportData().messages as Array<unknown>).length, 1);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
@@ -252,6 +252,8 @@ test("stores durable call rows and applies idempotent voice status callbacks (CL
     });
     assert.equal(call.contact_id, contactId);
     assert.equal(call.contact_point_id, database.contactPoints(contactId)[0].id);
+    assert.equal(call.contact_name, "Ada");
+    assert.equal(call.contact_point_label, "primary");
 
     const started = database.markCallStarted("call-local-1", "CA123", "ringing");
     assert.equal(started.provider_call_id, "CA123");
@@ -267,6 +269,52 @@ test("stores durable call rows and applies idempotent voice status callbacks (CL
     assert.equal(completed.redacted_error, "");
     const exported = database.exportData() as { calls: Array<{ local_call_id: string }> };
     assert.deepEqual(exported.calls.map((row) => row.local_call_id), ["call-local-1"]);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("keeps call history exportable and applies retention to old ended calls (CLV-016)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-call-history-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const contactId = database.upsertContact("Grace", "+15557654321");
+    database.createCall({
+      localCallId: "call-old",
+      providerKind: "voice_edge",
+      providerName: "twilio",
+      providerCallId: "CA-OLD",
+      direction: "outbound",
+      from: "+15550000000",
+      to: "+15557654321",
+      contactId,
+      status: "completed",
+      startedAt: "2024-01-01T00:00:00.000Z",
+      endedAt: "2024-01-01T00:02:00.000Z",
+      durationSeconds: 120
+    });
+    database.createCall({
+      localCallId: "call-new",
+      providerKind: "voice_edge",
+      providerName: "twilio",
+      providerCallId: "CA-NEW",
+      direction: "inbound",
+      from: "+15557654321",
+      to: "+15550000000",
+      status: "failed",
+      redactedError: "Provider rejected request: [redacted]"
+    });
+
+    const history = database.calls();
+    assert.equal(history[0].local_call_id, "call-new");
+    assert.equal(history.find(call => call.local_call_id === "call-old")?.contact_name, "Grace");
+    assert.equal(history.find(call => call.local_call_id === "call-old")?.duration_seconds, 120);
+
+    const exported = database.exportData() as { calls: Array<{ local_call_id: string; provider_call_id: string; redacted_error: string }> };
+    assert.deepEqual(exported.calls.map(call => call.local_call_id), ["call-old", "call-new"]);
+    assert.ok(exported.calls.every(call => !JSON.stringify(call).includes("voice-token")));
+
+    const result = database.applyRetention(365);
+    assert.equal(result.deletedCalls, 1);
+    assert.deepEqual(database.calls().map(call => call.local_call_id), ["call-new"]);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
