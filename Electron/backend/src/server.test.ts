@@ -131,7 +131,7 @@ test("backs up, exports, restores, and reports managed data", async () => {
     assert.equal(readFileSync(join(directory, "uploads", "proof.txt"), "utf8"), "before backup");
 
     const status = await fetch(`${localUrl}/api/data/status`, { headers: authorized() }).then((response) => response.json()) as { schema_version: number; backup_count: number; latest_backup: string };
-    assert.equal(status.schema_version, 7);
+    assert.equal(status.schema_version, 8);
     assert.equal(status.backup_count, 1);
     assert.match(status.latest_backup, /^backup-/);
   } finally {
@@ -483,6 +483,34 @@ test("Telnyx webhook stores signed inbound, dedupes, and rejects bad signatures 
     assert.equal((await post(inbound, "AAAA")).status, 403); // invalid signature
   } finally {
     if (previous === undefined) delete process.env.TELNYX_PUBLIC_KEY; else process.env.TELNYX_PUBLIC_KEY = previous;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("contacts metadata, points, and policy over HTTP (CLV-009/010/011)", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-contacts-http-"));
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  const post = (path: string, body: unknown) => fetch(`${localUrl}${path}`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify(body) });
+  try {
+    assert.equal((await fetch(`${localUrl}/api/contacts/update`, { method: "POST", body: "{}" })).status, 401); // auth required
+    const { id } = await (await post("/api/contacts", { name: "Grace", number: "+15551230000" })).json() as { id: number };
+    assert.equal((await post("/api/contacts/update", { id, company: "Navy", trust_level: "trusted", pinned: true })).status, 200);
+    const contact = (await (await fetch(`${localUrl}/api/contacts`, { headers: authorized() })).json() as Array<Record<string, unknown>>).find((c) => c.id === id) as Record<string, unknown>;
+    assert.equal(contact.company, "Navy");
+    assert.equal(contact.pinned, 1);
+    await post("/api/contacts/points", { contact_id: id, kind: "email", value: "grace@example.com", label: "work" });
+    const points = await (await fetch(`${localUrl}/api/contacts/points?contact_id=${id}`, { headers: authorized() })).json() as Array<Record<string, unknown>>;
+    assert.ok(points.some((p) => p.value === "grace@example.com"));
+    const policy = await (await post("/api/contacts/policy", { contact_id: id, trust_level: "trusted", allow_approval_requests: true })).json() as Record<string, unknown>;
+    assert.equal(policy.allow_approval_requests, 1);
+    assert.equal((await post("/api/contacts/delete", { id })).status, 200);
+    const after = await (await fetch(`${localUrl}/api/contacts`, { headers: authorized() })).json() as Array<Record<string, unknown>>;
+    assert.equal(after.some((c) => c.id === id), false);
+  } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(directory, { recursive: true, force: true });
   }

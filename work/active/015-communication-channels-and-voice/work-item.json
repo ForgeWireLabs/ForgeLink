@@ -97,8 +97,10 @@
     {
       "id": "CLV-009",
       "text": "Add rich contact metadata including display name, avatar/media reference, notes, company, role/title, tags, favorite/pinned state, trust level, relationship/category, created/updated timestamps, and migration tests without data loss.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260620-clv009-contacts-ui"
+      ]
     },
     {
       "id": "CLV-010",
@@ -180,5 +182,5 @@
     }
   ],
   "created": "2026-06-18",
-  "updated": "2026-06-18"
+  "updated": "2026-06-20"
 }

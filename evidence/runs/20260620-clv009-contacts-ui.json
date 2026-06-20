@@ -1,0 +1,44 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260620-clv009-contacts-ui",
+  "timestamp": "2026-06-20T15:10:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "node --test backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Contacts metadata, points, and policy over HTTP (CLV-009/010/011): POST /api/contacts/update, POST /api/contacts/delete, GET/POST /api/contacts/points, and GET/POST /api/contacts/policy all require the per-launch API token (401 without it) and round-trip through the database. 13/13 server tests pass."
+    },
+    {
+      "command": "node --test backend-dist/migration.test.js backend-dist/database.test.js",
+      "exit_code": 0,
+      "summary": "v8 migration is now defensive: it reads PRAGMA table_info(contacts) and only ADDs columns that are absent, so a legacy-imported contacts table that already carries a `tags` column migrates without an ERR_SQLITE_ERROR duplicate-column failure. Legacy-copy and metadata round-trip tests pass (13/13)."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "New renderer test 'edits and deletes contact metadata (CLV-009)': opens a contact's Edit modal, fills company, selects trust level, toggles pinned, saves, and asserts the POST /api/contacts/update body; then deletes via the modal (confirm-guarded) and asserts the POST /api/contacts/delete body. 21/21 renderer tests pass; existing SMS composition tests unaffected."
+    },
+    {
+      "command": "npm test (full suite)",
+      "exit_code": 0,
+      "summary": "Full suite green: 70 backend tests pass (1 skipped opt-in Twilio), 21 renderer tests pass."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/api.ts",
+    "Electron/renderer/src/types.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "015 Phase 3 CLV-009 (rich contact metadata). Server exposes six token-gated contact endpoints (update/delete/points x2/policy x2). The renderer adds an Edit entry point on each contact card and a contact-edit modal with name/company/role/tags/notes/trust-level fields plus pinned/favorite toggles and a confirm-guarded delete, wired through api.updateContact/deleteContact. The v8 migration was hardened to skip pre-existing columns so legacy imports migrate cleanly. CLV-009 is satisfied. CLV-010 (unknown-inbound attach/new/ignore/block) and CLV-011 (attention-policy enforcement of blocked/muted) remain pending; their data layer (contact_points, resolveContactIdByValue, contact_policy) is already in place."
+  }
+}

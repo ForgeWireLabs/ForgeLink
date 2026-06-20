@@ -83,7 +83,7 @@ export function createTwilioAdapter(sender: typeof sendTwilioMessage = sendTwili
       const raw = await sender(message.to, message.body, message.mediaUrls || []);
       return { providerMessageId: raw.sid ? String(raw.sid) : null, status: String(raw.status || "queued"), raw };
     },
-    parseInbound: parseTwilioInbound,
-    parseStatus: parseTwilioStatus
+    parseInbound: (payload) => parseTwilioInbound(payload as Record<string, string>),
+    parseStatus: (payload) => parseTwilioStatus(payload as Record<string, string>)
   };
 }

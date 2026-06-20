@@ -123,6 +123,29 @@ describe("React renderer parity", () => {
     expect(screen.getByText("No contacts found")).toBeTruthy();
   });
 
+  it("edits and deletes contact metadata (CLV-009)", async () => {
+    const fetchMock = vi.mocked(fetch);
+    render(<App/>);
+    await userEvent.click(screen.getByRole("button", { name: "Contacts" }));
+    await screen.findByText("Grace Hopper");
+    await userEvent.click(screen.getByRole("button", { name: "Edit Grace Hopper" }));
+    await userEvent.type(screen.getByLabelText("Company"), "Navy");
+    await userEvent.selectOptions(screen.getByLabelText("Trust level"), "trusted");
+    await userEvent.click(screen.getByLabelText("Pinned"));
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    const update = fetchMock.mock.calls.find(([url]) => String(url).includes("/api/contacts/update"));
+    expect(update).toBeTruthy();
+    const updateBody = JSON.parse(String(update![1]!.body));
+    expect(updateBody).toMatchObject({ id: 7, company: "Navy", trust_level: "trusted", pinned: true });
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit Grace Hopper" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete contact" }));
+    const remove = fetchMock.mock.calls.find(([url]) => String(url).includes("/api/contacts/delete"));
+    expect(remove).toBeTruthy();
+    expect(JSON.parse(String(remove![1]!.body))).toEqual({ id: 7 });
+    expect(window.confirm).toHaveBeenCalled();
+  });
+
   it("shows agent channel messages without mixing them into SMS conversations", async () => {
     render(<App/>);
     await userEvent.click(await screen.findByRole("button", { name: "Agents" }));

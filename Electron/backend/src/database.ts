@@ -379,18 +379,26 @@ export class PhoneDatabase {
       }
       if (version === 7) {
         // Contact metadata, contact points, and contact policy (work item 015, CLV-009/010/011).
+        // Add columns defensively: legacy-imported contacts tables may already carry some of these
+        // (e.g. a `tags` column from the original Twilio Phone schema), so skip any that exist.
+        const existingContactColumns = new Set((this.connection.prepare("PRAGMA table_info(contacts)").all() as Array<{ name: string }>).map(column => column.name));
+        const contactColumnAdds: Array<[string, string]> = [
+          ["notes", "TEXT NOT NULL DEFAULT ''"],
+          ["company", "TEXT NOT NULL DEFAULT ''"],
+          ["role", "TEXT NOT NULL DEFAULT ''"],
+          ["tags", "TEXT NOT NULL DEFAULT ''"],
+          ["relationship", "TEXT NOT NULL DEFAULT ''"],
+          ["trust_level", "TEXT NOT NULL DEFAULT 'unknown'"],
+          ["pinned", "INTEGER NOT NULL DEFAULT 0"],
+          ["favorite", "INTEGER NOT NULL DEFAULT 0"],
+          ["avatar_media_id", "TEXT NOT NULL DEFAULT ''"],
+          ["created_at", "TEXT NOT NULL DEFAULT ''"],
+          ["updated_at", "TEXT NOT NULL DEFAULT ''"]
+        ];
+        for (const [name, definition] of contactColumnAdds) {
+          if (!existingContactColumns.has(name)) this.connection.exec(`ALTER TABLE contacts ADD COLUMN ${name} ${definition}`);
+        }
         this.connection.exec(`
-          ALTER TABLE contacts ADD COLUMN notes TEXT NOT NULL DEFAULT '';
-          ALTER TABLE contacts ADD COLUMN company TEXT NOT NULL DEFAULT '';
-          ALTER TABLE contacts ADD COLUMN role TEXT NOT NULL DEFAULT '';
-          ALTER TABLE contacts ADD COLUMN tags TEXT NOT NULL DEFAULT '';
-          ALTER TABLE contacts ADD COLUMN relationship TEXT NOT NULL DEFAULT '';
-          ALTER TABLE contacts ADD COLUMN trust_level TEXT NOT NULL DEFAULT 'unknown';
-          ALTER TABLE contacts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
-          ALTER TABLE contacts ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;
-          ALTER TABLE contacts ADD COLUMN avatar_media_id TEXT NOT NULL DEFAULT '';
-          ALTER TABLE contacts ADD COLUMN created_at TEXT NOT NULL DEFAULT '';
-          ALTER TABLE contacts ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
           CREATE TABLE IF NOT EXISTS contact_points (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,

@@ -500,6 +500,30 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const payload = await readJson(request);
         return sendJson(response, { ok: true, id: database.upsertContact(String(payload.name || ""), String(payload.number || "")) });
       }
+      if (request.method === "POST" && url.pathname === "/api/contacts/update") {
+        const payload = await readJson(request);
+        database.updateContact(Number(payload.id), payload);
+        return sendJson(response, { ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/api/contacts/delete") {
+        const payload = await readJson(request);
+        database.deleteContact(Number(payload.id));
+        return sendJson(response, { ok: true });
+      }
+      if (request.method === "GET" && url.pathname === "/api/contacts/points") {
+        return sendJson(response, database.contactPoints(Number(url.searchParams.get("contact_id") || 0)));
+      }
+      if (request.method === "POST" && url.pathname === "/api/contacts/points") {
+        const payload = await readJson(request);
+        return sendJson(response, { ok: true, id: database.addContactPoint(Number(payload.contact_id), String(payload.kind || "phone"), String(payload.value || ""), String(payload.label || ""), Boolean(payload.is_primary)) });
+      }
+      if (request.method === "GET" && url.pathname === "/api/contacts/policy") {
+        return sendJson(response, database.getContactPolicy(Number(url.searchParams.get("contact_id") || 0)));
+      }
+      if (request.method === "POST" && url.pathname === "/api/contacts/policy") {
+        const payload = await readJson(request);
+        return sendJson(response, database.setContactPolicy(Number(payload.contact_id), payload));
+      }
       if (request.method === "POST" && url.pathname === "/api/link-thread") {
         const payload = await readJson(request);
         database.linkThread(Number(payload.thread_id), Number(payload.contact_id));

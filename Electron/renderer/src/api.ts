@@ -32,6 +32,8 @@ export class PhoneApi {
   draft = (threadId: number) => this.request<{ body: string }>(`/api/draft?thread_id=${threadId}`);
   saveDraft = (threadId: number, body: string) => this.request("/api/draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thread_id: threadId, body }) });
   saveContact = (name: string, number: string) => this.request("/api/contacts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, number }) });
+  updateContact = (id: number, fields: Record<string, unknown>) => this.request<{ ok: true; contact: Contact }>("/api/contacts/update", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...fields }) });
+  deleteContact = (id: number) => this.request<{ ok: true }>("/api/contacts/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
   linkThread = (threadId: number, contactId: number) => this.request("/api/link-thread", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thread_id: threadId, contact_id: contactId }) });
   upload = async (file: File) => { const body = new FormData(); body.append("file", file); return this.request<{ url: string }>("/upload", { method: "POST", body }); };
   dataStatus = () => this.request<DataStatus>("/api/data/status");

@@ -261,7 +261,7 @@ only if a concrete operator deployment requires it.
 
 ### Phase 3: Contact metadata and policy
 
-- [ ] **CLV-009 Add rich contact metadata.** Extend existing ForgeLink contacts
+- [x] **CLV-009 Add rich contact metadata.** Extend existing ForgeLink contacts
   with metadata needed for a private communications console.
   - Include, at minimum: display name, avatar/media reference, notes, company,
     role/title, tags, favorite/pinned state, trust level, relationship/category,
@@ -535,3 +535,4 @@ Add or update docs for:
 | 2026-06-18 | Phase 2 complete | CLV-007 Telnyx SMS/MMS edge (send + JSON webhook normalization + Ed25519 /webhooks/telnyx + contract tests + docs); CLV-008 Plivo/Bandwidth planning gates (decision 0007, planned_channels) | Phases 0-2 done (evidence 20260618-clv-phase2). |
 | 2026-06-18 | Phase 3 begin (data) | Schema v8 migration: contact metadata columns + contact_points + contact_policy (backfilled, transactional, backed up); backend methods + tests | Data foundation for CLV-009/010/011 (evidence 20260618-clv-phase3-data). API + renderer UI + attention enforcement remain; criteria still pending. |
 | 2026-06-18 | Phase 3 data foundation | Schema v8 (contact metadata + contact_points + contact_policy, transactional + backed up, existing contacts backfilled); backend methods + tests | CLV-009/010/011 data layer landed (evidence 20260618-clv-phase3-data); API + renderer UI + attention enforcement remaining. |
+| 2026-06-20 | CLV-009 complete | Six token-gated contact endpoints (update/delete/points/policy); renderer Edit modal (company/role/tags/notes/trust-level/pinned/favorite) + confirm-guarded delete; v8 migration hardened to skip pre-existing legacy columns | CLV-009 satisfied (evidence 20260620-clv009-contacts-ui). CLV-010 unknown-inbound handling + CLV-011 attention enforcement remain. |
