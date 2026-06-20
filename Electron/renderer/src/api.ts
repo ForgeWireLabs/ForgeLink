@@ -1,4 +1,4 @@
-import type { AgentMessage, BackendConnection, ConfigStatus, Contact, ContactPoint, ContactPolicy, DataStatus, Message, RetentionResult, SignalItem, SignalSubscription, Thread } from "./types";
+import type { AgentMessage, BackendConnection, CallRow, ConfigStatus, Contact, ContactPoint, ContactPolicy, DataStatus, Message, RetentionResult, SignalItem, SignalSubscription, Thread } from "./types";
 
 export class PhoneApi {
   constructor(private connection: () => BackendConnection) {}
@@ -29,6 +29,9 @@ export class PhoneApi {
   archiveSignalItem = (id: string) => this.request<{ ok: true; item: SignalItem }>(`/api/signals/items/${encodeURIComponent(id)}/archive`, { method: "POST" });
   send = (localId: string, to: string, body: string, mediaUrls: string[] = []) => this.request("/api/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ local_id: localId, to, body, media_urls: mediaUrls }) });
   retry = (id: string) => this.request("/api/retry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+  calls = (limit = 100) => this.request<CallRow[]>(`/api/calls?limit=${limit}`);
+  startCall = (to: string, contactId?: number) => this.request<{ ok: true; call: CallRow }>("/api/calls/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ local_call_id: `call-${crypto.randomUUID()}`, to, contact_id: contactId }) });
+  endCall = (call: CallRow) => this.request<{ ok: true; call: CallRow | null }>("/api/calls/end", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ local_call_id: call.local_call_id, provider_call_id: call.provider_call_id }) });
   draft = (threadId: number) => this.request<{ body: string }>(`/api/draft?thread_id=${threadId}`);
   saveDraft = (threadId: number, body: string) => this.request("/api/draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thread_id: threadId, body }) });
   saveContact = (name: string, number: string) => this.request("/api/contacts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, number }) });

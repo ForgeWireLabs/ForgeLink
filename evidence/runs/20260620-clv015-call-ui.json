@@ -1,0 +1,77 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260620-clv015-call-ui",
+  "timestamp": "2026-06-20T21:05:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript build and esbuild bundle passed with the new Calls rail view, dialpad, call controls, and call types."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "Renderer interaction coverage passed: 24/24 tests. CLV-015 coverage places and ends a voice call from the dialpad/contact selector and verifies the disabled state when public webhook configuration is missing."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron suite green after adding call UI: 77 tests passed and 1 opt-in live Twilio test skipped by design."
+    },
+    {
+      "command": "npm run screenshot",
+      "exit_code": 0,
+      "summary": "Visual smoke passed and produced Electron/dist/ui-preview.png plus Electron/dist/ui-calls-preview.png. The Calls screenshot renders the dialpad, disabled state, active status, recent call row, and end control without blank/overlapping UI."
+    },
+    {
+      "command": "python scripts/repopact_cli.py dashboard",
+      "exit_code": 0,
+      "summary": "Regenerated audits/reports/dashboard.md so Repopact reflects CLV-015 as satisfied with the new evidence run."
+    },
+    {
+      "command": "python scripts/repopact_cli.py doctor",
+      "exit_code": 0,
+      "summary": "Repopact doctor reported the repository healthy after CLV-015 records were updated."
+    },
+    {
+      "command": "python scripts/validate_repo.py",
+      "exit_code": 0,
+      "summary": "Repository governance validation passed with the CLV-015 work item and evidence metadata current."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Local system audit passed: required files, work item manifests, stale README checks, and markdown link/date checks are valid."
+    },
+    {
+      "command": "npm run scan:secrets",
+      "exit_code": 0,
+      "summary": "Secret scan completed cleanly."
+    },
+    {
+      "command": "npm run scan:deps",
+      "exit_code": 0,
+      "summary": "Production dependency audit completed with 0 high-or-higher vulnerabilities."
+    }
+  ],
+  "artifacts": [
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/src/api.ts",
+    "Electron/renderer/src/types.ts",
+    "Electron/renderer/styles.css",
+    "Electron/scripts/visual-smoke.js",
+    "Electron/dist/ui-calls-preview.png",
+    "audits/reports/dashboard.md",
+    "work/active/015-communication-channels-and-voice/README.md",
+    "work/active/015-communication-channels-and-voice/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "015 CLV-015 (call UI surface). ForgeLink now has a Calls rail view with dialpad, selected contact control, call/end controls, call status, recent call rows, provider disabled/configuration hints, keyboard entry/backspace/enter/escape behavior, renderer interaction tests, and visual smoke coverage. The UI presents call control and call history only; it does not imply shipped audio streaming, recording, transcription, voicemail, emergency calling, CNAM, STIR/SHAKEN, or E911 features."
+  }
+}

@@ -1,9 +1,10 @@
-export type View = "messages" | "agents" | "signals" | "contacts" | "settings";
+export type View = "messages" | "calls" | "agents" | "signals" | "contacts" | "settings";
 
 export interface Thread { id: number; canonical_number: string; name?: string; last_msg_ts?: string; unread_count?: number; }
 export interface Contact { id: number; name: string; number: string; company?: string; role?: string; tags?: string; notes?: string; trust_level?: string; pinned?: number; favorite?: number; }
 export interface ContactPoint { id: number; contact_id: number; kind: "phone" | "email" | "handle" | string; value: string; label?: string; is_primary?: number; blocked_at?: string | null; created_at?: string; updated_at?: string; }
 export interface ContactPolicy { contact_id: number; trust_level: string; allow_agent_messages: number; allow_approval_requests: number; allow_urgent_interrupts: number; quiet_hours_override?: number; muted_until?: string | null; blocked: number; }
+export interface CallRow { id: number; local_call_id: string; provider_kind: string; provider_name: string; provider_call_id: string | null; direction: "inbound" | "outbound"; from_number: string | null; to_number: string; contact_id: number | null; contact_point_id: number | null; status: "queued" | "ringing" | "in_progress" | "completed" | "failed" | "busy" | "no_answer" | "canceled"; started_at: string | null; answered_at: string | null; ended_at: string | null; duration_seconds: number | null; redacted_error: string; created_at: string; updated_at: string; }
 export interface Message { id: string; direction: "inbound" | "outbound"; body: string; ts: string; status?: string; media_urls?: string; attempt_count?: number; last_error?: string; provider_sid?: string; }
 export interface AgentAction { id: string; label: string; }
 export interface AgentMessage { id: string; channel_id: string; source: string; kind: string; urgency: "low" | "normal" | "high" | "urgent"; title: string; body: string; actions: string; status: "unread" | "read" | "dismissed" | "acted" | "expired"; action_result: string; created_at: string; expires_at?: string | null; last_error?: string; }

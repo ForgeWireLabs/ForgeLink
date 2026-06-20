@@ -1,6 +1,6 @@
 import React, { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PhoneApi } from "./api";
-import type { AgentAction, AgentChannelStatus, AgentMessage, AttentionEvent, AttentionPolicy, BackendConnection, ConfigStatus, Contact, ContactPoint, ContactPolicy, DataStatus, DesktopStatus, McpStatus, Message, SignalItem, SignalSubscription, Thread, View } from "./types";
+import type { AgentAction, AgentChannelStatus, AgentMessage, AttentionEvent, AttentionPolicy, BackendConnection, CallRow, ConfigStatus, Contact, ContactPoint, ContactPolicy, DataStatus, DesktopStatus, McpStatus, Message, SignalItem, SignalSubscription, Thread, View } from "./types";
 
 const iconPaths: Record<string, ReactNode> = {
   alert: <><path d="M12 3 2 20h20L12 3z"/><path d="M12 9v4M12 17h.01"/></>,
@@ -14,6 +14,7 @@ const iconPaths: Record<string, ReactNode> = {
   more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
   nodes: <><circle cx="6" cy="7" r="3"/><circle cx="18" cy="7" r="3"/><circle cx="12" cy="18" r="3"/><path d="m8.4 9.2 2.4 5.1M15.6 9.2l-2.4 5.1M9 7h6"/></>,
   paperclip: <path d="m21 11-9 9a6 6 0 0 1-8-8l9-9a4 4 0 0 1 6 6l-9 9a2 2 0 0 1-3-3l8-8"/>,
+  phone: <><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.77.63 2.61a2 2 0 0 1-.45 2.11L8 9.72a16 16 0 0 0 6.28 6.28l1.28-1.28a2 2 0 0 1 2.11-.45c.84.3 1.71.51 2.61.63A2 2 0 0 1 22 16.92z"/></>,
   plus: <path d="M12 5v14M5 12h14"/>,
   search: <><circle cx="11" cy="11" r="8"/><path d="m21 21-4-4"/></>,
   send: <><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></>,
@@ -58,6 +59,8 @@ const DEFAULT_ATTENTION_POLICY: AttentionPolicy = {
   muted_sources: []
 };
 const parseMutedSources = (value: string) => value.split(/[\n,]/).map(item => item.trim()).filter(Boolean);
+const callActive = (call: CallRow) => ["queued", "ringing", "in_progress"].includes(call.status);
+const voiceReady = (config?: ConfigStatus) => Boolean(config?.account_sid && config?.auth_token && config?.phone_number && config?.public_base_url);
 
 function formatListTime(iso?: string) {
   if (!iso) return "";
@@ -122,6 +125,7 @@ export function App() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
+  const [calls, setCalls] = useState<CallRow[]>([]);
   const [signalSubscriptions, setSignalSubscriptions] = useState<SignalSubscription[]>([]);
   const [signalItems, setSignalItems] = useState<SignalItem[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -138,6 +142,7 @@ export function App() {
   const [error, setError] = useState("");
   const [modal, setModal] = useState<ModalState>(null);
   const [sending, setSending] = useState(false);
+  const [calling, setCalling] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [attachment, setAttachment] = useState("");
   const [draft, setDraft] = useState("");
@@ -152,8 +157,8 @@ export function App() {
   }, [api, selectedId]);
 
   const loadAll = useCallback(async () => {
-    const [nextThreads, nextContacts, nextAgentMessages, nextSignalSubscriptions, nextSignalItems, nextConfig, nextDataStatus, nextMcpStatus, nextAgentChannels, nextAttentionPolicy] = await Promise.all([api.threads(), api.contacts(), api.agentMessages(), api.signalSubscriptions(), api.signalItems(), api.config(), api.dataStatus(), window.desktop?.mcpStatus(), window.desktop?.agentChannels(), window.desktop?.attentionPolicy()]);
-    setThreads(nextThreads); setContacts(nextContacts); setAgentMessages(nextAgentMessages); setSignalSubscriptions(nextSignalSubscriptions); setSignalItems(nextSignalItems); setConfig(nextConfig); setDataStatus(nextDataStatus); if (nextMcpStatus) setMcpStatus(nextMcpStatus); if (nextAgentChannels) setAgentChannels(nextAgentChannels); if (nextAttentionPolicy) setAttentionPolicy(nextAttentionPolicy);
+    const [nextThreads, nextContacts, nextAgentMessages, nextCalls, nextSignalSubscriptions, nextSignalItems, nextConfig, nextDataStatus, nextMcpStatus, nextAgentChannels, nextAttentionPolicy] = await Promise.all([api.threads(), api.contacts(), api.agentMessages(), api.calls(), api.signalSubscriptions(), api.signalItems(), api.config(), api.dataStatus(), window.desktop?.mcpStatus(), window.desktop?.agentChannels(), window.desktop?.attentionPolicy()]);
+    setThreads(nextThreads); setContacts(nextContacts); setAgentMessages(nextAgentMessages); setCalls(Array.isArray(nextCalls) ? nextCalls : []); setSignalSubscriptions(nextSignalSubscriptions); setSignalItems(nextSignalItems); setConfig(nextConfig); setDataStatus(nextDataStatus); if (nextMcpStatus) setMcpStatus(nextMcpStatus); if (nextAgentChannels) setAgentChannels(nextAgentChannels); if (nextAttentionPolicy) setAttentionPolicy(nextAttentionPolicy);
     unreadRef.current = new Map(nextThreads.map(thread => [thread.id, thread.unread_count || 0]));
     agentUnreadRef.current = new Set(nextAgentMessages.filter(message => message.status === "unread").map(message => message.id));
   }, [api]);
@@ -190,6 +195,7 @@ export function App() {
       try {
         const next = await api.threads();
         const nextAgentMessages = await api.agentMessages();
+        const nextCalls = await api.calls();
         const nextSignalItems = await api.signalItems();
         next.forEach(thread => {
           if ((thread.unread_count || 0) > (unreadRef.current.get(thread.id) || 0)) void notify({ kind: "sms", title: "New message", body: displayName(thread) });
@@ -201,6 +207,7 @@ export function App() {
         agentUnreadRef.current = new Set(nextAgentMessages.filter(message => message.status === "unread").map(message => message.id));
         setThreads(next);
         setAgentMessages(nextAgentMessages);
+        setCalls(Array.isArray(nextCalls) ? nextCalls : []);
         setSignalItems(nextSignalItems);
         if (selectedId) {
           const nextMessages = await api.messages(selectedId);
@@ -256,14 +263,41 @@ export function App() {
     finally { setUploading(false); }
   }
 
+  async function startVoiceCall(to: string, contactId?: number) {
+    if (!to || calling) return;
+    setCalling(true);
+    try {
+      const result = await api.startCall(to, contactId);
+      setCalls(current => [result.call, ...current.filter(call => call.local_call_id !== result.call.local_call_id)]);
+      void notify({ kind: "system", category: "info", title: "Call started", body: result.call.to_number });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      void notify({ kind: "system", category: "failure", title: "Call failed", body: message });
+    } finally { setCalling(false); }
+  }
+
+  async function endVoiceCall(call: CallRow) {
+    if (calling) return;
+    setCalling(true);
+    try {
+      const result = await api.endCall(call);
+      setCalls(await api.calls());
+      void notify({ kind: "system", category: "info", title: "Call ended", body: result.call?.to_number || call.to_number });
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setCalling(false); }
+  }
+
   const visibleThreads = threads.filter(thread => !search || displayName(thread).toLowerCase().includes(search.toLowerCase()) || thread.canonical_number.includes(search));
   const visibleContacts = contacts.filter(contact => !contactSearch || displayName(contact).toLowerCase().includes(contactSearch.toLowerCase()) || contact.number.includes(contactSearch));
   const unreadAgentCount = agentMessages.filter(message => message.status === "unread").length;
+  const activeCall = calls.find(callActive);
 
   return <div className="app-shell">
     <Rail view={view} running={status?.running !== false} agentUnreadCount={unreadAgentCount} onView={setView}/>
     {view === "messages" && <ConversationList threads={visibleThreads} selectedId={selectedId} search={search} onSearch={setSearch} onSelect={chooseThread} onNew={() => setModal({ kind: "message" })}/>} 
     {view === "messages" ? <Chat thread={selected} messages={messages} oldestTs={oldestTs} sending={sending} uploading={uploading} attachment={attachment} draft={draft} onDraft={saveSelectedDraft} onRetry={async id => { try { await api.retry(id); if (selectedId) setMessages(await api.messages(selectedId)); } catch (cause) { if (selectedId) setMessages(await api.messages(selectedId)); setError(String(cause)); } }} onNew={() => setModal({ kind: "message" })} onLoadOlder={loadOlder} onSend={send} onUpload={upload} onRemoveAttachment={() => setAttachment("")} onAddContact={() => setModal({ kind: "contact", number: selected?.canonical_number, threadId: selected?.id })} onLink={() => setModal({ kind: "link" })} onIgnore={async () => { if (!selected) return; await api.ignoreUnknownNumber(selected.id); await loadAll(); void notify({ kind: "system", title: "Unknown number ignored", body: selected.canonical_number }); }} onBlock={async () => { if (!selected) return; await api.blockUnknownNumber(selected.id); await loadAll(); void notify({ kind: "system", title: "Unknown number blocked", body: selected.canonical_number }); }}/>
+      : view === "calls" ? <CallSurface contacts={contacts} calls={calls} activeCall={activeCall} voiceAvailable={voiceReady(config)} busy={calling} configured={config} onStart={startVoiceCall} onEnd={endVoiceCall}/>
       : view === "agents" ? <AgentInbox messages={agentMessages} onRead={async id => { try { const result = await api.markAgentMessageRead(id); setAgentMessages(current => current.map(message => message.id === id ? result.message : message)); } catch (cause) { setError(String(cause)); } }} onDismiss={async id => { try { const result = await api.dismissAgentMessage(id); setAgentMessages(current => current.map(message => message.id === id ? result.message : message)); } catch (cause) { setError(String(cause)); } }} onAction={async (id, actionId) => { try { const result = await api.actOnAgentMessage(id, actionId); setAgentMessages(current => current.map(message => message.id === id ? result.message : message)); void notify({ kind: "system", title: "Agent response recorded", body: actionId }); } catch (cause) { setError(String(cause)); } }}/>
       : view === "signals" ? <Signals subscriptions={signalSubscriptions} items={signalItems} onAdd={() => setModal({ kind: "signal" })} onRefresh={async id => { try { const result = await api.refreshSignalSubscription(id); setSignalSubscriptions(current => current.map(item => item.id === id ? result.subscription : item)); setSignalItems(result.items); } catch (cause) { setError(String(cause)); } }} onState={async (id, action) => { try { const result = await api.setSignalSubscriptionState(id, action); setSignalSubscriptions(current => current.map(item => item.id === id ? result.subscription : item)); setSignalItems(await api.signalItems()); } catch (cause) { setError(String(cause)); } }} onArchive={async id => { try { await api.archiveSignalItem(id); setSignalItems(await api.signalItems()); } catch (cause) { setError(String(cause)); } }}/>
       : view === "contacts" ? <Contacts contacts={visibleContacts} search={contactSearch} onSearch={setContactSearch} onAdd={() => setModal({ kind: "contact" })} onEdit={contact => setModal({ kind: "contact-edit", contact })} onMessage={contact => { const thread = threads.find(item => item.canonical_number === contact.number); if (thread) chooseThread(thread.id); else setModal({ kind: "message", number: contact.number }); }}/>
@@ -279,8 +313,8 @@ export function App() {
 }
 
 function Rail({ view, running, agentUnreadCount, onView }: { view: View; running: boolean; agentUnreadCount: number; onView(view: View): void }) {
-  const items: View[] = ["messages", "agents", "signals", "contacts", "settings"];
-  const iconFor = (item: View) => item === "messages" ? "chat" : item === "agents" ? "nodes" : item === "signals" ? "rss" : item === "contacts" ? "users" : "settings";
+  const items: View[] = ["messages", "calls", "agents", "signals", "contacts", "settings"];
+  const iconFor = (item: View) => item === "messages" ? "chat" : item === "calls" ? "phone" : item === "agents" ? "nodes" : item === "signals" ? "rss" : item === "contacts" ? "users" : "settings";
   const labelFor = (item: View) => item === "agents" ? "Agents" : item[0].toUpperCase() + item.slice(1);
   return <nav className="rail" aria-label="Primary navigation"><div className="brand-mark" title="ForgeLink">F</div><div className="rail-nav">{items.map(item => <button key={item} className={`nav-button ${view === item ? "active" : ""}`} aria-label={labelFor(item)} onClick={() => onView(item)}><span className="nav-icon-wrap"><Icon name={iconFor(item)}/>{item === "agents" && agentUnreadCount > 0 && <span className="nav-badge" aria-label={`${agentUnreadCount} unread agent messages`}>{Math.min(agentUnreadCount, 9)}{agentUnreadCount > 9 ? "+" : ""}</span>}</span><span>{labelFor(item)}</span></button>)}</div><div className="rail-footer"><span className={`status-dot ${running ? "online" : ""}`} title={running ? "Local service connected" : "Local service stopped"}/></div></nav>;
 }
@@ -307,6 +341,47 @@ function AgentCard({ message, onRead, onDismiss, onAction }: { message: AgentMes
 
 function Signals({ subscriptions, items, onAdd, onRefresh, onState, onArchive }: { subscriptions: SignalSubscription[]; items: SignalItem[]; onAdd(): void; onRefresh(id: string): Promise<void>; onState(id: string, action: "enable" | "disable" | "mute" | "unmute"): Promise<void>; onArchive(id: string): Promise<void> }) {
   return <main className="content-panel page-panel signals-page"><header className="page-header"><div><span className="eyebrow">Trusted signals</span><h1>Signals</h1><p>RSS and Atom updates you choose, separated from people and agent decisions.</p></div><button className="button primary" onClick={onAdd}><Icon name="plus" size={17}/>Add feed</button></header><section className="signal-layout"><div className="signal-source-list"><div className="section-title"><h2>Sources</h2><span>{subscriptions.length}</span></div>{subscriptions.length ? subscriptions.map(source => <article className="signal-source" key={source.id}><div><strong>{source.title}</strong><span>{source.enabled ? "enabled" : "paused"} · {source.muted ? "muted" : "quiet"} · every {source.fetch_interval_minutes}m</span><small>{source.last_fetch_status}{source.last_fetch_at ? ` · ${formatListTime(source.last_fetch_at)}` : ""}{source.last_error ? ` · ${source.last_error}` : ""}</small></div><div className="signal-actions"><button className="button secondary" disabled={!source.enabled} onClick={() => void onRefresh(source.id)}>Refresh</button><button className="button secondary" onClick={() => void onState(source.id, source.enabled ? "disable" : "enable")}>{source.enabled ? "Pause" : "Resume"}</button><button className="button subtle" onClick={() => void onState(source.id, source.muted ? "unmute" : "mute")}>{source.muted ? "Unmute" : "Mute"}</button></div></article>) : <div className="page-empty compact"><Icon name="rss" size={30}/><h3>No signal sources</h3><p>Add a feed to create a deliberate reading lane.</p></div>}</div><div className="signal-item-list"><div className="section-title"><h2>Latest</h2><span>{items.length} shown</span></div>{items.length ? items.map(item => <article className={`signal-item ${item.muted ? "muted" : ""}`} key={item.id}><div className="signal-item-head"><span>{item.source_title}</span><time>{formatListTime(item.published_at || item.received_at)}</time></div><h2>{item.title}</h2>{item.summary && <p>{item.summary}</p>}<div className="signal-item-actions"><button className="button secondary" disabled={!item.url} onClick={() => window.desktop?.openExternal(item.url)}><Icon name="external" size={16}/>Open</button><button className="button subtle" onClick={() => void onArchive(item.id)}>Archive</button>{item.author && <span>{item.author}</span>}</div></article>) : <div className="page-empty compact"><Icon name="inbox" size={30}/><h3>No signal items</h3><p>Refresh a source when you want to check it.</p></div>}</div></section></main>;
+}
+
+function CallSurface({ contacts, calls, activeCall, voiceAvailable, busy, configured, onStart, onEnd }: { contacts: Contact[]; calls: CallRow[]; activeCall?: CallRow; voiceAvailable: boolean; busy: boolean; configured?: ConfigStatus; onStart(to: string, contactId?: number): Promise<void>; onEnd(call: CallRow): Promise<void> }) {
+  const [number, setNumber] = useState("");
+  const [contactId, setContactId] = useState<number | undefined>();
+  const selectedContact = contacts.find(contact => contact.id === contactId);
+  const ready = voiceAvailable && !activeCall;
+  const displayNumber = number || activeCall?.to_number || activeCall?.from_number || "";
+  const append = (value: string) => setNumber(current => `${current}${value}`);
+  const chooseContact = (id: string) => {
+    const nextId = Number(id) || undefined;
+    setContactId(nextId);
+    const contact = contacts.find(item => item.id === nextId);
+    if (contact) setNumber(contact.number);
+  };
+  const keydown = (event: React.KeyboardEvent) => {
+    if (/^[0-9*#]$/.test(event.key)) { event.preventDefault(); append(event.key); }
+    if (event.key === "Backspace") { event.preventDefault(); setNumber(current => current.slice(0, -1)); }
+    if (event.key === "Enter" && ready && number) { event.preventDefault(); void onStart(number, contactId); }
+    if (event.key === "Escape" && activeCall) { event.preventDefault(); void onEnd(activeCall); }
+  };
+  const missing = [
+    !configured?.account_sid && "Account SID",
+    !configured?.auth_token && "Auth token",
+    !configured?.phone_number && "Phone number",
+    !configured?.public_base_url && "Public webhook URL"
+  ].filter(Boolean).join(", ");
+  return <main className="content-panel page-panel call-page" onKeyDown={keydown}>
+    <header className="page-header"><div><span className="eyebrow">Telecom voice edge</span><h1>Calls</h1><p>{voiceAvailable ? "Twilio Voice is configured for call control." : `Voice unavailable${missing ? `: ${missing}` : ""}.`}</p></div><span className={`config-pill ${voiceAvailable ? "ready" : "missing"}`}>{voiceAvailable ? <Icon name="check" size={14}/> : <Icon name="alert" size={14}/>} {voiceAvailable ? "Voice ready" : "Voice disabled"}</span></header>
+    <section className="call-layout">
+      <div className="dialer-panel">
+        <div className="selected-call-card"><Avatar name={selectedContact ? displayName(selectedContact) : displayNumber || "Call"} size="large"/><div><span>{selectedContact ? displayName(selectedContact) : "Manual number"}</span><strong>{displayNumber || "No number selected"}</strong>{activeCall && <small>{activeCall.status.replace(/_/g, " ")} · {activeCall.provider_name}</small>}</div></div>
+        <label className="field"><span>Selected contact</span><select aria-label="Selected contact" value={contactId || ""} onChange={event => chooseContact(event.target.value)}><option value="">Manual number</option>{contacts.map(contact => <option key={contact.id} value={contact.id}>{displayName(contact)} · {contact.number}</option>)}</select></label>
+        <label className="field"><span>Dial number</span><input aria-label="Dial number" type="tel" value={number} onChange={event => setNumber(event.target.value)} placeholder="+1 555 123 4567"/></label>
+        <div className="dialpad" aria-label="Dialpad">{["1","2","3","4","5","6","7","8","9","*","0","#"].map(value => <button type="button" key={value} className="dial-key" aria-label={`Dial ${value}`} onClick={() => append(value)}>{value}</button>)}</div>
+        <div className="call-actions">{activeCall ? <button className="button danger call-main" disabled={busy} onClick={() => void onEnd(activeCall)}><Icon name="phone" size={18}/>End call</button> : <button className="button primary call-main" disabled={!ready || !number || busy} onClick={() => void onStart(number, contactId)}><Icon name="phone" size={18}/>Call</button>}<button className="button secondary" disabled={!number || busy} onClick={() => setNumber(current => current.slice(0, -1))}>Delete</button><button className="button subtle" disabled={!number || busy} onClick={() => { setNumber(""); setContactId(undefined); }}>Clear</button></div>
+        {!voiceAvailable && <div className="modal-error" role="status">Configure Twilio credentials and a public webhook URL before placing PSTN calls.</div>}
+      </div>
+      <div className="call-history-panel"><div className="section-title"><h2>Recent calls</h2><span>{calls.length}</span></div>{calls.length ? <div className="call-history-list">{calls.map(call => <article className={`call-row ${callActive(call) ? "active" : ""}`} key={call.local_call_id}><div><strong>{call.direction === "inbound" ? call.from_number || "Inbound" : call.to_number}</strong><span>{call.direction} · {call.provider_name} · {call.status.replace(/_/g, " ")}</span>{call.redacted_error && <small>{call.redacted_error}</small>}</div><time>{formatListTime(call.created_at)}</time>{callActive(call) && <button className="button danger" disabled={busy} onClick={() => void onEnd(call)}>End</button>}</article>)}</div> : <div className="page-empty compact"><Icon name="phone" size={30}/><h3>No call history</h3><p>Calls you place or receive will appear here.</p></div>}</div>
+    </section>
+  </main>;
 }
 
 function MessageBubble({ message, onRetry }: { message: Message; onRetry(id: string): Promise<void> }) {

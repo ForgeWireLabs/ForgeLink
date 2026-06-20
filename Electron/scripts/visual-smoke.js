@@ -49,6 +49,17 @@ app.whenReady().then(async () => {
   const pending = previewDatabase.createPendingMessage("local-preview", "+15551234567", "This message could not be delivered yet.", []);
   previewDatabase.markMessageFailed(pending.id, "Preview failure");
   previewDatabase.saveDraft(pending.thread_id, "A restart-safe draft");
+  previewDatabase.createCall({
+    localCallId: "call-preview",
+    providerKind: "voice_edge",
+    providerName: "twilio",
+    providerCallId: "CA-PREVIEW",
+    direction: "outbound",
+    from: "+15550001111",
+    to: "+15551234567",
+    status: "ringing",
+    startedAt: new Date().toISOString()
+  });
   const signalSource = previewDatabase.upsertSignalSubscription({ title: "ForgeWire Signals", url: "https://example.com/feed.xml", fetch_interval_minutes: 60, retention_days: 30 });
   previewDatabase.addSignalItem({ subscription_id: signalSource.id, external_id: "preview-signal", title: "Build lane is ready", url: "https://example.com/build", summary: "A release candidate is available for review without entering the message queue.", author: "ForgeWire", published_at: new Date().toISOString() });
   previewDatabase.markSignalFetch(signalSource.id, "ok");
@@ -188,6 +199,32 @@ app.whenReady().then(async () => {
   await fs.mkdir(path.dirname(output), { recursive: true });
   await fs.writeFile(output, image.toPNG());
   console.log(output);
+  const callsRect = await window.webContents.executeJavaScript(`
+    (() => {
+      const button = document.querySelector('button[aria-label="Calls"]');
+      if (!button) throw new Error("Calls navigation button was not found.");
+      const rect = button.getBoundingClientRect();
+      return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+    })()
+  `);
+  window.webContents.sendInputEvent({ type: "mouseDown", x: callsRect.x, y: callsRect.y, button: "left", clickCount: 1 });
+  window.webContents.sendInputEvent({ type: "mouseUp", x: callsRect.x, y: callsRect.y, button: "left", clickCount: 1 });
+  await window.webContents.executeJavaScript(`
+    new Promise((resolve, reject) => {
+      const deadline = Date.now() + 3000;
+      const check = () => {
+        if ([...document.querySelectorAll("h1")].some((heading) => heading.textContent === "Calls")) resolve(true);
+        else if (Date.now() > deadline) reject(new Error("Calls view did not open."));
+        else setTimeout(check, 100);
+      };
+      check();
+    })
+  `);
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  const callsImage = await window.webContents.capturePage();
+  const callsOutput = path.join(projectRoot, "Electron", "dist", "ui-calls-preview.png");
+  await fs.writeFile(callsOutput, callsImage.toPNG());
+  console.log(callsOutput);
   app.quit();
 });
 

@@ -145,8 +145,10 @@
     {
       "id": "CLV-015",
       "text": "Add call UI surface with dialpad, selected contact, call/end controls, call status, unavailable/disabled states, provider/configuration hints, keyboard support, visual smoke, and renderer interaction tests.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260620-clv015-call-ui"
+      ]
     },
     {
       "id": "CLV-016",

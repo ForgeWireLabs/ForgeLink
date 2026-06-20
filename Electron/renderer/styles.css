@@ -238,6 +238,34 @@ h1, h2, h3, p { margin: 0; }
 }
 .agent-history-row:first-child { border-top: 0; }
 .agent-history-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-bright); }
+
+.call-page { display: flex; flex-direction: column; gap: 24px; }
+.call-layout { display: grid; grid-template-columns: minmax(280px, 390px) minmax(0, 1fr); gap: 18px; align-items: start; }
+.dialer-panel, .call-history-panel {
+  min-width: 0; display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line);
+  border-radius: 8px; background: rgba(255,255,255,.018);
+}
+.selected-call-card { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 13px; align-items: center; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.018); }
+.selected-call-card div { min-width: 0; display: grid; gap: 2px; }
+.selected-call-card span, .selected-call-card small { color: var(--muted); font-size: 11px; }
+.selected-call-card strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; }
+.dialpad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.dial-key {
+  aspect-ratio: 1.95; min-height: 46px; border: 1px solid var(--line); border-radius: 8px;
+  color: var(--text); background: var(--panel-raised); cursor: pointer; font-size: 22px; font-weight: 700;
+}
+.dial-key:hover { background: var(--panel-hover); border-color: var(--line-strong); }
+.call-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 9px; align-items: center; }
+.call-main { min-height: 46px; }
+.call-history-list { display: grid; gap: 9px; }
+.call-row {
+  min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 92px auto; gap: 10px; align-items: center;
+  padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.018);
+}
+.call-row.active { border-color: rgba(72,213,151,.34); background: rgba(72,213,151,.055); }
+.call-row div { min-width: 0; display: grid; gap: 2px; }
+.call-row strong, .call-row span, .call-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.call-row span, .call-row time, .call-row small { color: var(--muted); font-size: 11px; }
 .agent-history-row strong { text-transform: capitalize; }
 
 .signals-page { display: flex; flex-direction: column; gap: 24px; overflow: hidden; }
