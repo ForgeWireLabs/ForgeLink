@@ -343,7 +343,7 @@ only if a concrete operator deployment requires it.
     covered by retention/backups.
   - Acceptance: Call history is excluded from support diagnostics by default.
 
-- [ ] **CLV-017 Add contact timeline.** Merge human-visible contact history
+- [x] **CLV-017 Add contact timeline.** Merge human-visible contact history
   across SMS/MMS messages, future voice calls, and agent-originated requests.
   - Acceptance: Contact detail view can show a timeline without mixing private
     agent approval details into ordinary SMS threads unless explicitly selected.
@@ -543,3 +543,4 @@ Add or update docs for:
 | 2026-06-20 | CLV-014 complete | Decision `0008` records Twilio Verify as deferred future provider-neutral capability; `docs/twilio.md` documents that Verify is not shipped and cannot grant trust, approvals, urgent interrupts, or unblock behavior without explicit operator policy | CLV-014 satisfied (evidence 20260620-clv014-twilio-verify-scope). Voice UI surface remains CLV-015. |
 | 2026-06-20 | CLV-015 complete | Added Calls rail view with dialpad, contact selector, call/end controls, active status, disabled provider hints, keyboard shortcuts, recent calls, renderer interaction tests, and Calls visual smoke screenshot | CLV-015 satisfied (evidence 20260620-clv015-call-ui). Durable call-history UX remains CLV-016. |
 | 2026-06-20 | CLV-016 complete | Enriched durable call history rows with contact names/contact-point labels for the Calls UI; retained direction/provider/from-to/status/timestamps/duration/provider ID/redacted errors; added retention deletion for old calls while keeping backup/export coverage; asserted diagnostics exclude call IDs and phone numbers by default | CLV-016 satisfied (evidence 20260620-clv016-call-history). Contact timeline remains CLV-017. |
+| 2026-06-20 | CLV-017 complete | Added authenticated contact timeline API and contact-detail timeline panel merging SMS/MMS messages, voice call rows, and agent-originated requests; private agent details are redacted by default and revealed only through an explicit operator toggle; renderer/backend tests and visual smoke cover the redacted timeline path | CLV-017 satisfied (evidence 20260620-clv017-contact-timeline). Channel roadmap records remain CLV-018. |

@@ -161,8 +161,10 @@
     {
       "id": "CLV-017",
       "text": "Add contact timeline merging SMS/MMS messages, future voice calls, local/mobile companion events, and agent-originated requests while preserving separation between ordinary communication and private agent approval details.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260620-clv017-contact-timeline"
+      ]
     },
     {
       "id": "CLV-018",

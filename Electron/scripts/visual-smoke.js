@@ -46,6 +46,8 @@ app.whenReady().then(async () => {
   await fs.rm(visualData, { recursive: true, force: true });
   const { PhoneDatabase } = require(path.join(projectRoot, "Electron", "backend-dist", "database.js"));
   const previewDatabase = new PhoneDatabase(path.join(visualData, "phone.sqlite3"));
+  const contactId = previewDatabase.upsertContact("Grace Hopper", "+15551234567");
+  previewDatabase.addContactPoint(contactId, "handle", "fabric", "agent", false);
   const pending = previewDatabase.createPendingMessage("local-preview", "+15551234567", "This message could not be delivered yet.", []);
   previewDatabase.markMessageFailed(pending.id, "Preview failure");
   previewDatabase.saveDraft(pending.thread_id, "A restart-safe draft");
@@ -57,9 +59,11 @@ app.whenReady().then(async () => {
     direction: "outbound",
     from: "+15550001111",
     to: "+15551234567",
+    contactId,
     status: "ringing",
     startedAt: new Date().toISOString()
   });
+  previewDatabase.addAgentMessage({ id: "agent-preview", channel_id: "forgewire", source: "fabric", kind: "approval_request", urgency: "urgent", title: "Deploy approval", body: "Private deployment approval body", actions: [{ id: "approve", label: "Approve" }], created_at: new Date().toISOString() });
   const signalSource = previewDatabase.upsertSignalSubscription({ title: "ForgeWire Signals", url: "https://example.com/feed.xml", fetch_interval_minutes: 60, retention_days: 30 });
   previewDatabase.addSignalItem({ subscription_id: signalSource.id, external_id: "preview-signal", title: "Build lane is ready", url: "https://example.com/build", summary: "A release candidate is available for review without entering the message queue.", author: "ForgeWire", published_at: new Date().toISOString() });
   previewDatabase.markSignalFetch(signalSource.id, "ok");
@@ -225,6 +229,58 @@ app.whenReady().then(async () => {
   const callsOutput = path.join(projectRoot, "Electron", "dist", "ui-calls-preview.png");
   await fs.writeFile(callsOutput, callsImage.toPNG());
   console.log(callsOutput);
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const button = document.querySelector('button[aria-label="Contacts"]');
+      if (!button) throw new Error("Contacts navigation button was not found.");
+      button.click();
+    })()
+  `);
+  await window.webContents.executeJavaScript(`
+    new Promise((resolve, reject) => {
+      const deadline = Date.now() + 3000;
+      const check = () => {
+        if ([...document.querySelectorAll("h1")].some((heading) => heading.textContent === "Contacts")) resolve(true);
+        else if (Date.now() > deadline) reject(new Error("Contacts view did not open."));
+        else setTimeout(check, 100);
+      };
+      check();
+    })
+  `);
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const button = document.querySelector('button[aria-label="Edit Grace Hopper"]');
+      if (!button) throw new Error("Grace Hopper edit button was not found.");
+      button.click();
+    })()
+  `);
+  await window.webContents.executeJavaScript(`
+    new Promise((resolve, reject) => {
+      const deadline = Date.now() + 3000;
+      const check = () => {
+        const modalReady = [...document.querySelectorAll("h2")].some((heading) => heading.textContent === "Edit contact");
+        const timelineReady = [...document.querySelectorAll("h3")].some((heading) => heading.textContent === "Contact timeline");
+        const timelineRows = document.querySelectorAll(".contact-timeline-row").length;
+        const emptyVisible = document.body.textContent.includes("No timeline events yet.");
+        if (modalReady && timelineReady && timelineRows > 0 && !emptyVisible) resolve(true);
+        else if (Date.now() > deadline) reject(new Error("Contact timeline did not render."));
+        else setTimeout(check, 100);
+      };
+      check();
+    })
+  `);
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const heading = [...document.querySelectorAll("h3")].find((item) => item.textContent === "Contact timeline");
+      if (!heading) throw new Error("Contact timeline section was not found.");
+      heading.scrollIntoView({ block: "center" });
+    })()
+  `);
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  const timelineImage = await window.webContents.capturePage();
+  const timelineOutput = path.join(projectRoot, "Electron", "dist", "ui-contact-timeline-preview.png");
+  await fs.writeFile(timelineOutput, timelineImage.toPNG());
+  console.log(timelineOutput);
   app.quit();
 });
 

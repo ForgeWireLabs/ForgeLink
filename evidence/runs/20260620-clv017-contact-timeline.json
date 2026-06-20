@@ -1,0 +1,92 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260620-clv017-contact-timeline",
+  "timestamp": "2026-06-20T21:10:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed after adding the contact timeline read model and authenticated API route."
+    },
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript build and esbuild bundle passed after adding contact timeline API types, client method, modal UI, and styles."
+    },
+    {
+      "command": "node --test backend-dist/database.test.js backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Focused backend coverage passed: 30/30 tests. CLV-017 coverage verifies merged message/call/agent timeline ordering, default agent-detail redaction, explicit reveal, and authenticated HTTP contract."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "Renderer interaction coverage passed: 24/24 tests. Contact edit coverage verifies timeline rendering, default private-agent redaction, and explicit reveal toggle."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron suite passed: 79 tests passed and 1 opt-in live Twilio test skipped by design."
+    },
+    {
+      "command": "npm run screenshot",
+      "exit_code": 0,
+      "summary": "Visual smoke passed and produced Electron/dist/ui-preview.png, Electron/dist/ui-calls-preview.png, and Electron/dist/ui-contact-timeline-preview.png. The smoke asserts the contact timeline modal renders actual timeline rows before capture."
+    },
+    {
+      "command": "python scripts/repopact_cli.py dashboard",
+      "exit_code": 0,
+      "summary": "Regenerated audits/reports/dashboard.md so Repopact reflects CLV-017 as satisfied with the new evidence run."
+    },
+    {
+      "command": "python scripts/repopact_cli.py doctor",
+      "exit_code": 0,
+      "summary": "Repopact doctor reported the repository healthy after CLV-017 records were updated."
+    },
+    {
+      "command": "python scripts/validate_repo.py",
+      "exit_code": 0,
+      "summary": "Repository governance validation passed with the CLV-017 work item and evidence metadata current."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Local system audit passed: required files, work item manifests, stale README checks, and markdown link/date checks are valid."
+    },
+    {
+      "command": "npm run scan:secrets",
+      "exit_code": 0,
+      "summary": "Secret scan completed cleanly."
+    },
+    {
+      "command": "npm run scan:deps",
+      "exit_code": 0,
+      "summary": "Production dependency audit completed with 0 high-or-higher vulnerabilities."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/api.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/src/types.ts",
+    "Electron/renderer/styles.css",
+    "Electron/renderer/app.js",
+    "Electron/scripts/visual-smoke.js",
+    "Electron/dist/ui-contact-timeline-preview.png",
+    "audits/reports/dashboard.md",
+    "work/active/015-communication-channels-and-voice/README.md",
+    "work/active/015-communication-channels-and-voice/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "015 CLV-017 (contact timeline). ForgeLink now exposes a contact-specific timeline that merges ordinary SMS/MMS messages, voice call rows, and agent-originated requests. Ordinary communication details are visible in the contact detail surface; private agent request content remains redacted by default and is revealed only when the operator explicitly enables private agent details."
+  }
+}

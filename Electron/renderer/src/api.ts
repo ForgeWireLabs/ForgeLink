@@ -1,4 +1,4 @@
-import type { AgentMessage, BackendConnection, CallRow, ConfigStatus, Contact, ContactPoint, ContactPolicy, DataStatus, Message, RetentionResult, SignalItem, SignalSubscription, Thread } from "./types";
+import type { AgentMessage, BackendConnection, CallRow, ConfigStatus, Contact, ContactPoint, ContactPolicy, ContactTimelineItem, DataStatus, Message, RetentionResult, SignalItem, SignalSubscription, Thread } from "./types";
 
 export class PhoneApi {
   constructor(private connection: () => BackendConnection) {}
@@ -39,6 +39,7 @@ export class PhoneApi {
   updateContact = (id: number, fields: Record<string, unknown>) => this.request<{ ok: true; contact: Contact }>("/api/contacts/update", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...fields }) });
   deleteContact = (id: number) => this.request<{ ok: true }>("/api/contacts/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
   contactPoints = (contactId: number) => this.request<ContactPoint[]>(`/api/contacts/points?contact_id=${contactId}`);
+  contactTimeline = (contactId: number, includeAgentDetails = false) => this.request<ContactTimelineItem[]>(`/api/contacts/timeline?contact_id=${contactId}&include_agent_details=${includeAgentDetails ? "1" : "0"}`);
   addContactPoint = (contactId: number, kind: string, value: string, label: string, isPrimary: boolean) => this.request<{ ok: true; id: number }>("/api/contacts/points", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contact_id: contactId, kind, value, label, is_primary: isPrimary }) });
   setContactPointBlocked = (pointId: number, blocked: boolean) => this.request<{ ok: true }>("/api/contacts/points/block", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ point_id: pointId, blocked }) });
   contactPolicy = (contactId: number) => this.request<ContactPolicy>(`/api/contacts/policy?contact_id=${contactId}`);

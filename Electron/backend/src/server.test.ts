@@ -627,6 +627,14 @@ test("contacts metadata, points, and policy over HTTP (CLV-009/010/011)", async 
     assert.equal((await post("/api/contacts/points/block", { point_id: points[0].id, blocked: true })).status, 200);
     const policy = await (await post("/api/contacts/policy", { contact_id: id, trust_level: "trusted", allow_approval_requests: true })).json() as Record<string, unknown>;
     assert.equal(policy.allow_approval_requests, 1);
+    await post("/api/contacts/points", { contact_id: id, kind: "handle", value: "fabric", label: "agent" });
+    database.addMessage({ id: "HTTP-TL", number: "+15551230000", direction: "inbound", body: "timeline message" });
+    database.addAgentMessage({ id: "HTTP-AGENT-TL", channel_id: "forgewire", source: "fabric", kind: "approval_request", urgency: "urgent", title: "Private title", body: "Private body", actions: [] });
+    const timeline = await (await fetch(`${localUrl}/api/contacts/timeline?contact_id=${id}`, { headers: authorized() })).json() as Array<Record<string, unknown>>;
+    assert.ok(timeline.some((item) => item.kind === "message" && item.detail === "timeline message"));
+    assert.ok(timeline.some((item) => item.kind === "agent" && item.redacted === true && item.detail === "Private agent details hidden"));
+    const revealedTimeline = await (await fetch(`${localUrl}/api/contacts/timeline?contact_id=${id}&include_agent_details=1`, { headers: authorized() })).json() as Array<Record<string, unknown>>;
+    assert.ok(revealedTimeline.some((item) => item.kind === "agent" && String(item.detail).includes("Private body")));
 
     database.addMessage({ id: "HTTP-UNKNOWN", number: "+15550001111", direction: "inbound", body: "hello" });
     let unknown = database.threads().find((thread) => thread.canonical_number === "+15550001111")!;

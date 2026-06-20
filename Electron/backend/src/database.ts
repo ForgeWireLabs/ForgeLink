@@ -86,6 +86,20 @@ export interface CallRow {
   contact_point_value?: string | null;
 }
 
+export type ContactTimelineKind = "message" | "call" | "agent";
+export interface ContactTimelineItem {
+  id: string;
+  kind: ContactTimelineKind;
+  occurred_at: string;
+  summary: string;
+  detail: string;
+  status: string;
+  direction: string;
+  source: string;
+  private: boolean;
+  redacted: boolean;
+}
+
 export interface AgentMessageRow {
   id: string;
   channel_id: string;
@@ -830,6 +844,71 @@ export class PhoneDatabase {
   // Contact points (CLV-010)
   contactPoints(contactId: number): Record<string, unknown>[] {
     return this.connection.prepare("SELECT * FROM contact_points WHERE contact_id=? ORDER BY is_primary DESC, id").all(contactId) as Record<string, unknown>[];
+  }
+
+  contactTimeline(contactId: number, includeAgentDetails = false, limit = 100): ContactTimelineItem[] {
+    if (!this.connection.prepare("SELECT id FROM contacts WHERE id=?").get(contactId)) throw new Error("Contact not found.");
+    const boundedLimit = Math.max(1, Math.min(Number(limit) || 100, 300));
+    const messages = (this.connection.prepare(`
+      SELECT m.id, m.direction, m.body, m.status, m.ts, t.canonical_number, cp.label AS point_label
+      FROM messages m
+      JOIN threads t ON t.id=m.thread_id
+      LEFT JOIN contact_points cp ON cp.contact_id=? AND cp.kind='phone' AND cp.value=t.canonical_number
+      WHERE t.contact_id=? OR t.canonical_number IN (SELECT value FROM contact_points WHERE contact_id=? AND kind='phone')
+      ORDER BY m.ts DESC, m.id DESC
+      LIMIT ?
+    `).all(contactId, contactId, contactId, boundedLimit) as Array<{ id: string; direction: string; body: string; status: string; ts: string; canonical_number: string; point_label: string | null }>).map((row): ContactTimelineItem => ({
+      id: `message:${row.id}`,
+      kind: "message",
+      occurred_at: row.ts,
+      summary: `${row.direction === "inbound" ? "Inbound" : "Outbound"} message`,
+      detail: row.body || "(empty message)",
+      status: row.status || "message",
+      direction: row.direction,
+      source: row.point_label ? `${row.point_label} · ${row.canonical_number}` : row.canonical_number,
+      private: false,
+      redacted: false
+    }));
+    const calls = (this.connection.prepare(`
+      SELECT calls.*, contact_points.label AS point_label
+      FROM calls
+      LEFT JOIN contact_points ON contact_points.id=calls.contact_point_id
+      WHERE calls.contact_id=?
+      ORDER BY COALESCE(calls.started_at, calls.created_at) DESC, calls.id DESC
+      LIMIT ?
+    `).all(contactId, boundedLimit) as unknown as Array<CallRow & { point_label: string | null }>).map((row): ContactTimelineItem => ({
+      id: `call:${row.local_call_id}`,
+      kind: "call",
+      occurred_at: row.started_at || row.created_at,
+      summary: `${row.direction === "inbound" ? "Inbound" : "Outbound"} call`,
+      detail: `${row.from_number || "unknown"} -> ${row.to_number}${row.provider_call_id ? ` · ${row.provider_call_id}` : ""}${row.redacted_error ? ` · ${row.redacted_error}` : ""}`,
+      status: row.duration_seconds ? `${row.status} · ${row.duration_seconds}s` : row.status,
+      direction: row.direction,
+      source: row.point_label ? `${row.point_label} · ${row.provider_name}` : row.provider_name,
+      private: false,
+      redacted: false
+    }));
+    const agents = (this.connection.prepare(`
+      SELECT id, channel_id, source, kind, urgency, title, body, status, action_result, created_at
+      FROM agent_messages
+      WHERE source IN (SELECT value FROM contact_points WHERE contact_id=?)
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?
+    `).all(contactId, boundedLimit) as unknown as AgentMessageRow[]).map((row): ContactTimelineItem => ({
+      id: `agent:${row.id}`,
+      kind: "agent",
+      occurred_at: row.created_at,
+      summary: `${row.kind.replace(/_/g, " ")} · ${row.status}`,
+      detail: includeAgentDetails ? `${row.title}${row.body ? `: ${row.body}` : ""}${row.action_result ? ` · ${row.action_result}` : ""}` : "Private agent details hidden",
+      status: row.urgency,
+      direction: "agent",
+      source: `${row.source} · ${row.channel_id}`,
+      private: true,
+      redacted: !includeAgentDetails
+    }));
+    return [...messages, ...calls, ...agents]
+      .sort((left, right) => right.occurred_at.localeCompare(left.occurred_at) || right.id.localeCompare(left.id))
+      .slice(0, boundedLimit);
   }
 
   addContactPoint(contactId: number, kind: string, value: string, label = "", isPrimary = false): number {

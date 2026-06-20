@@ -383,3 +383,29 @@ test("enforces contact policy for inbound attention and agent privileges (CLV-01
     assert.equal(unknown.allow_urgent_interrupts, 0);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
+
+test("builds contact timeline while redacting private agent details by default (CLV-017)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-contact-timeline-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const contactId = database.upsertContact("Operator", "+15551230000");
+    database.addContactPoint(contactId, "handle", "fabric", "agent", false);
+    database.addMessage({ id: "MSG-TL", number: "+15551230000", direction: "inbound", body: "ordinary text", ts: "2026-06-20T20:00:00.000Z" });
+    database.createCall({ localCallId: "call-tl", providerKind: "voice_edge", providerName: "twilio", providerCallId: "CA-TL", direction: "outbound", from: "+15550000000", to: "+15551230000", contactId, status: "completed", startedAt: "2026-06-20T20:05:00.000Z", endedAt: "2026-06-20T20:06:00.000Z", durationSeconds: 60 });
+    database.addAgentMessage({ id: "agent-tl", channel_id: "forgewire", source: "fabric", kind: "approval_request", urgency: "urgent", title: "Deploy approval", body: "Private approval body", actions: [{ id: "approve", label: "Approve" }], created_at: "2026-06-20T20:10:00.000Z" });
+
+    const redacted = database.contactTimeline(contactId);
+    assert.deepEqual(redacted.map(item => item.kind), ["agent", "call", "message"]);
+    assert.equal(redacted.find(item => item.kind === "message")?.detail, "ordinary text");
+    assert.match(redacted.find(item => item.kind === "call")?.detail || "", /CA-TL/);
+    const agent = redacted.find(item => item.kind === "agent")!;
+    assert.equal(agent.private, true);
+    assert.equal(agent.redacted, true);
+    assert.equal(agent.detail.includes("Private approval body"), false);
+
+    const revealed = database.contactTimeline(contactId, true);
+    const revealedAgent = revealed.find(item => item.kind === "agent")!;
+    assert.equal(revealedAgent.redacted, false);
+    assert.match(revealedAgent.detail, /Private approval body/);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});

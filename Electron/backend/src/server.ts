@@ -278,6 +278,9 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       if (request.method === "GET" && url.pathname === "/api/messages") return sendJson(response, database.messages(Number(url.searchParams.get("thread_id") || 0), url.searchParams.get("before") || undefined));
       if (request.method === "GET" && url.pathname === "/api/draft") return sendJson(response, { body: database.draft(Number(url.searchParams.get("thread_id") || 0)) });
       if (request.method === "GET" && url.pathname === "/api/contacts") return sendJson(response, database.contacts(url.searchParams.get("q") || ""));
+      if (request.method === "GET" && url.pathname === "/api/contacts/timeline") {
+        return sendJson(response, database.contactTimeline(Number(url.searchParams.get("contact_id") || 0), url.searchParams.get("include_agent_details") === "1", Number(url.searchParams.get("limit") || 100)));
+      }
       if (request.method === "GET" && url.pathname === "/api/config-status") {
         const config = loadTwilioConfig();
         return sendJson(response, { account_sid: !!config.accountSid, auth_token: !!config.authToken, phone_number: !!config.phoneNumber, public_base_url: !!config.publicBaseUrl });

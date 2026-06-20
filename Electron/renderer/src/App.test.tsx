@@ -23,6 +23,7 @@ let signalSubscriptionsFixture: Array<Record<string, unknown>>;
 let signalItemsFixture: Array<Record<string, unknown>>;
 let contactPointsFixture: Array<Record<string, unknown>>;
 let contactPolicyFixture: Record<string, unknown>;
+let contactTimelineFixture: Array<Record<string, unknown>>;
 
 function response(payload: unknown, ok = true): Promise<Response> { return Promise.resolve({ ok, status: ok ? 200 : 400, json: async () => payload } as Response); }
 
@@ -35,6 +36,10 @@ beforeEach(() => {
   signalItemsFixture = [signalItem];
   contactPointsFixture = [{ id: 70, contact_id: 7, kind: "phone", value: "+15557654321", label: "primary", is_primary: 1, blocked_at: null }];
   contactPolicyFixture = { contact_id: 7, trust_level: "unknown", allow_agent_messages: 1, allow_approval_requests: 0, allow_urgent_interrupts: 0, quiet_hours_override: 0, muted_until: null, blocked: 0 };
+  contactTimelineFixture = [
+    { id: "message:SM1", kind: "message", occurred_at: "2026-06-20T20:00:00.000Z", summary: "Inbound message", detail: "ordinary text", status: "received", direction: "inbound", source: "primary · +15557654321", private: false, redacted: false },
+    { id: "agent:agent-private", kind: "agent", occurred_at: "2026-06-20T20:05:00.000Z", summary: "approval request · unread", detail: "Private agent details hidden", status: "urgent", direction: "agent", source: "fabric · forgewire", private: true, redacted: true }
+  ];
   window.desktop = {
     notify: vi.fn(),
     notifyEvent: vi.fn().mockResolvedValue({ notify: true, reason: "allowed", title: "ForgeLink", body: "ForgeLink has an update." }),
@@ -79,6 +84,7 @@ beforeEach(() => {
     if (url.endsWith("/api/signals/items/sigitem-1/archive")) { signalItemsFixture = []; return response({ ok: true, item: { ...signalItem, status: "archived" } }); }
     if (url.endsWith("/api/threads")) return response([thread]);
     if (url.includes("/api/contacts/points?")) return response(contactPointsFixture);
+    if (url.includes("/api/contacts/timeline?")) return response(url.includes("include_agent_details=1") ? contactTimelineFixture.map(item => item.id === "agent:agent-private" ? { ...item, detail: "Deploy approval: Private body", redacted: false } : item) : contactTimelineFixture);
     if (url.endsWith("/api/contacts/points")) {
       const body = JSON.parse(String(init?.body || "{}"));
       contactPointsFixture = [...contactPointsFixture, { id: 71, contact_id: body.contact_id, kind: body.kind, value: body.value, label: body.label, is_primary: body.is_primary ? 1 : 0, blocked_at: null }];
@@ -198,6 +204,12 @@ describe("React renderer parity", () => {
     await userEvent.click(screen.getByRole("button", { name: "Edit Grace Hopper" }));
     await screen.findByText("Contact policy");
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/contacts/policy?contact_id=7"))).toBe(true));
+    expect(await screen.findByText("Contact timeline")).toBeTruthy();
+    expect(screen.getByText("ordinary text")).toBeTruthy();
+    expect(screen.getByText("Private agent details hidden")).toBeTruthy();
+    expect(screen.queryByText(/Private body/)).toBeNull();
+    await userEvent.click(screen.getByLabelText("Show private agent details"));
+    expect(await screen.findByText(/Private body/)).toBeTruthy();
     await userEvent.type(screen.getByLabelText("Company"), "Navy");
     await userEvent.selectOptions(screen.getByLabelText("Trust level"), "trusted");
     await userEvent.click(screen.getByLabelText("Pinned"));
