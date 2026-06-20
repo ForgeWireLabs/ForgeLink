@@ -2,6 +2,7 @@ export type View = "messages" | "agents" | "signals" | "contacts" | "settings";
 
 export interface Thread { id: number; canonical_number: string; name?: string; last_msg_ts?: string; unread_count?: number; }
 export interface Contact { id: number; name: string; number: string; company?: string; role?: string; tags?: string; notes?: string; trust_level?: string; pinned?: number; favorite?: number; }
+export interface ContactPoint { id: number; contact_id: number; kind: "phone" | "email" | "handle" | string; value: string; label?: string; is_primary?: number; blocked_at?: string | null; created_at?: string; updated_at?: string; }
 export interface Message { id: string; direction: "inbound" | "outbound"; body: string; ts: string; status?: string; media_urls?: string; attempt_count?: number; last_error?: string; provider_sid?: string; }
 export interface AgentAction { id: string; label: string; }
 export interface AgentMessage { id: string; channel_id: string; source: string; kind: string; urgency: "low" | "normal" | "high" | "urgent"; title: string; body: string; actions: string; status: "unread" | "read" | "dismissed" | "acted" | "expired"; action_result: string; created_at: string; expires_at?: string | null; last_error?: string; }

@@ -490,7 +490,7 @@ test("Telnyx webhook stores signed inbound, dedupes, and rejects bad signatures 
 
 test("contacts metadata, points, and policy over HTTP (CLV-009/010/011)", async () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-contacts-http-"));
-  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
   const localUrl = `http://127.0.0.1:${port}`;
@@ -505,8 +505,31 @@ test("contacts metadata, points, and policy over HTTP (CLV-009/010/011)", async 
     await post("/api/contacts/points", { contact_id: id, kind: "email", value: "grace@example.com", label: "work" });
     const points = await (await fetch(`${localUrl}/api/contacts/points?contact_id=${id}`, { headers: authorized() })).json() as Array<Record<string, unknown>>;
     assert.ok(points.some((p) => p.value === "grace@example.com"));
+    assert.equal((await post("/api/contacts/points/block", { point_id: points[0].id, blocked: true })).status, 200);
     const policy = await (await post("/api/contacts/policy", { contact_id: id, trust_level: "trusted", allow_approval_requests: true })).json() as Record<string, unknown>;
     assert.equal(policy.allow_approval_requests, 1);
+
+    database.addMessage({ id: "HTTP-UNKNOWN", number: "+15550001111", direction: "inbound", body: "hello" });
+    let unknown = database.threads().find((thread) => thread.canonical_number === "+15550001111")!;
+    assert.equal((await post("/api/link-thread", { thread_id: unknown.id, contact_id: id })).status, 200);
+    assert.ok(database.contactPoints(id).some((point) => point.value === "+15550001111"));
+
+    database.addMessage({ id: "HTTP-IGNORE", number: "+15550002222", direction: "inbound", body: "ignore" });
+    unknown = database.threads().find((thread) => thread.canonical_number === "+15550002222")!;
+    assert.equal((await post("/api/unknown-number/ignore", { thread_id: unknown.id })).status, 200);
+    assert.equal(database.threads().find((thread) => thread.id === unknown.id)!.unread_count, 0);
+
+    database.addMessage({ id: "HTTP-BLOCK", number: "+15550003333", direction: "inbound", body: "block" });
+    unknown = database.threads().find((thread) => thread.canonical_number === "+15550003333")!;
+    const blocked = await (await post("/api/unknown-number/block", { thread_id: unknown.id })).json() as Record<string, unknown>;
+    assert.equal(database.getContactPolicy(Number(blocked.id)).blocked, 1);
+
+    database.addMessage({ id: "HTTP-NEW", number: "+15550004444", direction: "inbound", body: "new" });
+    unknown = database.threads().find((thread) => thread.canonical_number === "+15550004444")!;
+    const created = await (await post("/api/contacts/from-thread", { thread_id: unknown.id, name: "Katherine" })).json() as Record<string, unknown>;
+    assert.equal(database.threads().find((thread) => thread.id === unknown.id)!.name, "Katherine");
+    assert.ok(database.contactPoints(Number(created.id)).some((point) => point.value === "+15550004444"));
+
     assert.equal((await post("/api/contacts/delete", { id })).status, 200);
     const after = await (await fetch(`${localUrl}/api/contacts`, { headers: authorized() })).json() as Array<Record<string, unknown>>;
     assert.equal(after.some((c) => c.id === id), false);

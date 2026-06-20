@@ -235,3 +235,40 @@ test("stores contact metadata, points, and policy (CLV-009/010/011)", () => {
     assert.equal(database.contactPoints(id).length, 0);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
+
+test("resolves inbound threads through contact points and handles unknown numbers (CLV-010)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-contact-points-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    assert.equal(database.addMessage({ id: "UNKNOWN", number: "+15550001111", direction: "inbound", body: "who is this" }), true);
+    let unknownThread = database.threads().find((thread) => thread.canonical_number === "+15550001111")!;
+    assert.equal(unknownThread.name, null);
+    assert.equal(database.contacts().length, 0);
+    database.ignoreThread(unknownThread.id);
+    unknownThread = database.threads().find((thread) => thread.canonical_number === "+15550001111")!;
+    assert.equal(unknownThread.unread_count, 0);
+
+    const adaId = database.upsertContact("Ada", "+15551230000");
+    database.addContactPoint(adaId, "phone", "+15559990000", "work", false);
+    assert.equal(database.addMessage({ id: "WORK", number: "+15559990000", direction: "inbound", body: "from work" }), true);
+    const workThread = database.threads().find((thread) => thread.canonical_number === "+15559990000")!;
+    assert.equal(workThread.name, "Ada");
+
+    const graceId = database.upsertContact("Grace", "+15557654321");
+    database.linkThread(unknownThread.id, graceId);
+    assert.ok(database.contactPoints(graceId).some((point) => point.value === "+15550001111" && point.label === "attached"));
+    assert.equal(database.threads().find((thread) => thread.id === unknownThread.id)!.name, "Grace");
+
+    database.addMessage({ id: "BLOCK", number: "+15554443333", direction: "inbound", body: "stop" });
+    const blockedThread = database.threads().find((thread) => thread.canonical_number === "+15554443333")!;
+    const blockedContactId = database.blockThread(blockedThread.id);
+    assert.equal(database.getContactPolicy(blockedContactId).blocked, 1);
+    assert.ok(database.contactPoints(blockedContactId).some((point) => point.value === "+15554443333" && point.blocked_at));
+
+    database.addMessage({ id: "NEWCONTACT", number: "+15556667777", direction: "inbound", body: "hi" });
+    const newThread = database.threads().find((thread) => thread.canonical_number === "+15556667777")!;
+    const newContactId = database.createContactFromThread(newThread.id, "Katherine");
+    assert.equal(database.threads().find((thread) => thread.id === newThread.id)!.name, "Katherine");
+    assert.ok(database.contactPoints(newContactId).some((point) => point.value === "+15556667777" && point.is_primary === 1));
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});

@@ -1,7 +1,7 @@
 ---
 audience: maintainers and implementation agents
 status: active
-last_verified: 2026-06-18
+last_verified: 2026-06-20
 source_of_truth: work/active/015-communication-channels-and-voice/README.md; work/active/015-communication-channels-and-voice/work-item.json
 ---
 
@@ -272,7 +272,7 @@ only if a concrete operator deployment requires it.
   - Acceptance: Renderer tests cover create/edit/delete metadata behavior and
     existing SMS composition still works.
 
-- [ ] **CLV-010 Add contact points and channel identities.** Model multiple
+- [x] **CLV-010 Add contact points and channel identities.** Model multiple
   phone numbers, emails, and future channel identities per contact.
   - Acceptance: A contact can have multiple labeled phone numbers with one
     primary number.
@@ -536,3 +536,4 @@ Add or update docs for:
 | 2026-06-18 | Phase 3 begin (data) | Schema v8 migration: contact metadata columns + contact_points + contact_policy (backfilled, transactional, backed up); backend methods + tests | Data foundation for CLV-009/010/011 (evidence 20260618-clv-phase3-data). API + renderer UI + attention enforcement remain; criteria still pending. |
 | 2026-06-18 | Phase 3 data foundation | Schema v8 (contact metadata + contact_points + contact_policy, transactional + backed up, existing contacts backfilled); backend methods + tests | CLV-009/010/011 data layer landed (evidence 20260618-clv-phase3-data); API + renderer UI + attention enforcement remaining. |
 | 2026-06-20 | CLV-009 complete | Six token-gated contact endpoints (update/delete/points/policy); renderer Edit modal (company/role/tags/notes/trust-level/pinned/favorite) + confirm-guarded delete; v8 migration hardened to skip pre-existing legacy columns | CLV-009 satisfied (evidence 20260620-clv009-contacts-ui). CLV-010 unknown-inbound handling + CLV-011 attention enforcement remain. |
+| 2026-06-20 | CLV-010 complete | Contact-point editor + API client methods; unknown inbound threads remain unlinked until acted on; attach-to-existing adds a contact point; create-from-thread, ignore, and block routes added; message threads resolve through contact_points | CLV-010 satisfied (evidence 20260620-clv010-contact-points). CLV-011 attention enforcement remains next. |

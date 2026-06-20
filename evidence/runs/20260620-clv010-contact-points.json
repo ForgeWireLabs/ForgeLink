@@ -1,0 +1,59 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260620-clv010-contact-points",
+  "timestamp": "2026-06-20T20:04:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build && node --test backend-dist/database.test.js backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Database and HTTP coverage for CLV-010 passed. Unknown inbound messages now create unlinked threads instead of implicit contacts; existing contact points resolve thread identity; link-thread attaches the thread number as a contact point; contacts can be created from a thread; ignore clears unread state; block creates a blocked contact point and blocked contact policy. 25/25 selected backend tests pass."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "Renderer coverage passed. Contact editing loads contact points, adds a labeled point through POST /api/contacts/points, toggles point blocking through POST /api/contacts/points/block, and links a thread to an existing contact through POST /api/link-thread. 22/22 renderer tests pass."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full suite green: 71 deterministic tests pass, 1 live Twilio test skipped by design. Backend build, renderer build, renderer interaction tests, backend node tests, and main/preload/runtime syntax checks all passed."
+    },
+    {
+      "command": "python scripts/repopact_cli.py dashboard && python scripts/repopact_cli.py doctor && python scripts/validate_repo.py",
+      "exit_code": 0,
+      "summary": "RepoPact records are current: dashboard regenerated, doctor reports healthy, and repository governance validation passed."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Local system audit passed: required files, 18 work items, lifecycle counts, stale README checks, work item manifests, and Markdown link/date checks are current."
+    },
+    {
+      "command": "npm run scan:secrets && npm run scan:deps",
+      "exit_code": 0,
+      "summary": "Secret scan clean and production dependency audit reports 0 vulnerabilities."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/api.ts",
+    "Electron/renderer/src/types.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/styles.css",
+    "audits/reports/dashboard.md",
+    "work/active/015-communication-channels-and-voice/README.md",
+    "work/active/015-communication-channels-and-voice/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "015 Phase 3 CLV-010 (contact points and unknown inbound handling). Contacts support multiple labeled points through the existing v8 contact_points table and renderer editor. Thread creation resolves through contact_points and no longer silently creates contacts for unknown inbound numbers. Unknown numbers can be attached to an existing contact, turned into a new contact from the thread, ignored, or blocked. Exports now include contact_points and contact_policy. Call-log resolution through contact points remains covered by the CLV-010 model but awaits the future voice/call-history criteria because durable call rows are not implemented yet."
+  }
+}

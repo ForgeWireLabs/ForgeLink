@@ -500,6 +500,10 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const payload = await readJson(request);
         return sendJson(response, { ok: true, id: database.upsertContact(String(payload.name || ""), String(payload.number || "")) });
       }
+      if (request.method === "POST" && url.pathname === "/api/contacts/from-thread") {
+        const payload = await readJson(request);
+        return sendJson(response, { ok: true, id: database.createContactFromThread(Number(payload.thread_id), String(payload.name || "")) });
+      }
       if (request.method === "POST" && url.pathname === "/api/contacts/update") {
         const payload = await readJson(request);
         database.updateContact(Number(payload.id), payload);
@@ -517,6 +521,11 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const payload = await readJson(request);
         return sendJson(response, { ok: true, id: database.addContactPoint(Number(payload.contact_id), String(payload.kind || "phone"), String(payload.value || ""), String(payload.label || ""), Boolean(payload.is_primary)) });
       }
+      if (request.method === "POST" && url.pathname === "/api/contacts/points/block") {
+        const payload = await readJson(request);
+        database.setContactPointBlocked(Number(payload.point_id), Boolean(payload.blocked));
+        return sendJson(response, { ok: true });
+      }
       if (request.method === "GET" && url.pathname === "/api/contacts/policy") {
         return sendJson(response, database.getContactPolicy(Number(url.searchParams.get("contact_id") || 0)));
       }
@@ -528,6 +537,15 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const payload = await readJson(request);
         database.linkThread(Number(payload.thread_id), Number(payload.contact_id));
         return sendJson(response, { ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/api/unknown-number/ignore") {
+        const payload = await readJson(request);
+        database.ignoreThread(Number(payload.thread_id));
+        return sendJson(response, { ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/api/unknown-number/block") {
+        const payload = await readJson(request);
+        return sendJson(response, { ok: true, id: database.blockThread(Number(payload.thread_id)) });
       }
       if (request.method === "POST" && url.pathname === "/upload") {
         const config = loadTwilioConfig();

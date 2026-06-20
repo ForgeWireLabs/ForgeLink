@@ -1,4 +1,4 @@
-import type { AgentMessage, BackendConnection, ConfigStatus, Contact, DataStatus, Message, RetentionResult, SignalItem, SignalSubscription, Thread } from "./types";
+import type { AgentMessage, BackendConnection, ConfigStatus, Contact, ContactPoint, DataStatus, Message, RetentionResult, SignalItem, SignalSubscription, Thread } from "./types";
 
 export class PhoneApi {
   constructor(private connection: () => BackendConnection) {}
@@ -32,9 +32,15 @@ export class PhoneApi {
   draft = (threadId: number) => this.request<{ body: string }>(`/api/draft?thread_id=${threadId}`);
   saveDraft = (threadId: number, body: string) => this.request("/api/draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thread_id: threadId, body }) });
   saveContact = (name: string, number: string) => this.request("/api/contacts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, number }) });
+  createContactFromThread = (threadId: number, name: string) => this.request<{ ok: true; id: number }>("/api/contacts/from-thread", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thread_id: threadId, name }) });
   updateContact = (id: number, fields: Record<string, unknown>) => this.request<{ ok: true; contact: Contact }>("/api/contacts/update", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...fields }) });
   deleteContact = (id: number) => this.request<{ ok: true }>("/api/contacts/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+  contactPoints = (contactId: number) => this.request<ContactPoint[]>(`/api/contacts/points?contact_id=${contactId}`);
+  addContactPoint = (contactId: number, kind: string, value: string, label: string, isPrimary: boolean) => this.request<{ ok: true; id: number }>("/api/contacts/points", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contact_id: contactId, kind, value, label, is_primary: isPrimary }) });
+  setContactPointBlocked = (pointId: number, blocked: boolean) => this.request<{ ok: true }>("/api/contacts/points/block", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ point_id: pointId, blocked }) });
   linkThread = (threadId: number, contactId: number) => this.request("/api/link-thread", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thread_id: threadId, contact_id: contactId }) });
+  ignoreUnknownNumber = (threadId: number) => this.request<{ ok: true }>("/api/unknown-number/ignore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thread_id: threadId }) });
+  blockUnknownNumber = (threadId: number) => this.request<{ ok: true; id: number }>("/api/unknown-number/block", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thread_id: threadId }) });
   upload = async (file: File) => { const body = new FormData(); body.append("file", file); return this.request<{ url: string }>("/upload", { method: "POST", body }); };
   dataStatus = () => this.request<DataStatus>("/api/data/status");
   backupData = () => this.request<{ ok: true; name: string }>("/api/data/backup", { method: "POST" });

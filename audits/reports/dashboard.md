@@ -1,7 +1,7 @@
 # Repository Dashboard
 
 > Generated from source records. Do not edit manually.
-> Generated: 2026-06-18
+> Generated: 2026-06-20
 > RepoPact spec version: 1.4.0
 
 ## Health
@@ -13,9 +13,9 @@
 | Scope contracts | 5 |
 | Audit registry entries | 5 |
 | Audit findings | 0 |
-| Decision records | 5 |
+| Decision records | 7 |
 | Policy records | 0 |
-| Evidence runs | 19 |
+| Evidence runs | 26 |
 
 ## Work
 

@@ -105,8 +105,10 @@
     {
       "id": "CLV-010",
       "text": "Add contact points and channel identities so contacts can have multiple labeled phone numbers, emails, native/mobile identities, and future channel identities; unknown inbound numbers can be attached, created, ignored, or blocked.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260620-clv010-contact-points"
+      ]
     },
     {
       "id": "CLV-011",

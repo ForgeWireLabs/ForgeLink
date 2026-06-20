@@ -19,6 +19,7 @@ let olderFixture: Array<Record<string, unknown>>;
 let agentMessagesFixture: Array<Record<string, unknown>>;
 let signalSubscriptionsFixture: Array<Record<string, unknown>>;
 let signalItemsFixture: Array<Record<string, unknown>>;
+let contactPointsFixture: Array<Record<string, unknown>>;
 
 function response(payload: unknown, ok = true): Promise<Response> { return Promise.resolve({ ok, status: ok ? 200 : 400, json: async () => payload } as Response); }
 
@@ -28,6 +29,7 @@ beforeEach(() => {
   agentMessagesFixture = [agentMessage];
   signalSubscriptionsFixture = [signalSubscription];
   signalItemsFixture = [signalItem];
+  contactPointsFixture = [{ id: 70, contact_id: 7, kind: "phone", value: "+15557654321", label: "primary", is_primary: 1, blocked_at: null }];
   window.desktop = {
     notify: vi.fn(),
     notifyEvent: vi.fn().mockResolvedValue({ notify: true, reason: "allowed", title: "ForgeLink", body: "ForgeLink has an update." }),
@@ -68,7 +70,20 @@ beforeEach(() => {
     if (url.endsWith("/api/signals/items?limit=50")) return response(signalItemsFixture);
     if (url.endsWith("/api/signals/items/sigitem-1/archive")) { signalItemsFixture = []; return response({ ok: true, item: { ...signalItem, status: "archived" } }); }
     if (url.endsWith("/api/threads")) return response([thread]);
+    if (url.includes("/api/contacts/points?")) return response(contactPointsFixture);
+    if (url.endsWith("/api/contacts/points")) {
+      const body = JSON.parse(String(init?.body || "{}"));
+      contactPointsFixture = [...contactPointsFixture, { id: 71, contact_id: body.contact_id, kind: body.kind, value: body.value, label: body.label, is_primary: body.is_primary ? 1 : 0, blocked_at: null }];
+      return response({ ok: true, id: 71 });
+    }
+    if (url.endsWith("/api/contacts/points/block")) {
+      const body = JSON.parse(String(init?.body || "{}"));
+      contactPointsFixture = contactPointsFixture.map(point => point.id === body.point_id ? { ...point, blocked_at: body.blocked ? "2026-06-20T00:00:00.000Z" : null } : point);
+      return response({ ok: true });
+    }
     if (url.includes("/api/contacts")) return response(init?.method === "POST" ? { ok: true } : [contact]);
+    if (url.endsWith("/api/unknown-number/ignore")) return response({ ok: true });
+    if (url.endsWith("/api/unknown-number/block")) return response({ ok: true, id: 9 });
     if (url.endsWith("/api/config-status")) return response({ account_sid: true, auth_token: true, phone_number: true, public_base_url: true });
     if (url.endsWith("/api/data/status")) return response({ schema_version: 7, latest_backup: "backup-test", backup_count: 1, recovered_from: null, migration_backup: null });
     if (url.endsWith("/api/data/backup")) return response({ ok: true, name: "backup-test" });
@@ -144,6 +159,31 @@ describe("React renderer parity", () => {
     expect(remove).toBeTruthy();
     expect(JSON.parse(String(remove![1]!.body))).toEqual({ id: 7 });
     expect(window.confirm).toHaveBeenCalled();
+  });
+
+  it("adds contact points and handles unknown conversation actions (CLV-010)", async () => {
+    const fetchMock = vi.mocked(fetch);
+    render(<App/>);
+    await userEvent.click(screen.getByRole("button", { name: "Contacts" }));
+    await screen.findByText("Grace Hopper");
+    await userEvent.click(screen.getByRole("button", { name: "Edit Grace Hopper" }));
+    expect(await screen.findByText("+15557654321 · primary")).toBeTruthy();
+    await userEvent.selectOptions(screen.getByLabelText("Point kind"), "email");
+    await userEvent.type(screen.getByLabelText("Point label"), "work");
+    await userEvent.type(screen.getByLabelText("Point value"), "grace@example.com");
+    await userEvent.click(screen.getByRole("button", { name: "Add contact point" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/contacts/points"))).toBe(true));
+    const pointAdd = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith("/api/contacts/points") && init?.method === "POST")!;
+    expect(JSON.parse(String(pointAdd[1]!.body))).toMatchObject({ contact_id: 7, kind: "email", value: "grace@example.com", label: "work" });
+    await userEvent.click((await screen.findAllByRole("button", { name: "Block" }))[0]);
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/contacts/points/block"))).toBe(true));
+
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await userEvent.click(screen.getByRole("button", { name: "Messages" }));
+    await userEvent.click((await screen.findByText("Ada Lovelace")).closest("button")!);
+    await userEvent.click(screen.getByRole("button", { name: "Link contact" }));
+    await userEvent.click(await screen.findByRole("button", { name: /Grace Hopper/ }));
+    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/link-thread"))).toBe(true);
   });
 
   it("shows agent channel messages without mixing them into SMS conversations", async () => {

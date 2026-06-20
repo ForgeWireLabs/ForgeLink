@@ -480,6 +480,8 @@ export class PhoneDatabase {
       exported_at: utcNow(),
       schema_version: this.state.schemaVersion,
       contacts: this.connection.prepare("SELECT * FROM contacts ORDER BY id").all(),
+      contact_points: this.connection.prepare("SELECT * FROM contact_points ORDER BY contact_id, id").all(),
+      contact_policy: this.connection.prepare("SELECT * FROM contact_policy ORDER BY contact_id").all(),
       threads: this.connection.prepare("SELECT * FROM threads ORDER BY id").all(),
       messages: this.connection.prepare("SELECT * FROM messages ORDER BY ts, id").all(),
       agent_messages: this.connection.prepare("SELECT * FROM agent_messages ORDER BY created_at, id").all(),
@@ -528,11 +530,10 @@ export class PhoneDatabase {
     const number = normalizeNumber(numberValue);
     const existing = this.connection.prepare("SELECT id FROM threads WHERE canonical_number=?").get(number) as { id: number } | undefined;
     if (existing) return existing.id;
+    const contactId = this.resolveContactIdByValue(number);
     this.connection.exec("BEGIN IMMEDIATE");
     try {
-      this.connection.prepare("INSERT OR IGNORE INTO contacts(name, number, last_seen) VALUES('', ?, ?)").run(number, utcNow());
-      const contact = this.connection.prepare("SELECT id FROM contacts WHERE number=?").get(number) as { id: number };
-      const result = this.connection.prepare("INSERT INTO threads(contact_id, canonical_number, last_msg_ts) VALUES(?, ?, ?)").run(contact.id, number, utcNow());
+      const result = this.connection.prepare("INSERT INTO threads(contact_id, canonical_number, last_msg_ts) VALUES(?, ?, ?)").run(contactId, number, utcNow());
       this.connection.exec("COMMIT");
       return Number(result.lastInsertRowid);
     } catch (error) { this.connection.exec("ROLLBACK"); throw error; }
@@ -612,7 +613,7 @@ export class PhoneDatabase {
   contacts(query = ""): Record<string, unknown>[] {
     if (!query) return this.connection.prepare("SELECT * FROM contacts ORDER BY name, number").all() as Record<string, unknown>[];
     const like = `%${query}%`;
-    return this.connection.prepare("SELECT * FROM contacts WHERE name LIKE ? OR number LIKE ? ORDER BY name, number").all(like, like) as Record<string, unknown>[];
+    return this.connection.prepare("SELECT DISTINCT c.* FROM contacts c LEFT JOIN contact_points cp ON cp.contact_id=c.id WHERE c.name LIKE ? OR c.number LIKE ? OR cp.value LIKE ? OR cp.label LIKE ? ORDER BY c.name, c.number").all(like, like, like, like) as Record<string, unknown>[];
   }
 
   upsertContact(nameValue: string, numberValue: string): number {
@@ -653,13 +654,16 @@ export class PhoneDatabase {
   addContactPoint(contactId: number, kind: string, value: string, label = "", isPrimary = false): number {
     const now = utcNow();
     const normalized = kind === "phone" ? normalizeNumber(value) : value.trim();
+    if (!this.connection.prepare("SELECT id FROM contacts WHERE id=?").get(contactId)) throw new Error("Contact not found.");
     if (isPrimary) this.connection.prepare("UPDATE contact_points SET is_primary=0 WHERE contact_id=?").run(contactId);
-    this.connection.prepare("INSERT INTO contact_points(contact_id, kind, value, label, is_primary, created_at, updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(contact_id, value) DO UPDATE SET kind=excluded.kind, label=excluded.label, is_primary=excluded.is_primary, updated_at=excluded.updated_at").run(contactId, kind, normalized, label, isPrimary ? 1 : 0, now, now);
+    this.connection.prepare("INSERT INTO contact_points(contact_id, kind, value, label, is_primary, created_at, updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(contact_id, value) DO UPDATE SET kind=excluded.kind, label=CASE WHEN contact_points.is_primary=1 AND excluded.is_primary=0 THEN contact_points.label ELSE excluded.label END, is_primary=CASE WHEN excluded.is_primary=1 THEN 1 ELSE contact_points.is_primary END, updated_at=excluded.updated_at").run(contactId, kind, normalized, label, isPrimary ? 1 : 0, now, now);
+    if (kind === "phone" && isPrimary) this.connection.prepare("UPDATE contacts SET number=?, updated_at=? WHERE id=?").run(normalized, now, contactId);
+    if (kind === "phone") this.connection.prepare("UPDATE threads SET contact_id=? WHERE canonical_number=?").run(contactId, normalized);
     return (this.connection.prepare("SELECT id FROM contact_points WHERE contact_id=? AND value=?").get(contactId, normalized) as { id: number }).id;
   }
 
   setContactPointBlocked(pointId: number, blocked: boolean): void {
-    this.connection.prepare("UPDATE contact_points SET blocked_at=?, updated_at=? WHERE id=?").run(blocked ? utcNow() : null, utcNow(), pointId);
+    if (this.connection.prepare("UPDATE contact_points SET blocked_at=?, updated_at=? WHERE id=?").run(blocked ? utcNow() : null, utcNow(), pointId).changes !== 1) throw new Error("Contact point not found.");
   }
 
   // Resolve contact identity through contact points rather than a flat number.
@@ -685,7 +689,33 @@ export class PhoneDatabase {
   }
 
   linkThread(threadId: number, contactId: number): void {
-    if (this.connection.prepare("UPDATE threads SET contact_id=? WHERE id=?").run(contactId, threadId).changes !== 1) throw new Error("Thread not found.");
+    const thread = this.connection.prepare("SELECT canonical_number FROM threads WHERE id=?").get(threadId) as { canonical_number: string } | undefined;
+    if (!thread) throw new Error("Thread not found.");
+    this.addContactPoint(contactId, "phone", thread.canonical_number, "attached", false);
+    this.connection.prepare("UPDATE threads SET contact_id=? WHERE id=?").run(contactId, threadId);
+  }
+
+  createContactFromThread(threadId: number, nameValue: string): number {
+    const thread = this.connection.prepare("SELECT canonical_number FROM threads WHERE id=?").get(threadId) as { canonical_number: string } | undefined;
+    if (!thread) throw new Error("Thread not found.");
+    const contactId = this.upsertContact(nameValue, thread.canonical_number);
+    this.linkThread(threadId, contactId);
+    return contactId;
+  }
+
+  ignoreThread(threadId: number): void {
+    if (this.connection.prepare("UPDATE threads SET unread_count=0 WHERE id=?").run(threadId).changes !== 1) throw new Error("Thread not found.");
+  }
+
+  blockThread(threadId: number): number {
+    const thread = this.connection.prepare("SELECT canonical_number FROM threads WHERE id=?").get(threadId) as { canonical_number: string } | undefined;
+    if (!thread) throw new Error("Thread not found.");
+    const contactId = this.upsertContact("", thread.canonical_number);
+    const pointId = this.addContactPoint(contactId, "phone", thread.canonical_number, "blocked", true);
+    this.setContactPointBlocked(pointId, true);
+    this.setContactPolicy(contactId, { trust_level: "blocked", allow_agent_messages: false, allow_approval_requests: false, allow_urgent_interrupts: false, blocked: true });
+    this.connection.prepare("UPDATE threads SET contact_id=?, unread_count=0 WHERE id=?").run(contactId, threadId);
+    return contactId;
   }
 
   updateMessageStatus(messageId: string, status: string): void {
