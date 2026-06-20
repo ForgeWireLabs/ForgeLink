@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHmac, generateKeyPairSync, sign } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -453,6 +453,36 @@ test("exposes local-only channels and a gated companion route (CLV-004/006)", as
     for (const [k, v] of Object.entries({ TWILIO_ACCOUNT_SID: previous.sid, TWILIO_AUTH_TOKEN: previous.token, TWILIO_PHONE_NUMBER: previous.number })) {
       if (v === undefined) delete process.env[k]; else process.env[k] = v;
     }
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Telnyx webhook stores signed inbound, dedupes, and rejects bad signatures (CLV-007)", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-telnyx-"));
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const der = publicKey.export({ format: "der", type: "spki" }) as Buffer;
+  const previous = process.env.TELNYX_PUBLIC_KEY;
+  process.env.TELNYX_PUBLIC_KEY = der.subarray(der.length - 32).toString("base64");
+  const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const post = (body: string, signature?: string, ts = "1718000000") =>
+    fetch(`http://127.0.0.1:${port}/webhooks/telnyx`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "telnyx-timestamp": ts, "telnyx-signature-ed25519": signature ?? sign(null, Buffer.from(`${ts}|${body}`, "utf8"), privateKey).toString("base64") },
+      body
+    });
+  try {
+    const inbound = JSON.stringify({ data: { event_type: "message.received", payload: { id: "TX-IN", from: { phone_number: "+15557654321" }, to: [{ phone_number: "+15550002222" }], text: "telnyx hi", media: [] } } });
+    assert.equal((await post(inbound)).status, 200);
+    assert.equal((await post(inbound)).status, 200); // duplicate webhook
+    const thread = database.threads().find((t) => t.canonical_number === "+15557654321")!;
+    assert.equal(database.messages(thread.id).length, 1); // idempotent on provider message id
+    assert.equal(database.messages(thread.id)[0].body, "telnyx hi");
+    assert.equal((await post(inbound, "AAAA")).status, 403); // invalid signature
+  } finally {
+    if (previous === undefined) delete process.env.TELNYX_PUBLIC_KEY; else process.env.TELNYX_PUBLIC_KEY = previous;
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(directory, { recursive: true, force: true });
   }

@@ -81,14 +81,18 @@
     {
       "id": "CLV-007",
       "text": "Add Telnyx SMS/MMS telecom edge support with deterministic contract tests for sends, inbound SMS/MMS, delivery status, duplicate/backward events, invalid signatures, missing credentials, provider errors, and documentation.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260618-clv-phase2"
+      ]
     },
     {
       "id": "CLV-008",
       "text": "Add Plivo and Bandwidth telecom edge planning gates or provider stubs with capability mapping, credential requirements, webhook validation requirements, MMS/media handling, and test fixture requirements without exposing unimplemented providers as shipped.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260618-clv-phase2"
+      ]
     },
     {
       "id": "CLV-009",

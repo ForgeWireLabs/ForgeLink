@@ -1,0 +1,36 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260618-clv-phase2",
+  "timestamp": "2026-06-19T02:00:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "node --test backend-dist/telnyx.test.js backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Telnyx adapter: send maps to SendResult and propagates rejection; capabilities + missing-credential validation; inbound SMS and MMS-metadata normalization; status normalization; Ed25519 webhook signature validates and rejects tampering/wrong-timestamp/missing-key. HTTP: a signed Telnyx inbound is stored, a duplicate webhook is idempotent on the provider message ID, and a bad signature is rejected with 403. All Twilio/server tests stay green."
+    },
+    {
+      "command": "npm test (full suite)",
+      "exit_code": 0,
+      "summary": "68 node tests pass, 1 skipped (live Twilio), renderer interaction suite green."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/telnyx.ts",
+    "Electron/backend/src/telnyx.test.ts",
+    "Electron/backend/src/channels.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/App.tsx",
+    "docs/telnyx.md",
+    "decisions/0007-telecom-edge-planning-plivo-bandwidth.md",
+    "work/active/015-communication-channels-and-voice/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "015 Phase 2 complete. CLV-007: Telnyx is the second SMS/MMS edge behind the channel contract - JSON Bearer send, JSON webhook normalization, Ed25519-signed /webhooks/telnyx endpoint, registered when configured; contract tests cover send success/rejection, inbound SMS, inbound MMS metadata, duplicate inbound webhook (idempotent), delivery status, invalid signature, and missing credentials (backward/duplicate status transitions are handled by the shared local store, already tested). Telnyx setup is documented (docs/telnyx.md) and represented in a Settings 'Channels and providers' card without breaking Twilio; credentials are env-based for now (the in-app form is folded into 017's cockpit). CLV-008: Plivo and Bandwidth are planning gates (decision 0007) surfaced as planned_channels in diagnostics, not registered as broken adapters."
+  }
+}

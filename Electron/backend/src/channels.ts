@@ -87,9 +87,25 @@ export interface ChannelAdapter {
   send(message: OutboundMessage): Promise<SendResult>;
   startCall?(to: string): Promise<CallResult>;
   endCall?(providerCallId: string): Promise<void>;
-  parseInbound?(fields: Record<string, string>): InboundMessage;
-  parseStatus?(fields: Record<string, string>): DeliveryStatusUpdate;
+  // Inbound/status payloads differ per provider (form-encoded for Twilio, JSON for
+  // Telnyx), so the raw payload is passed as unknown and each adapter interprets it.
+  parseInbound?(payload: unknown): InboundMessage;
+  parseStatus?(payload: unknown): DeliveryStatusUpdate;
 }
+
+// Providers that are designed but not yet shipped as adapters (CLV-008). Surfaced
+// so the UI can show the roadmap without registering broken adapters.
+export interface PlannedChannel {
+  kind: ChannelKind;
+  provider: string;
+  displayName: string;
+  status: "planned";
+}
+
+export const PLANNED_PROVIDERS: PlannedChannel[] = [
+  { kind: "sms_mms_edge", provider: "plivo", displayName: "Plivo", status: "planned" },
+  { kind: "sms_mms_edge", provider: "bandwidth", displayName: "Bandwidth", status: "planned" }
+];
 
 export class UnsupportedCapabilityError extends Error {
   constructor(public readonly capability: Capability, public readonly provider?: string) {

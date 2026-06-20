@@ -7,7 +7,8 @@ import { AgentAction, AgentChannelRecord, AgentUrgency, PhoneDatabase } from "./
 import { utcNow } from "./phone";
 import { fetchTrustedSignalFeed } from "./signals";
 import { loadTwilioConfig, sendTwilioMessage, validateTwilioSignature, createTwilioAdapter } from "./twilio";
-import { createChannelRegistry } from "./channels";
+import { createChannelRegistry, PLANNED_PROVIDERS } from "./channels";
+import { createTelnyxAdapter, validateTelnyxSignature } from "./telnyx";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const ALLOWED_UPLOADS = new Set([".gif", ".jpeg", ".jpg", ".pdf", ".png", ".txt", ".webp"]);
@@ -169,6 +170,10 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       return { providerMessageId: id, status: "delivered" };
     }
   });
+  // Telnyx SMS/MMS edge (CLV-007): the second provider, registered when configured.
+  // The adapter's pure normalization is used by the webhook regardless of registration.
+  const telnyxAdapter = createTelnyxAdapter();
+  if (process.env.TELNYX_API_KEY && process.env.TELNYX_PHONE_NUMBER) channels.register(telnyxAdapter);
   // Mobile companion (CLV-006): planned, authenticated, disabled unless explicitly
   // enabled, and never any public relay.
   const companionEnabled = process.env.FORGELINK_COMPANION_ENABLED === "1";
@@ -256,6 +261,7 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         public_base_url_configured: Boolean(process.env.TWILIO_PUBLIC_BASE_URL),
         local_only: !Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER),
         channels: channels.list(),
+        planned_channels: PLANNED_PROVIDERS,
         companion: companionEnabled ? "enabled" : "planned"
       });
       if (url.pathname === "/api/companion/pair" || url.pathname === "/api/companion/status") {
@@ -528,6 +534,24 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         if (!validateTwilioSignature(url.pathname, fields, String(request.headers["x-twilio-signature"] || ""))) return sendJson(response, { error: "Invalid Twilio signature" }, 403);
         const update = twilioAdapter.parseStatus!(fields);
         database.updateDeliveryStatus(update.providerMessageId, update.status);
+        return sendJson(response, { ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/webhooks/telnyx") {
+        // Telnyx posts JSON events signed with Ed25519 over `${timestamp}|${rawBody}`.
+        const raw = (await readBody(request)).toString("utf8");
+        const timestamp = String(request.headers["telnyx-timestamp"] || "");
+        const signature = String(request.headers["telnyx-signature-ed25519"] || "");
+        if (!validateTelnyxSignature(raw, timestamp, signature, process.env.TELNYX_PUBLIC_KEY || "")) return sendJson(response, { error: "Invalid Telnyx signature" }, 403);
+        let event: unknown;
+        try { event = JSON.parse(raw); } catch { return sendJson(response, { error: "Invalid payload" }, 400); }
+        const eventType = ((event as { data?: { event_type?: string } })?.data?.event_type) || "";
+        if (eventType === "message.received") {
+          const inbound = telnyxAdapter.parseInbound!(event);
+          database.addMessage({ id: inbound.providerMessageId || randomBytes(16).toString("hex"), number: inbound.from, direction: "inbound", body: inbound.body, media_urls: inbound.mediaUrls, status: "received", ts: utcNow() });
+        } else {
+          const update = telnyxAdapter.parseStatus!(event);
+          if (update.providerMessageId) database.updateDeliveryStatus(update.providerMessageId, update.status);
+        }
         return sendJson(response, { ok: true });
       }
       return sendJson(response, { error: "Not found" }, 404);
