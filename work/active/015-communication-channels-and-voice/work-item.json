@@ -129,8 +129,10 @@
     {
       "id": "CLV-013",
       "text": "Implement Twilio Voice as the first voice telecom edge adapter through the TypeScript/Electron architecture with outbound call start/end, durable call rows, idempotent status callbacks, redacted errors, and automated tests.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260620-clv013-twilio-voice-edge"
+      ]
     },
     {
       "id": "CLV-014",

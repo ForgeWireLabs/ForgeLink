@@ -131,7 +131,7 @@ test("backs up, exports, restores, and reports managed data", async () => {
     assert.equal(readFileSync(join(directory, "uploads", "proof.txt"), "utf8"), "before backup");
 
     const status = await fetch(`${localUrl}/api/data/status`, { headers: authorized() }).then((response) => response.json()) as { schema_version: number; backup_count: number; latest_backup: string };
-    assert.equal(status.schema_version, 9);
+    assert.equal(status.schema_version, 10);
     assert.equal(status.backup_count, 1);
     assert.match(status.latest_backup, /^backup-/);
   } finally {
@@ -378,6 +378,85 @@ test("persists failed sends, retries them, and ignores duplicate inbound deliver
     await new Promise<void>((resolve) => server.close(() => resolve()));
     if (previous.authToken === undefined) delete process.env.TWILIO_AUTH_TOKEN; else process.env.TWILIO_AUTH_TOKEN = previous.authToken;
     if (previous.publicBaseUrl === undefined) delete process.env.TWILIO_PUBLIC_BASE_URL; else process.env.TWILIO_PUBLIC_BASE_URL = previous.publicBaseUrl;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("starts, ends, and reconciles Twilio Voice calls through provider-neutral rows (CLV-013)", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-voice-http-"));
+  const previous = {
+    sid: process.env.TWILIO_ACCOUNT_SID,
+    token: process.env.TWILIO_AUTH_TOKEN,
+    number: process.env.TWILIO_PHONE_NUMBER,
+    base: process.env.TWILIO_PUBLIC_BASE_URL
+  };
+  process.env.TWILIO_ACCOUNT_SID = `AC${"c".repeat(32)}`;
+  process.env.TWILIO_AUTH_TOKEN = "voice-token";
+  process.env.TWILIO_PHONE_NUMBER = "+15550000000";
+  process.env.TWILIO_PUBLIC_BASE_URL = "https://phone.example.com";
+  const startedRequests: Array<{ to: string; from?: string }> = [];
+  const endedCalls: string[] = [];
+  const { server, database } = createBackend({
+    host: "127.0.0.1",
+    port: 0,
+    dataDir: directory,
+    apiToken,
+    startCall: async (request) => {
+      startedRequests.push({ to: request.to, from: request.from });
+      return { sid: "CA-HTTP", status: "queued" };
+    },
+    endCall: async (providerCallId) => {
+      endedCalls.push(providerCallId);
+      return { sid: providerCallId, status: "completed" };
+    }
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  const post = (path: string, body: unknown) => fetch(`${localUrl}${path}`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify(body) });
+  try {
+    assert.equal((await fetch(`${localUrl}/api/calls/start`, { method: "POST", body: "{}" })).status, 401);
+    const contactId = database.upsertContact("Ada", "+15551234567");
+    const started = await post("/api/calls/start", { local_call_id: "call-http-1", to: "+15551234567", contact_id: contactId });
+    assert.equal(started.status, 200);
+    const startedPayload = await started.json() as { call: { local_call_id: string; provider_call_id: string; status: string; contact_id: number } };
+    assert.equal(startedPayload.call.local_call_id, "call-http-1");
+    assert.equal(startedPayload.call.provider_call_id, "CA-HTTP");
+    assert.equal(startedPayload.call.status, "queued");
+    assert.equal(startedPayload.call.contact_id, contactId);
+    assert.deepEqual(startedRequests, [{ to: "+15551234567", from: "+15550000000" }]);
+    assert.equal((await post("/api/calls/start", { local_call_id: "call-http-1", to: "+15551234567" })).status, 202);
+
+    const statusFields = { CallSid: "CA-HTTP", CallStatus: "in-progress", Timestamp: "2026-06-20T21:10:00Z" };
+    const statusResponse = await fetch(`${localUrl}/webhooks/voice/status`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Twilio-Signature": signature("https://phone.example.com", "/webhooks/voice/status", statusFields, "voice-token") }, body: new URLSearchParams(statusFields) });
+    assert.equal(statusResponse.status, 200);
+    assert.equal(database.callByProviderCallId("CA-HTTP")?.status, "in_progress");
+
+    const ended = await post("/api/calls/end", { local_call_id: "call-http-1" });
+    assert.equal(ended.status, 200);
+    assert.deepEqual(endedCalls, ["CA-HTTP"]);
+    assert.equal(database.callByProviderCallId("CA-HTTP")?.status, "completed");
+
+    const lateFailure = { CallSid: "CA-HTTP", CallStatus: "failed", Timestamp: "2026-06-20T21:11:00Z" };
+    assert.equal((await fetch(`${localUrl}/webhooks/voice/status`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Twilio-Signature": signature("https://phone.example.com", "/webhooks/voice/status", lateFailure, "voice-token") }, body: new URLSearchParams(lateFailure) })).status, 200);
+    assert.equal(database.callByProviderCallId("CA-HTTP")?.status, "completed");
+
+    const inbound = { CallSid: "CA-IN", Direction: "inbound", From: "+15557654321", To: "+15550000000", CallStatus: "ringing", Timestamp: "2026-06-20T21:12:00Z" };
+    assert.equal((await fetch(`${localUrl}/webhooks/voice/status`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Twilio-Signature": signature("https://phone.example.com", "/webhooks/voice/status", inbound, "voice-token") }, body: new URLSearchParams(inbound) })).status, 200);
+    const inboundCall = database.callByProviderCallId("CA-IN")!;
+    assert.equal(inboundCall.direction, "inbound");
+    assert.equal(inboundCall.from_number, "+15557654321");
+
+    assert.equal((await fetch(`${localUrl}/webhooks/voice/status`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Twilio-Signature": "invalid" }, body: new URLSearchParams(statusFields) })).status, 403);
+    const twimlFields = { CallSid: "CA-HTTP" };
+    const twiml = await fetch(`${localUrl}/webhooks/voice/twiml`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Twilio-Signature": signature("https://phone.example.com", "/webhooks/voice/twiml", twimlFields, "voice-token") }, body: new URLSearchParams(twimlFields) });
+    assert.equal(twiml.status, 200);
+    assert.match(await twiml.text(), /<Response>/);
+  } finally {
+    for (const [key, value] of Object.entries({ TWILIO_ACCOUNT_SID: previous.sid, TWILIO_AUTH_TOKEN: previous.token, TWILIO_PHONE_NUMBER: previous.number, TWILIO_PUBLIC_BASE_URL: previous.base })) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(directory, { recursive: true, force: true });
   }
 });

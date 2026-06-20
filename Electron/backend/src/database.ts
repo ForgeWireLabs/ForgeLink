@@ -2,9 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
+import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
 
 export interface ThreadRow {
   id: number;
@@ -59,6 +60,27 @@ export interface ContactPolicyDecision {
   allowed: boolean;
   reason: string;
   contact_id: number | null;
+}
+
+export interface CallRow {
+  id: number;
+  local_call_id: string;
+  provider_kind: string;
+  provider_name: string;
+  provider_call_id: string | null;
+  direction: "inbound" | "outbound";
+  from_number: string | null;
+  to_number: string;
+  contact_id: number | null;
+  contact_point_id: number | null;
+  status: CallStatus;
+  started_at: string | null;
+  answered_at: string | null;
+  ended_at: string | null;
+  duration_seconds: number | null;
+  redacted_error: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface AgentMessageRow {
@@ -446,6 +468,35 @@ export class PhoneDatabase {
         version = 9;
         this.connection.exec("PRAGMA user_version=9");
       }
+      if (version === 9) {
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS calls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_call_id TEXT NOT NULL UNIQUE,
+            provider_kind TEXT NOT NULL,
+            provider_name TEXT NOT NULL,
+            provider_call_id TEXT UNIQUE,
+            direction TEXT NOT NULL,
+            from_number TEXT,
+            to_number TEXT NOT NULL,
+            contact_id INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
+            contact_point_id INTEGER REFERENCES contact_points(id) ON DELETE SET NULL,
+            status TEXT NOT NULL,
+            started_at TEXT,
+            answered_at TEXT,
+            ended_at TEXT,
+            duration_seconds INTEGER,
+            redacted_error TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_calls_contact ON calls(contact_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_calls_created_at ON calls(created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_calls_provider_call_id ON calls(provider_call_id);
+        `);
+        version = 10;
+        this.connection.exec("PRAGMA user_version=10");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -494,6 +545,7 @@ export class PhoneDatabase {
       contacts: this.connection.prepare("SELECT * FROM contacts ORDER BY id").all(),
       contact_points: this.connection.prepare("SELECT * FROM contact_points ORDER BY contact_id, id").all(),
       contact_policy: this.connection.prepare("SELECT * FROM contact_policy ORDER BY contact_id").all(),
+      calls: this.connection.prepare("SELECT * FROM calls ORDER BY created_at, id").all(),
       threads: this.connection.prepare("SELECT * FROM threads ORDER BY id").all(),
       messages: this.connection.prepare("SELECT * FROM messages ORDER BY ts, id").all(),
       agent_messages: this.connection.prepare("SELECT * FROM agent_messages ORDER BY created_at, id").all(),
@@ -598,6 +650,99 @@ export class PhoneDatabase {
     const current = this.connection.prepare("SELECT id, status FROM messages WHERE provider_sid=? OR id=?").get(providerSid, providerSid) as { id: string; status: string } | undefined;
     if (!current || !(status in rank) || status === current.status || (rank[status] <= (rank[current.status] ?? 0))) return false;
     this.connection.prepare("UPDATE messages SET status=? WHERE id=?").run(status, current.id);
+    return true;
+  }
+
+  private contactPointIdByValue(value: string): number | null {
+    let normalized = "";
+    try { normalized = normalizeNumber(value); } catch { normalized = ""; }
+    const row = this.connection.prepare("SELECT id FROM contact_points WHERE value=? OR value=? ORDER BY is_primary DESC, id LIMIT 1").get(normalized, String(value || "").trim()) as { id: number } | undefined;
+    return row ? row.id : null;
+  }
+
+  createCall(input: CallRecordInput): CallRow {
+    const now = utcNow();
+    const fromNumber = input.from ? normalizeNumber(input.from) : null;
+    const toNumber = normalizeNumber(input.to);
+    const identityValue = input.direction === "inbound" ? (fromNumber || toNumber) : toNumber;
+    const contactId = input.contactId ?? this.resolveContactIdByValue(identityValue);
+    const contactPointId = input.contactPointId ?? this.contactPointIdByValue(identityValue);
+    this.connection.prepare(`
+      INSERT INTO calls(local_call_id, provider_kind, provider_name, provider_call_id, direction, from_number, to_number, contact_id, contact_point_id, status, started_at, answered_at, ended_at, duration_seconds, redacted_error, created_at, updated_at)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      input.localCallId,
+      input.providerKind,
+      input.providerName,
+      input.providerCallId || null,
+      input.direction,
+      fromNumber,
+      toNumber,
+      contactId,
+      contactPointId,
+      input.status,
+      input.startedAt || null,
+      input.answeredAt || null,
+      input.endedAt || null,
+      input.durationSeconds ?? null,
+      (input.redactedError || "").slice(0, 500),
+      now,
+      now
+    );
+    return this.callByLocalId(input.localCallId)!;
+  }
+
+  callByLocalId(localCallId: string): CallRow | undefined {
+    return this.connection.prepare("SELECT * FROM calls WHERE local_call_id=?").get(localCallId) as unknown as CallRow | undefined;
+  }
+
+  callByProviderCallId(providerCallId: string): CallRow | undefined {
+    return this.connection.prepare("SELECT * FROM calls WHERE provider_call_id=?").get(providerCallId) as unknown as CallRow | undefined;
+  }
+
+  calls(limit = 100): CallRow[] {
+    const boundedLimit = Math.max(1, Math.min(Number(limit) || 100, 500));
+    return this.connection.prepare("SELECT * FROM calls ORDER BY created_at DESC, id DESC LIMIT ?").all(boundedLimit) as unknown as CallRow[];
+  }
+
+  markCallStarted(localCallId: string, providerCallId: string | null, status: CallStatus): CallRow {
+    const now = utcNow();
+    if (this.connection.prepare("UPDATE calls SET provider_call_id=?, status=?, redacted_error='', started_at=COALESCE(started_at, ?), updated_at=? WHERE local_call_id=?").run(providerCallId || null, status, now, now, localCallId).changes !== 1) throw new Error("Call not found.");
+    return this.callByLocalId(localCallId)!;
+  }
+
+  markCallFailed(localCallId: string, error: string): CallRow {
+    const now = utcNow();
+    if (this.connection.prepare("UPDATE calls SET status='failed', ended_at=COALESCE(ended_at, ?), redacted_error=?, updated_at=? WHERE local_call_id=?").run(now, error.slice(0, 500), now, localCallId).changes !== 1) throw new Error("Call not found.");
+    return this.callByLocalId(localCallId)!;
+  }
+
+  applyCallStatus(update: CallStatusUpdate): boolean {
+    const rank: Record<CallStatus, number> = { queued: 0, ringing: 1, in_progress: 2, completed: 3, failed: 3, busy: 3, no_answer: 3, canceled: 3 };
+    const current = this.connection.prepare("SELECT local_call_id, status FROM calls WHERE provider_call_id=? OR local_call_id=?").get(update.providerCallId, update.providerCallId) as { local_call_id: string; status: CallStatus } | undefined;
+    if (!current || !(update.status in rank) || update.status === current.status || rank[update.status] <= (rank[current.status] ?? 0)) return false;
+    const now = utcNow();
+    const endedAt = update.endedAt || (rank[update.status] >= 3 ? now : null);
+    this.connection.prepare(`
+      UPDATE calls
+      SET status=?,
+          started_at=COALESCE(started_at, ?),
+          answered_at=COALESCE(answered_at, ?),
+          ended_at=COALESCE(ended_at, ?),
+          duration_seconds=COALESCE(?, duration_seconds),
+          redacted_error=?,
+          updated_at=?
+      WHERE local_call_id=?
+    `).run(
+      update.status,
+      update.startedAt || (update.status !== "queued" ? now : null),
+      update.answeredAt || (update.status === "in_progress" ? now : null),
+      endedAt,
+      update.durationSeconds ?? null,
+      (update.redactedError || "").slice(0, 500),
+      now,
+      current.local_call_id
+    );
     return true;
   }
 

@@ -6,7 +6,7 @@ import { Readable } from "node:stream";
 import { AgentAction, AgentChannelRecord, AgentUrgency, PhoneDatabase } from "./database";
 import { utcNow } from "./phone";
 import { fetchTrustedSignalFeed } from "./signals";
-import { loadTwilioConfig, sendTwilioMessage, validateTwilioSignature, createTwilioAdapter } from "./twilio";
+import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, loadTwilioConfig, sendTwilioMessage, startTwilioCall, validateTwilioSignature } from "./twilio";
 import { createChannelRegistry, PLANNED_PROVIDERS } from "./channels";
 import { createTelnyxAdapter, validateTelnyxSignature } from "./telnyx";
 
@@ -47,7 +47,7 @@ async function readForm(request: IncomingMessage): Promise<Record<string, string
   return Object.fromEntries(params.entries());
 }
 
-export interface BackendOptions { host: string; port: number; dataDir: string; apiToken: string; sendMessage?: typeof sendTwilioMessage; }
+export interface BackendOptions { host: string; port: number; dataDir: string; apiToken: string; sendMessage?: typeof sendTwilioMessage; startCall?: typeof startTwilioCall; endCall?: typeof endTwilioCall; }
 
 function isPrivateRoute(pathname: string): boolean {
   return pathname === "/health" || pathname === "/upload" || pathname.startsWith("/api/");
@@ -153,11 +153,15 @@ export function createBackend(options: BackendOptions): { server: Server; databa
   const exportsDir = join(options.dataDir, "exports");
   const database = new PhoneDatabase(join(options.dataDir, "phone.sqlite3"));
   const sendMessage = options.sendMessage || sendTwilioMessage;
+  const startCall = options.startCall || startTwilioCall;
+  const endCall = options.endCall || endTwilioCall;
   // Provider-neutral channel registry (work item 015). Twilio is the first
   // SMS/MMS edge adapter; its send delegates to the injectable sendMessage seam.
   const channels = createChannelRegistry();
   const twilioAdapter = createTwilioAdapter(sendMessage);
   channels.register(twilioAdapter);
+  const twilioVoiceAdapter = createTwilioVoiceAdapter(startCall, endCall);
+  channels.register(twilioVoiceAdapter);
   // Native local channel (CLV-004): delivers into the local inbox with no provider,
   // so the human loop works when no telecom provider is configured.
   channels.register({
@@ -498,6 +502,49 @@ export function createBackend(options: BackendOptions): { server: Server; databa
           return sendJson(response, { error: message, local_id: pending.id }, 502);
         }
       }
+      if (request.method === "GET" && url.pathname === "/api/calls") {
+        return sendJson(response, database.calls(Number(url.searchParams.get("limit") || 100)));
+      }
+      if (request.method === "POST" && url.pathname === "/api/calls/start") {
+        const payload = await readJson(request);
+        const localCallId = String(payload.local_call_id || `call-${randomUUID()}`).slice(0, 120);
+        const existing = database.callByLocalId(localCallId);
+        if (existing) return sendJson(response, { ok: true, duplicate: true, call: existing }, 202);
+        const config = loadTwilioConfig();
+        const call = database.createCall({
+          localCallId,
+          providerKind: "voice_edge",
+          providerName: "twilio",
+          direction: "outbound",
+          from: payload.from ? String(payload.from) : config.phoneNumber,
+          to: String(payload.to || ""),
+          contactId: payload.contact_id === undefined ? undefined : Number(payload.contact_id),
+          contactPointId: payload.contact_point_id === undefined ? undefined : Number(payload.contact_point_id),
+          status: "queued"
+        });
+        try {
+          const result = await channels.select("voice_start", "twilio").startCall!({
+            localCallId,
+            from: call.from_number || undefined,
+            to: call.to_number,
+            contactId: call.contact_id,
+            contactPointId: call.contact_point_id
+          });
+          const updated = database.markCallStarted(localCallId, result.providerCallId, result.status);
+          return sendJson(response, { ok: true, call: updated });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Call start failed.";
+          return sendJson(response, { error: message, call: database.markCallFailed(localCallId, message) }, 502);
+        }
+      }
+      if (request.method === "POST" && url.pathname === "/api/calls/end") {
+        const payload = await readJson(request);
+        const providerCallId = String(payload.provider_call_id || database.callByLocalId(String(payload.local_call_id || ""))?.provider_call_id || "");
+        if (!providerCallId) throw new Error("provider_call_id or local_call_id is required.");
+        const result = await channels.select("voice_end", "twilio").endCall!(providerCallId);
+        database.applyCallStatus({ providerCallId: result.providerCallId, status: result.status, endedAt: utcNow() });
+        return sendJson(response, { ok: true, call: database.callByProviderCallId(result.providerCallId) || null });
+      }
       if (request.method === "POST" && url.pathname === "/api/draft") {
         const payload = await readJson(request);
         database.saveDraft(Number(payload.thread_id), String(payload.body || ""));
@@ -583,6 +630,34 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         if (!validateTwilioSignature(url.pathname, fields, String(request.headers["x-twilio-signature"] || ""))) return sendJson(response, { error: "Invalid Twilio signature" }, 403);
         const update = twilioAdapter.parseStatus!(fields);
         database.updateDeliveryStatus(update.providerMessageId, update.status);
+        return sendJson(response, { ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/webhooks/voice/twiml") {
+        const fields = await readForm(request);
+        if (!validateTwilioSignature(url.pathname, fields, String(request.headers["x-twilio-signature"] || ""))) return sendJson(response, { error: "Invalid Twilio signature" }, 403);
+        const xml = Buffer.from('<?xml version="1.0" encoding="UTF-8"?><Response><Pause length="60"/></Response>');
+        response.writeHead(200, { "Content-Type": "application/xml", "Content-Length": xml.length });
+        return response.end(xml);
+      }
+      if (request.method === "POST" && url.pathname === "/webhooks/voice/status") {
+        const fields = await readForm(request);
+        if (!validateTwilioSignature(url.pathname, fields, String(request.headers["x-twilio-signature"] || ""))) return sendJson(response, { error: "Invalid Twilio signature" }, 403);
+        if (fields.CallSid && !database.callByProviderCallId(fields.CallSid) && String(fields.Direction || "").startsWith("inbound")) {
+          const inbound = twilioVoiceAdapter.parseInboundCall!(fields);
+          database.createCall({
+            localCallId: `twilio-${inbound.providerCallId}`,
+            providerKind: "voice_edge",
+            providerName: "twilio",
+            providerCallId: inbound.providerCallId,
+            direction: "inbound",
+            from: inbound.from,
+            to: inbound.to,
+            status: inbound.status,
+            startedAt: inbound.occurredAt || null
+          });
+        }
+        const update = twilioVoiceAdapter.parseCallStatus!(fields);
+        if (update.providerCallId) database.applyCallStatus(update);
         return sendJson(response, { ok: true });
       }
       if (request.method === "POST" && url.pathname === "/webhooks/telnyx") {

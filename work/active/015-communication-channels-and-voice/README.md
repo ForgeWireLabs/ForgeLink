@@ -306,7 +306,7 @@ only if a concrete operator deployment requires it.
   - Acceptance: Documentation states that PSTN calling requires a telecom edge
     such as a provider, SIP trunk, carrier partnership, or direct interconnect.
 
-- [ ] **CLV-013 Implement Twilio Voice as the first voice telecom edge adapter.** Restore the
+- [x] **CLV-013 Implement Twilio Voice as the first voice telecom edge adapter.** Restore the
   useful SCOUT-2 voice capability through the new TypeScript/Electron architecture,
   not by restoring Python code.
   - Acceptance: Outbound call start/end works through the provider contract.
@@ -539,3 +539,4 @@ Add or update docs for:
 | 2026-06-20 | CLV-010 complete | Contact-point editor + API client methods; unknown inbound threads remain unlinked until acted on; attach-to-existing adds a contact point; create-from-thread, ignore, and block routes added; message threads resolve through contact_points | CLV-010 satisfied (evidence 20260620-clv010-contact-points). CLV-011 attention enforcement remains next. |
 | 2026-06-20 | CLV-011 complete | Contact policy editor + API client methods; inbound SMS from muted/blocked contact points persists without unread attention; contact-resolved agent messages enforce allow-agent, approval-request, urgent-interrupt, muted, and blocked policy gates | CLV-011 satisfied (evidence 20260620-clv011-contact-policy). Phase 3 contact metadata/policy complete; voice runtime criteria are next. |
 | 2026-06-20 | CLV-012 complete | Provider-neutral voice runtime contract added with local call/request/result/status/persistence shapes, adapter hooks for voice availability/start/end/inbound/status, deterministic contract tests, and `docs/voice-runtime.md` boundary documentation | CLV-012 satisfied (evidence 20260620-clv012-voice-contracts). Twilio Voice implementation remains CLV-013. |
+| 2026-06-20 | CLV-013 complete | Twilio Voice edge adapter added with outbound start/end, schema v10 durable call rows, signed voice status callbacks, inbound call-row creation, idempotent status transitions, redacted provider errors, and deterministic database/adapter/server tests | CLV-013 satisfied (evidence 20260620-clv013-twilio-voice-edge). Twilio Verify scope decision remains CLV-014. |

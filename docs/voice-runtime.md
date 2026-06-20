@@ -87,3 +87,11 @@ Call recording, transcription, audio streaming, voicemail, emergency calling,
 caller ID reputation, CNAM, STIR/SHAKEN, and E911 behavior are separate explicit
 decisions. The UI must not imply those features are shipped until their own
 criteria and evidence exist.
+
+## Twilio edge implementation
+
+Twilio Voice is the first implemented `voice_edge` adapter. Setup, callback
+routes, and current limitations are documented in [`twilio.md`](twilio.md). The
+implementation starts and ends provider calls through the channel adapter,
+persists local call rows before provider calls, reconciles Twilio call SIDs onto
+those rows, and applies signed status callbacks idempotently.

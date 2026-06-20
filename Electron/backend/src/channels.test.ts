@@ -83,10 +83,13 @@ test("send conforms to the SendResult contract", async () => {
 
 test("voice edge adapters expose provider-neutral call control and status normalization", async () => {
   const registry = createChannelRegistry();
+  registry.register(fakeAdapter("twilio", "sms_mms_edge", ["sms_send"]));
   registry.register(fakeVoiceAdapter());
 
   const adapter = registry.select("voice_start");
   assert.equal(adapter.capabilities().kind, "voice_edge");
+  assert.equal(registry.select("sms_send", "twilio").capabilities().kind, "sms_mms_edge");
+  assert.equal(registry.select("voice_start", "twilio").capabilities().kind, "voice_edge");
   assert.ok(adapter.startCall);
   assert.ok(adapter.endCall);
   assert.ok(adapter.parseInboundCall);

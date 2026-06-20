@@ -1,0 +1,60 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260620-clv013-twilio-voice-edge",
+  "timestamp": "2026-06-20T20:40:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed with schema v10 call rows, Twilio Voice adapter support, and call API/webhook routes."
+    },
+    {
+      "command": "node --test backend-dist/channels.test.js backend-dist/twilio.test.js backend-dist/database.test.js backend-dist/migration.test.js backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Focused backend coverage passed: 40/40 tests. Coverage includes same-provider SMS/Voice registry selection, Twilio Voice start/end and parsers, durable call rows, idempotent status callbacks, inbound call-row creation, invalid signature rejection, and redacted provider errors."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron suite green: 77 tests passed and 1 opt-in live Twilio test skipped by design. Backend build, renderer build, renderer tests, backend node tests, and runtime syntax checks passed."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Local system audit passed after marking CLV-013 satisfied: required files, 18 work items, lifecycle counts, stale README checks, work item manifests, and Markdown link/date checks are current."
+    },
+    {
+      "command": "python scripts/repopact_cli.py dashboard && python scripts/repopact_cli.py doctor && python scripts/validate_repo.py",
+      "exit_code": 0,
+      "summary": "RepoPact records are current: dashboard regenerated, doctor reports healthy, and repository governance validation passed."
+    },
+    {
+      "command": "npm run scan:secrets && npm run scan:deps",
+      "exit_code": 0,
+      "summary": "Secret scan clean and production dependency audit reports 0 vulnerabilities."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/channels.ts",
+    "Electron/backend/src/channels.test.ts",
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/backend/src/twilio.ts",
+    "Electron/backend/src/twilio.test.ts",
+    "audits/reports/dashboard.md",
+    "docs/twilio.md",
+    "docs/voice-runtime.md",
+    "work/active/015-communication-channels-and-voice/README.md",
+    "work/active/015-communication-channels-and-voice/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "015 CLV-013 (Twilio Voice edge). Twilio Voice is implemented as a provider-neutral voice_edge adapter with outbound call start/end, signed Twilio voice status callbacks, inbound call-row creation, schema v10 durable calls, idempotent lifecycle transitions, and redacted provider errors. The TwiML endpoint intentionally provides minimal call-control plumbing only; media bridge, recording, transcription, voicemail, emergency calling, CNAM, STIR/SHAKEN, and E911 behavior remain out of scope until separate criteria exist."
+  }
+}

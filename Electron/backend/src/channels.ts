@@ -212,21 +212,21 @@ export interface ChannelRegistry {
 }
 
 export function createChannelRegistry(): ChannelRegistry {
-  const adapters = new Map<string, ChannelAdapter>();
+  const adapters: ChannelAdapter[] = [];
   return {
     register(adapter) {
-      adapters.set(adapter.capabilities().provider, adapter);
+      adapters.push(adapter);
     },
     get(provider) {
-      return adapters.get(provider);
+      return adapters.find((adapter) => adapter.capabilities().provider === provider);
     },
     list() {
-      return [...adapters.values()].map((adapter) => adapter.capabilities());
+      return adapters.map((adapter) => adapter.capabilities());
     },
     select(capability, provider) {
       const pool = provider
-        ? (adapters.has(provider) ? [adapters.get(provider) as ChannelAdapter] : [])
-        : [...adapters.values()];
+        ? adapters.filter((adapter) => adapter.capabilities().provider === provider)
+        : adapters;
       const match = pool.find((adapter) => adapter.supports(capability));
       if (!match) throw new UnsupportedCapabilityError(capability, provider);
       return match;

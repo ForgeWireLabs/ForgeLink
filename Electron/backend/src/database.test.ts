@@ -236,6 +236,40 @@ test("stores contact metadata, points, and policy (CLV-009/010/011)", () => {
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
+test("stores durable call rows and applies idempotent voice status callbacks (CLV-013)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-calls-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const contactId = database.upsertContact("Ada", "+15551234567");
+    const call = database.createCall({
+      localCallId: "call-local-1",
+      providerKind: "voice_edge",
+      providerName: "twilio",
+      direction: "outbound",
+      from: "+15550000000",
+      to: "+15551234567",
+      status: "queued"
+    });
+    assert.equal(call.contact_id, contactId);
+    assert.equal(call.contact_point_id, database.contactPoints(contactId)[0].id);
+
+    const started = database.markCallStarted("call-local-1", "CA123", "ringing");
+    assert.equal(started.provider_call_id, "CA123");
+    assert.equal(started.status, "ringing");
+    assert.equal(database.applyCallStatus({ providerCallId: "CA123", status: "queued" }), false);
+    assert.equal(database.applyCallStatus({ providerCallId: "CA123", status: "in_progress", answeredAt: "2026-06-20T21:00:00.000Z" }), true);
+    assert.equal(database.applyCallStatus({ providerCallId: "CA123", status: "completed", endedAt: "2026-06-20T21:01:00.000Z", durationSeconds: 60 }), true);
+    assert.equal(database.applyCallStatus({ providerCallId: "CA123", status: "failed", redactedError: "late failure" }), false);
+
+    const completed = database.callByProviderCallId("CA123")!;
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.duration_seconds, 60);
+    assert.equal(completed.redacted_error, "");
+    const exported = database.exportData() as { calls: Array<{ local_call_id: string }> };
+    assert.deepEqual(exported.calls.map((row) => row.local_call_id), ["call-local-1"]);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("resolves inbound threads through contact points and handles unknown numbers (CLV-010)", () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-contact-points-"));
   const database = new PhoneDatabase(join(directory, "phone.sqlite3"));

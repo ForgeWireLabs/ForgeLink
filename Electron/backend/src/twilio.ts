@@ -1,6 +1,19 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { normalizeNumber } from "./phone";
-import { ChannelAdapter, ChannelCapabilities, DeliveryStatusUpdate, InboundMessage, OutboundMessage, SendResult } from "./channels";
+import {
+  CallStatus,
+  CallStatusUpdate,
+  ChannelAdapter,
+  ChannelCapabilities,
+  DeliveryStatusUpdate,
+  EndCallResult,
+  InboundCallEvent,
+  InboundMessage,
+  OutboundCallRequest,
+  OutboundMessage,
+  SendResult,
+  StartCallResult
+} from "./channels";
 
 export interface TwilioConfig {
   accountSid: string;
@@ -38,6 +51,53 @@ export async function sendTwilioMessage(toValue: string, body: string, mediaUrls
   return payload;
 }
 
+function twilioAuthorization(config: TwilioConfig): string {
+  return Buffer.from(`${config.accountSid}:${config.authToken}`).toString("base64");
+}
+
+function requireTwilioVoiceConfig(): TwilioConfig {
+  const config = loadTwilioConfig();
+  if (!config.accountSid || !config.authToken || !config.phoneNumber || !config.publicBaseUrl) {
+    throw new Error("Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, and TWILIO_PUBLIC_BASE_URL.");
+  }
+  return config;
+}
+
+export async function startTwilioCall(request: OutboundCallRequest): Promise<Record<string, unknown>> {
+  const config = requireTwilioVoiceConfig();
+  const fields = new URLSearchParams({
+    To: normalizeNumber(request.to),
+    From: normalizeNumber(request.from || config.phoneNumber),
+    Url: `${config.publicBaseUrl}/webhooks/voice/twiml`,
+    Method: "POST",
+    StatusCallback: `${config.publicBaseUrl}/webhooks/voice/status`,
+    StatusCallbackMethod: "POST",
+    StatusCallbackEvent: "initiated ringing answered completed"
+  });
+  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${config.accountSid}/Calls.json`, {
+    method: "POST",
+    headers: { Authorization: `Basic ${twilioAuthorization(config)}`, "Content-Type": "application/x-www-form-urlencoded" },
+    body: fields,
+    signal: AbortSignal.timeout(20_000)
+  });
+  const payload = await response.json() as Record<string, unknown>;
+  if (!response.ok) throw new Error(`Twilio rejected the call (${response.status}).`);
+  return payload;
+}
+
+export async function endTwilioCall(providerCallId: string): Promise<Record<string, unknown>> {
+  const config = requireTwilioVoiceConfig();
+  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${config.accountSid}/Calls/${encodeURIComponent(providerCallId)}.json`, {
+    method: "POST",
+    headers: { Authorization: `Basic ${twilioAuthorization(config)}`, "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ Status: "completed" }),
+    signal: AbortSignal.timeout(20_000)
+  });
+  const payload = await response.json() as Record<string, unknown>;
+  if (!response.ok) throw new Error(`Twilio rejected the call update (${response.status}).`);
+  return payload;
+}
+
 export function validateTwilioSignature(pathname: string, fields: Record<string, string>, signature: string): boolean {
   const config = loadTwilioConfig();
   if (!config.authToken || !config.publicBaseUrl || !signature) return false;
@@ -59,6 +119,38 @@ export function parseTwilioInbound(fields: Record<string, string>): InboundMessa
 
 export function parseTwilioStatus(fields: Record<string, string>): DeliveryStatusUpdate {
   return { providerMessageId: fields.MessageSid || "", status: fields.MessageStatus || "" };
+}
+
+export function normalizeTwilioCallStatus(status: string): CallStatus {
+  const normalized = status.toLowerCase().replace(/-/g, "_");
+  if (normalized === "initiated") return "queued";
+  if (normalized === "in_progress" || normalized === "answered") return "in_progress";
+  if (normalized === "no_answer") return "no_answer";
+  if (["queued", "ringing", "completed", "failed", "busy", "canceled"].includes(normalized)) return normalized as CallStatus;
+  return "failed";
+}
+
+export function parseTwilioInboundCall(fields: Record<string, string>): InboundCallEvent {
+  return {
+    providerCallId: fields.CallSid || null,
+    direction: "inbound",
+    from: fields.From || "",
+    to: fields.To || "",
+    status: normalizeTwilioCallStatus(fields.CallStatus || "ringing"),
+    occurredAt: fields.Timestamp || undefined
+  };
+}
+
+export function parseTwilioCallStatus(fields: Record<string, string>): CallStatusUpdate {
+  const duration = fields.CallDuration ? Number(fields.CallDuration) : null;
+  return {
+    providerCallId: fields.CallSid || "",
+    status: normalizeTwilioCallStatus(fields.CallStatus || ""),
+    startedAt: fields.StartTime || null,
+    answeredAt: fields.CallStatus === "in-progress" ? (fields.Timestamp || null) : null,
+    endedAt: ["completed", "failed", "busy", "no-answer", "canceled"].includes(fields.CallStatus || "") ? (fields.Timestamp || null) : null,
+    durationSeconds: Number.isFinite(duration) ? duration : null
+  };
 }
 
 const TWILIO_CAPABILITIES: ChannelCapabilities = {
@@ -85,5 +177,43 @@ export function createTwilioAdapter(sender: typeof sendTwilioMessage = sendTwili
     },
     parseInbound: (payload) => parseTwilioInbound(payload as Record<string, string>),
     parseStatus: (payload) => parseTwilioStatus(payload as Record<string, string>)
+  };
+}
+
+const TWILIO_VOICE_CAPABILITIES: ChannelCapabilities = {
+  kind: "voice_edge",
+  provider: "twilio",
+  displayName: "Twilio Voice",
+  capabilities: ["voice_call", "voice_start", "voice_end", "voice_status", "inbound_call"]
+};
+
+export function createTwilioVoiceAdapter(
+  starter: typeof startTwilioCall = startTwilioCall,
+  ender: typeof endTwilioCall = endTwilioCall
+): ChannelAdapter {
+  return {
+    capabilities: () => TWILIO_VOICE_CAPABILITIES,
+    supports: (capability) => TWILIO_VOICE_CAPABILITIES.capabilities.includes(capability),
+    validateCredentials: async () => {
+      const config = loadTwilioConfig();
+      const ok = Boolean(config.accountSid && config.authToken && config.phoneNumber && config.publicBaseUrl);
+      return ok ? { ok, phoneNumber: config.phoneNumber } : { ok, error: "Twilio voice requires account SID, auth token, phone number, and public base URL." };
+    },
+    send: async () => { throw new Error("Twilio Voice does not send messages."); },
+    voiceAvailability: async () => {
+      const config = loadTwilioConfig();
+      const ok = Boolean(config.accountSid && config.authToken && config.phoneNumber && config.publicBaseUrl);
+      return ok ? { available: true, provider: "twilio" } : { available: false, provider: "twilio", reason: "missing_credentials", message: "Twilio voice requires account SID, auth token, phone number, and public base URL." };
+    },
+    startCall: async (request): Promise<StartCallResult> => {
+      const raw = await starter(request);
+      return { providerCallId: raw.sid ? String(raw.sid) : null, status: normalizeTwilioCallStatus(String(raw.status || "queued")), raw };
+    },
+    endCall: async (providerCallId): Promise<EndCallResult> => {
+      const raw = await ender(providerCallId);
+      return { providerCallId: raw.sid ? String(raw.sid) : providerCallId, status: normalizeTwilioCallStatus(String(raw.status || "completed")), raw };
+    },
+    parseInboundCall: (payload) => parseTwilioInboundCall(payload as Record<string, string>),
+    parseCallStatus: (payload) => parseTwilioCallStatus(payload as Record<string, string>)
   };
 }
