@@ -1,4 +1,4 @@
-import type { AgentMessage, BackendConnection, ConfigStatus, Contact, ContactPoint, DataStatus, Message, RetentionResult, SignalItem, SignalSubscription, Thread } from "./types";
+import type { AgentMessage, BackendConnection, ConfigStatus, Contact, ContactPoint, ContactPolicy, DataStatus, Message, RetentionResult, SignalItem, SignalSubscription, Thread } from "./types";
 
 export class PhoneApi {
   constructor(private connection: () => BackendConnection) {}
@@ -38,6 +38,8 @@ export class PhoneApi {
   contactPoints = (contactId: number) => this.request<ContactPoint[]>(`/api/contacts/points?contact_id=${contactId}`);
   addContactPoint = (contactId: number, kind: string, value: string, label: string, isPrimary: boolean) => this.request<{ ok: true; id: number }>("/api/contacts/points", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contact_id: contactId, kind, value, label, is_primary: isPrimary }) });
   setContactPointBlocked = (pointId: number, blocked: boolean) => this.request<{ ok: true }>("/api/contacts/points/block", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ point_id: pointId, blocked }) });
+  contactPolicy = (contactId: number) => this.request<ContactPolicy>(`/api/contacts/policy?contact_id=${contactId}`);
+  setContactPolicy = (contactId: number, policy: Partial<ContactPolicy>) => this.request<ContactPolicy>("/api/contacts/policy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contact_id: contactId, ...policy }) });
   linkThread = (threadId: number, contactId: number) => this.request("/api/link-thread", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thread_id: threadId, contact_id: contactId }) });
   ignoreUnknownNumber = (threadId: number) => this.request<{ ok: true }>("/api/unknown-number/ignore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thread_id: threadId }) });
   blockUnknownNumber = (threadId: number) => this.request<{ ok: true; id: number }>("/api/unknown-number/block", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ thread_id: threadId }) });

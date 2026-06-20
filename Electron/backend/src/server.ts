@@ -392,6 +392,13 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const urgency = String(payload.urgency || "normal");
         if (!AGENT_URGENCIES.has(urgency)) throw new Error("urgency is invalid.");
         const channelId = agentMessageMatch[1];
+        const source = boundedText(payload.source, "source", 80, /^[A-Za-z0-9_.:-]+$/);
+        const kind = boundedText(payload.kind, "kind", 80, /^[A-Za-z0-9_.:-]+$/);
+        const policyDecision = database.agentContactPolicyDecision(source, kind, urgency);
+        if (!policyDecision.allowed) {
+          database.markAgentChannelRejected(channelId, urgency, policyDecision.reason);
+          return sendJson(response, { error: "Contact policy rejected this agent message.", reason: policyDecision.reason, contact_id: policyDecision.contact_id }, 403);
+        }
         const limit = CHANNEL_LIMITS[urgency] ?? CHANNEL_LIMITS.normal;
         const count = database.agentChannelAcceptedCount(channelId, urgency, rateWindowStart());
         if (count >= limit) {
@@ -401,8 +408,8 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const message = database.addAgentMessage({
           id: String(payload.id || `agent-${randomUUID()}`).slice(0, 120),
           channel_id: channelId,
-          source: boundedText(payload.source, "source", 80, /^[A-Za-z0-9_.:-]+$/),
-          kind: boundedText(payload.kind, "kind", 80, /^[A-Za-z0-9_.:-]+$/),
+          source,
+          kind,
           urgency: urgency as AgentUrgency,
           title: boundedText(payload.title, "title", 160),
           body: boundedText(payload.body, "body", 4000),

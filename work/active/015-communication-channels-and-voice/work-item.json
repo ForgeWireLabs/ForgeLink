@@ -113,8 +113,10 @@
     {
       "id": "CLV-011",
       "text": "Add contact-level policy for agent messages, approval requests, urgent interrupts, quiet hours, mute/block behavior, and trust levels without giving unknown inbound contacts implicit privileges.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260620-clv011-contact-policy"
+      ]
     },
     {
       "id": "CLV-012",

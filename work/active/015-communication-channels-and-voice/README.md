@@ -281,7 +281,7 @@ only if a concrete operator deployment requires it.
   - Acceptance: Message threads and call logs resolve contact identity through
     contact points rather than a single flat number field.
 
-- [ ] **CLV-011 Add contact-level policy.** Add policy metadata that controls
+- [x] **CLV-011 Add contact-level policy.** Add policy metadata that controls
   how contacts interact with agent messages, approval requests, urgent
   interrupts, quiet hours, and blocked/muted behavior.
   - Acceptance: Contact policy can represent unknown, known, trusted, operator,
@@ -537,3 +537,4 @@ Add or update docs for:
 | 2026-06-18 | Phase 3 data foundation | Schema v8 (contact metadata + contact_points + contact_policy, transactional + backed up, existing contacts backfilled); backend methods + tests | CLV-009/010/011 data layer landed (evidence 20260618-clv-phase3-data); API + renderer UI + attention enforcement remaining. |
 | 2026-06-20 | CLV-009 complete | Six token-gated contact endpoints (update/delete/points/policy); renderer Edit modal (company/role/tags/notes/trust-level/pinned/favorite) + confirm-guarded delete; v8 migration hardened to skip pre-existing legacy columns | CLV-009 satisfied (evidence 20260620-clv009-contacts-ui). CLV-010 unknown-inbound handling + CLV-011 attention enforcement remain. |
 | 2026-06-20 | CLV-010 complete | Contact-point editor + API client methods; unknown inbound threads remain unlinked until acted on; attach-to-existing adds a contact point; create-from-thread, ignore, and block routes added; message threads resolve through contact_points | CLV-010 satisfied (evidence 20260620-clv010-contact-points). CLV-011 attention enforcement remains next. |
+| 2026-06-20 | CLV-011 complete | Contact policy editor + API client methods; inbound SMS from muted/blocked contact points persists without unread attention; contact-resolved agent messages enforce allow-agent, approval-request, urgent-interrupt, muted, and blocked policy gates | CLV-011 satisfied (evidence 20260620-clv011-contact-policy). Phase 3 contact metadata/policy complete; voice runtime criteria are next. |

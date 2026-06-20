@@ -272,3 +272,32 @@ test("resolves inbound threads through contact points and handles unknown number
     assert.ok(database.contactPoints(newContactId).some((point) => point.value === "+15556667777" && point.is_primary === 1));
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
+
+test("enforces contact policy for inbound attention and agent privileges (CLV-011)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-contact-policy-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const contactId = database.upsertContact("Operator", "+15551230000");
+    database.addContactPoint(contactId, "handle", "fabric", "agent", false);
+    assert.equal(database.agentContactPolicyDecision("fabric", "approval_request", "normal").allowed, false);
+    assert.equal(database.agentContactPolicyDecision("fabric", "alert", "urgent").reason, "urgent_interrupts_disallowed");
+    let policy = database.setContactPolicy(contactId, { trust_level: "operator", allow_agent_messages: true, allow_approval_requests: true, allow_urgent_interrupts: true, quiet_hours_override: true });
+    assert.equal(policy.quiet_hours_override, 1);
+    assert.equal(database.agentContactPolicyDecision("fabric", "approval_request", "urgent").allowed, true);
+
+    policy = database.setContactPolicy(contactId, { trust_level: "operator", allow_agent_messages: true, allow_approval_requests: true, allow_urgent_interrupts: true, muted_until: "2099-01-01T00:00:00.000Z" });
+    assert.equal(database.addMessage({ id: "MUTED", number: "+15551230000", direction: "inbound", body: "quiet" }), true);
+    assert.equal(database.threads().find((thread) => thread.canonical_number === "+15551230000")!.unread_count, 0);
+    assert.equal(database.agentContactPolicyDecision("fabric", "alert", "normal").reason, "contact_muted");
+
+    database.setContactPolicy(contactId, { trust_level: "blocked", allow_agent_messages: false, blocked: true });
+    assert.equal(database.addMessage({ id: "BLOCKED", number: "+15551230000", direction: "inbound", body: "blocked" }), true);
+    assert.equal(database.threads().find((thread) => thread.canonical_number === "+15551230000")!.unread_count, 0);
+    assert.equal(database.agentContactPolicyDecision("fabric", "alert", "normal").reason, "contact_blocked");
+
+    assert.equal(database.agentContactPolicyDecision("unknown-source", "approval_request", "urgent").allowed, true);
+    const unknown = database.getContactPolicy(99999);
+    assert.equal(unknown.allow_approval_requests, 0);
+    assert.equal(unknown.allow_urgent_interrupts, 0);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});

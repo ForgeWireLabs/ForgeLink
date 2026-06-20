@@ -131,7 +131,7 @@ test("backs up, exports, restores, and reports managed data", async () => {
     assert.equal(readFileSync(join(directory, "uploads", "proof.txt"), "utf8"), "before backup");
 
     const status = await fetch(`${localUrl}/api/data/status`, { headers: authorized() }).then((response) => response.json()) as { schema_version: number; backup_count: number; latest_backup: string };
-    assert.equal(status.schema_version, 8);
+    assert.equal(status.schema_version, 9);
     assert.equal(status.backup_count, 1);
     assert.match(status.latest_backup, /^backup-/);
   } finally {
@@ -237,7 +237,7 @@ test("manages MCP token and restricts it to agent-safe routes", async () => {
 
 test("accepts authenticated agent channel messages and records human actions", async () => {
   const directory = mkdtempSync(join(tmpdir(), "twilio-phone-agent-api-"));
-  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
   const localUrl = `http://127.0.0.1:${port}`;
@@ -270,6 +270,32 @@ test("accepts authenticated agent channel messages and records human actions", a
     const actedPayload = await acted.json() as { message: { status: string; action_result: string } };
     assert.equal(actedPayload.message.status, "acted");
     assert.match(actedPayload.message.action_result, /approve/);
+
+    const contactId = database.upsertContact("Fabric", "+15550001111");
+    database.addContactPoint(contactId, "handle", "fabric-agent", "agent", false);
+    let policyRejected = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": token },
+      body: JSON.stringify({ id: "agent-policy-approval", source: "fabric-agent", kind: "approval_request", urgency: "normal", title: "Blocked approval", body: "Needs policy.", actions: [{ id: "approve", label: "Approve" }] })
+    });
+    assert.equal(policyRejected.status, 403);
+    assert.equal((await policyRejected.json() as { reason: string }).reason, "approval_requests_disallowed");
+
+    database.setContactPolicy(contactId, { trust_level: "operator", allow_agent_messages: true, allow_approval_requests: true, allow_urgent_interrupts: false });
+    policyRejected = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": token },
+      body: JSON.stringify({ id: "agent-policy-urgent", source: "fabric-agent", kind: "alert", urgency: "urgent", title: "Blocked urgent", body: "Needs urgent policy." })
+    });
+    assert.equal(policyRejected.status, 403);
+    assert.equal((await policyRejected.json() as { reason: string }).reason, "urgent_interrupts_disallowed");
+    database.setContactPolicy(contactId, { trust_level: "operator", allow_agent_messages: true, allow_approval_requests: true, allow_urgent_interrupts: true });
+    const policyAllowed = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": token },
+      body: JSON.stringify({ id: "agent-policy-ok", source: "fabric-agent", kind: "approval_request", urgency: "normal", title: "Allowed approval", body: "Policy allows it.", actions: [{ id: "approve", label: "Approve" }] })
+    });
+    assert.equal(policyAllowed.status, 201);
 
     const invalid = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ source: "forgewire", kind: "alert", urgency: "loud", title: "Bad", body: "Bad" }) });
     assert.equal(invalid.status, 401);

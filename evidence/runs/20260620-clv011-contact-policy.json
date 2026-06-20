@@ -1,0 +1,59 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260620-clv011-contact-policy",
+  "timestamp": "2026-06-20T20:14:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build && node --test backend-dist/database.test.js backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Database and HTTP coverage for CLV-011 passed. Schema v9 adds contact_policy.quiet_hours_override. Contact policy decisions suppress unread attention for muted/blocked inbound contacts, reject contact-resolved agent messages when agent messages, approval requests, or urgent interrupts are disallowed, and allow explicitly trusted/operator policies. 28/28 selected backend/migration tests pass."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "Renderer coverage passed. Contact edit modal loads contact policy, saves trust level plus allow-agent/approval/urgent/quiet-hours-override/block/muted policy fields through POST /api/contacts/policy, and preserves existing contact metadata/contact-point flows. 22/22 renderer tests pass."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full suite green: 72 deterministic tests pass, 1 live Twilio test skipped by design. Backend build, renderer build, renderer interaction tests, backend node tests, and main/preload/runtime syntax checks all passed."
+    },
+    {
+      "command": "python scripts/repopact_cli.py dashboard && python scripts/repopact_cli.py doctor && python scripts/validate_repo.py",
+      "exit_code": 0,
+      "summary": "RepoPact records are current: dashboard regenerated, doctor reports healthy, and repository governance validation passed."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Local system audit passed: required files, 18 work items, lifecycle counts, stale README checks, work item manifests, and Markdown link/date checks are current."
+    },
+    {
+      "command": "npm run scan:secrets && npm run scan:deps",
+      "exit_code": 0,
+      "summary": "Secret scan clean and production dependency audit reports 0 vulnerabilities."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/backend/src/migration.test.ts",
+    "Electron/renderer/src/api.ts",
+    "Electron/renderer/src/types.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "audits/reports/dashboard.md",
+    "work/active/015-communication-channels-and-voice/README.md",
+    "work/active/015-communication-channels-and-voice/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "015 Phase 3 CLV-011 (contact-level policy). Contact policy is now enforceable, not just persisted, and schema v9 adds quiet_hours_override for contact-specific attention policy representation. SMS/MMS inbound from blocked or muted contact points is durably stored but does not raise unread attention. Agent-channel messages whose source resolves through contact_points are rejected when the contact is blocked/muted, disallows agent messages, disallows approval requests for approval kinds, or disallows urgent interrupts for urgent messages. Unknown agent sources keep current local-channel behavior, while unknown contact policy defaults still deny approval and urgent privileges. Future voice behavior will reuse the same policy helpers when call rows and voice events are added."
+  }
+}

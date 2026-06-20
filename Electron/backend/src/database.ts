@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 
 export interface ThreadRow {
   id: number;
@@ -53,6 +53,12 @@ export interface AgentMessageInput {
   actions?: AgentAction[];
   expires_at?: string | null;
   created_at?: string;
+}
+
+export interface ContactPolicyDecision {
+  allowed: boolean;
+  reason: string;
+  contact_id: number | null;
 }
 
 export interface AgentMessageRow {
@@ -434,6 +440,12 @@ export class PhoneDatabase {
         version = 8;
         this.connection.exec("PRAGMA user_version=8");
       }
+      if (version === 8) {
+        const existingPolicyColumns = new Set((this.connection.prepare("PRAGMA table_info(contact_policy)").all() as Array<{ name: string }>).map(column => column.name));
+        if (!existingPolicyColumns.has("quiet_hours_override")) this.connection.exec("ALTER TABLE contact_policy ADD COLUMN quiet_hours_override INTEGER NOT NULL DEFAULT 0");
+        version = 9;
+        this.connection.exec("PRAGMA user_version=9");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -543,11 +555,12 @@ export class PhoneDatabase {
     const threadId = this.getOrCreateThread(message.number);
     const timestampValue = message.ts || utcNow();
     const media = Array.isArray(message.media_urls) ? message.media_urls : message.media_urls ? [message.media_urls] : [];
+    const attention = message.direction === "inbound" ? this.contactAttentionDecision(message.number, timestampValue) : { allowed: true };
     this.connection.exec("BEGIN IMMEDIATE");
     try {
       const result = this.connection.prepare("INSERT OR IGNORE INTO messages (id, thread_id, direction, body, media_urls, status, ts) VALUES(?, ?, ?, ?, ?, ?, ?)")
         .run(message.id, threadId, message.direction, message.body || "", media.join(","), message.status || "", timestampValue);
-      if (result.changes === 1) this.connection.prepare("UPDATE threads SET last_msg_ts=?, unread_count=unread_count+? WHERE id=?").run(timestampValue, message.direction === "inbound" ? 1 : 0, threadId);
+      if (result.changes === 1) this.connection.prepare("UPDATE threads SET last_msg_ts=?, unread_count=unread_count+? WHERE id=?").run(timestampValue, message.direction === "inbound" && attention.allowed ? 1 : 0, threadId);
       this.connection.exec("COMMIT");
       return result.changes === 1;
     } catch (error) { this.connection.exec("ROLLBACK"); throw error; }
@@ -668,24 +681,48 @@ export class PhoneDatabase {
 
   // Resolve contact identity through contact points rather than a flat number.
   resolveContactIdByValue(value: string): number | null {
-    const normalized = normalizeNumber(value);
-    const row = this.connection.prepare("SELECT contact_id FROM contact_points WHERE value=? OR value=?").get(normalized, value) as { contact_id: number } | undefined;
+    let normalized = "";
+    try { normalized = normalizeNumber(value); } catch { normalized = ""; }
+    const row = this.connection.prepare("SELECT contact_id FROM contact_points WHERE value=? OR value=?").get(normalized, String(value || "").trim()) as { contact_id: number } | undefined;
     return row ? row.contact_id : null;
   }
 
   // Contact policy (CLV-011)
   getContactPolicy(contactId: number): Record<string, unknown> {
     return (this.connection.prepare("SELECT * FROM contact_policy WHERE contact_id=?").get(contactId) as Record<string, unknown> | undefined)
-      || { contact_id: contactId, trust_level: "unknown", allow_agent_messages: 1, allow_approval_requests: 0, allow_urgent_interrupts: 0, muted_until: null, blocked: 0 };
+      || { contact_id: contactId, trust_level: "unknown", allow_agent_messages: 1, allow_approval_requests: 0, allow_urgent_interrupts: 0, quiet_hours_override: 0, muted_until: null, blocked: 0 };
   }
 
   setContactPolicy(contactId: number, policy: Record<string, unknown>): Record<string, unknown> {
     const now = utcNow();
     const trust = String(policy.trust_level ?? "unknown");
-    this.connection.prepare("INSERT INTO contact_policy(contact_id, trust_level, allow_agent_messages, allow_approval_requests, allow_urgent_interrupts, muted_until, blocked, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(contact_id) DO UPDATE SET trust_level=excluded.trust_level, allow_agent_messages=excluded.allow_agent_messages, allow_approval_requests=excluded.allow_approval_requests, allow_urgent_interrupts=excluded.allow_urgent_interrupts, muted_until=excluded.muted_until, blocked=excluded.blocked, updated_at=excluded.updated_at")
-      .run(contactId, trust, policy.allow_agent_messages ? 1 : 0, policy.allow_approval_requests ? 1 : 0, policy.allow_urgent_interrupts ? 1 : 0, policy.muted_until ? String(policy.muted_until) : null, policy.blocked ? 1 : 0, now, now);
+    this.connection.prepare("INSERT INTO contact_policy(contact_id, trust_level, allow_agent_messages, allow_approval_requests, allow_urgent_interrupts, quiet_hours_override, muted_until, blocked, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(contact_id) DO UPDATE SET trust_level=excluded.trust_level, allow_agent_messages=excluded.allow_agent_messages, allow_approval_requests=excluded.allow_approval_requests, allow_urgent_interrupts=excluded.allow_urgent_interrupts, quiet_hours_override=excluded.quiet_hours_override, muted_until=excluded.muted_until, blocked=excluded.blocked, updated_at=excluded.updated_at")
+      .run(contactId, trust, policy.allow_agent_messages ? 1 : 0, policy.allow_approval_requests ? 1 : 0, policy.allow_urgent_interrupts ? 1 : 0, policy.quiet_hours_override ? 1 : 0, policy.muted_until ? String(policy.muted_until) : null, policy.blocked ? 1 : 0, now, now);
     this.connection.prepare("UPDATE contacts SET trust_level=?, updated_at=? WHERE id=?").run(trust, now, contactId);
     return this.getContactPolicy(contactId);
+  }
+
+  contactAttentionDecision(value: string, nowValue = utcNow()): ContactPolicyDecision {
+    let normalized = "";
+    try { normalized = normalizeNumber(value); } catch { normalized = ""; }
+    const point = this.connection.prepare("SELECT contact_id, blocked_at FROM contact_points WHERE value=? OR value=?").get(normalized, String(value || "").trim()) as { contact_id: number; blocked_at: string | null } | undefined;
+    if (!point) return { allowed: true, reason: "unknown_contact", contact_id: null };
+    const policy = this.getContactPolicy(point.contact_id);
+    if (point.blocked_at || policy.blocked) return { allowed: false, reason: "contact_blocked", contact_id: point.contact_id };
+    if (policy.muted_until && String(policy.muted_until) > nowValue) return { allowed: false, reason: "contact_muted", contact_id: point.contact_id };
+    return { allowed: true, reason: "allowed", contact_id: point.contact_id };
+  }
+
+  agentContactPolicyDecision(source: string, kind: string, urgency: string, nowValue = utcNow()): ContactPolicyDecision {
+    const contactId = this.resolveContactIdByValue(source);
+    if (!contactId) return { allowed: true, reason: "unknown_source", contact_id: null };
+    const policy = this.getContactPolicy(contactId);
+    if (policy.blocked) return { allowed: false, reason: "contact_blocked", contact_id: contactId };
+    if (policy.muted_until && String(policy.muted_until) > nowValue) return { allowed: false, reason: "contact_muted", contact_id: contactId };
+    if (!policy.allow_agent_messages) return { allowed: false, reason: "agent_messages_disallowed", contact_id: contactId };
+    if (kind.includes("approval") && !policy.allow_approval_requests) return { allowed: false, reason: "approval_requests_disallowed", contact_id: contactId };
+    if (urgency === "urgent" && !policy.allow_urgent_interrupts) return { allowed: false, reason: "urgent_interrupts_disallowed", contact_id: contactId };
+    return { allowed: true, reason: "allowed", contact_id: contactId };
   }
 
   linkThread(threadId: number, contactId: number): void {

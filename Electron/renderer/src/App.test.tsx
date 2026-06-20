@@ -20,6 +20,7 @@ let agentMessagesFixture: Array<Record<string, unknown>>;
 let signalSubscriptionsFixture: Array<Record<string, unknown>>;
 let signalItemsFixture: Array<Record<string, unknown>>;
 let contactPointsFixture: Array<Record<string, unknown>>;
+let contactPolicyFixture: Record<string, unknown>;
 
 function response(payload: unknown, ok = true): Promise<Response> { return Promise.resolve({ ok, status: ok ? 200 : 400, json: async () => payload } as Response); }
 
@@ -30,6 +31,7 @@ beforeEach(() => {
   signalSubscriptionsFixture = [signalSubscription];
   signalItemsFixture = [signalItem];
   contactPointsFixture = [{ id: 70, contact_id: 7, kind: "phone", value: "+15557654321", label: "primary", is_primary: 1, blocked_at: null }];
+  contactPolicyFixture = { contact_id: 7, trust_level: "unknown", allow_agent_messages: 1, allow_approval_requests: 0, allow_urgent_interrupts: 0, quiet_hours_override: 0, muted_until: null, blocked: 0 };
   window.desktop = {
     notify: vi.fn(),
     notifyEvent: vi.fn().mockResolvedValue({ notify: true, reason: "allowed", title: "ForgeLink", body: "ForgeLink has an update." }),
@@ -80,6 +82,11 @@ beforeEach(() => {
       const body = JSON.parse(String(init?.body || "{}"));
       contactPointsFixture = contactPointsFixture.map(point => point.id === body.point_id ? { ...point, blocked_at: body.blocked ? "2026-06-20T00:00:00.000Z" : null } : point);
       return response({ ok: true });
+    }
+    if (url.includes("/api/contacts/policy?")) return response(contactPolicyFixture);
+    if (url.endsWith("/api/contacts/policy")) {
+      contactPolicyFixture = { ...contactPolicyFixture, ...JSON.parse(String(init?.body || "{}")) };
+      return response(contactPolicyFixture);
     }
     if (url.includes("/api/contacts")) return response(init?.method === "POST" ? { ok: true } : [contact]);
     if (url.endsWith("/api/unknown-number/ignore")) return response({ ok: true });
@@ -144,14 +151,22 @@ describe("React renderer parity", () => {
     await userEvent.click(screen.getByRole("button", { name: "Contacts" }));
     await screen.findByText("Grace Hopper");
     await userEvent.click(screen.getByRole("button", { name: "Edit Grace Hopper" }));
+    await screen.findByText("Contact policy");
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/contacts/policy?contact_id=7"))).toBe(true));
     await userEvent.type(screen.getByLabelText("Company"), "Navy");
     await userEvent.selectOptions(screen.getByLabelText("Trust level"), "trusted");
     await userEvent.click(screen.getByLabelText("Pinned"));
+    await userEvent.click(screen.getByLabelText("Allow approval requests"));
+    await userEvent.click(screen.getByLabelText("Allow urgent interrupts"));
+    await userEvent.click(screen.getByLabelText("Override quiet hours"));
     await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
     const update = fetchMock.mock.calls.find(([url]) => String(url).includes("/api/contacts/update"));
     expect(update).toBeTruthy();
     const updateBody = JSON.parse(String(update![1]!.body));
     expect(updateBody).toMatchObject({ id: 7, company: "Navy", trust_level: "trusted", pinned: true });
+    const policy = fetchMock.mock.calls.find(([url, init]) => String(url).endsWith("/api/contacts/policy") && init?.method === "POST");
+    expect(policy).toBeTruthy();
+    expect(JSON.parse(String(policy![1]!.body))).toMatchObject({ contact_id: 7, trust_level: "trusted", allow_agent_messages: 1, allow_approval_requests: 1, allow_urgent_interrupts: 1, quiet_hours_override: 1, blocked: 0 });
 
     await userEvent.click(screen.getByRole("button", { name: "Edit Grace Hopper" }));
     await userEvent.click(screen.getByRole("button", { name: "Delete contact" }));
