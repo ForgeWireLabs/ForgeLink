@@ -1,0 +1,54 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260620-clv012-voice-contracts",
+  "timestamp": "2026-06-20T20:25:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed with the provider-neutral voice contract types and adapter hooks."
+    },
+    {
+      "command": "node --test backend-dist/channels.test.js",
+      "exit_code": 0,
+      "summary": "Channel contract tests passed: 5/5. Coverage includes provider selection, unsupported-capability rejection, SMS send contract, and the voice edge contract for availability, outbound start, inbound call normalization, status normalization, and call end."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron suite green: 73 tests passed and 1 opt-in live Twilio test skipped by design. Backend build, renderer build, renderer interaction tests, backend node tests, and runtime syntax checks passed."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Local system audit passed: required files, 18 work items, lifecycle counts, stale README checks, work item manifests, and Markdown link/date checks are current."
+    },
+    {
+      "command": "python scripts/repopact_cli.py dashboard && python scripts/repopact_cli.py doctor && python scripts/validate_repo.py",
+      "exit_code": 0,
+      "summary": "RepoPact records are current: dashboard regenerated, doctor reports healthy, and repository governance validation passed."
+    },
+    {
+      "command": "npm run scan:secrets && npm run scan:deps",
+      "exit_code": 0,
+      "summary": "Secret scan clean and production dependency audit reports 0 vulnerabilities."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/channels.ts",
+    "Electron/backend/src/channels.test.ts",
+    "audits/reports/dashboard.md",
+    "docs/communications-runtime.md",
+    "docs/voice-runtime.md",
+    "work/active/015-communication-channels-and-voice/README.md",
+    "work/active/015-communication-channels-and-voice/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "015 CLV-012 (voice runtime contracts). ForgeLink now has provider-neutral voice shapes for local call identity, outbound call requests, start/end results, inbound call events, status callbacks, availability/disabled states, call persistence inputs, and redacted provider errors. Voice remains a telecom-edge capability; PSTN calling requires a provider, SIP trunk, carrier partnership, or direct interconnect. Twilio Voice implementation remains CLV-013, and call UI/history remain later criteria."
+  }
+}

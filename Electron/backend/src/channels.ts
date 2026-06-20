@@ -17,6 +17,10 @@ export type Capability =
   | "inbound_sms"
   | "delivery_status"
   | "voice_call"
+  | "voice_start"
+  | "voice_end"
+  | "voice_status"
+  | "inbound_call"
   | "media";
 
 export interface ChannelCapabilities {
@@ -72,9 +76,90 @@ export interface CredentialValidation {
   error?: string;
 }
 
-export interface CallResult {
+export type CallDirection = "inbound" | "outbound";
+
+export type CallStatus =
+  | "queued"
+  | "ringing"
+  | "in_progress"
+  | "completed"
+  | "failed"
+  | "busy"
+  | "no_answer"
+  | "canceled";
+
+export type VoiceDisabledReason =
+  | "not_configured"
+  | "missing_credentials"
+  | "unsupported_provider"
+  | "provider_unavailable";
+
+export interface VoiceAvailability {
+  available: boolean;
+  provider?: string;
+  reason?: VoiceDisabledReason;
+  message?: string;
+}
+
+export interface OutboundCallRequest {
+  localCallId: string;
+  to: string;
+  from?: string;
+  contactId?: number | null;
+  contactPointId?: number | null;
+}
+
+export interface StartCallResult {
   providerCallId: string | null;
-  status: string;
+  status: CallStatus;
+  raw?: Record<string, unknown>;
+}
+
+export type CallResult = StartCallResult;
+
+export interface EndCallResult {
+  providerCallId: string;
+  status: CallStatus;
+  raw?: Record<string, unknown>;
+}
+
+export interface InboundCallEvent {
+  providerCallId: string | null;
+  direction: "inbound";
+  from: string;
+  to: string;
+  status: CallStatus;
+  occurredAt?: string;
+  raw?: Record<string, unknown>;
+}
+
+export interface CallStatusUpdate {
+  providerCallId: string;
+  status: CallStatus;
+  startedAt?: string | null;
+  answeredAt?: string | null;
+  endedAt?: string | null;
+  durationSeconds?: number | null;
+  redactedError?: string;
+  raw?: Record<string, unknown>;
+}
+
+export interface CallRecordInput {
+  localCallId: string;
+  providerKind: "voice_edge";
+  providerName: string;
+  providerCallId?: string | null;
+  direction: CallDirection;
+  from?: string | null;
+  to: string;
+  contactId?: number | null;
+  contactPointId?: number | null;
+  status: CallStatus;
+  startedAt?: string | null;
+  answeredAt?: string | null;
+  endedAt?: string | null;
+  durationSeconds?: number | null;
+  redactedError?: string;
 }
 
 // Every channel adapter implements capability discovery, credential validation,
@@ -85,12 +170,15 @@ export interface ChannelAdapter {
   supports(capability: Capability): boolean;
   validateCredentials(): Promise<CredentialValidation>;
   send(message: OutboundMessage): Promise<SendResult>;
-  startCall?(to: string): Promise<CallResult>;
-  endCall?(providerCallId: string): Promise<void>;
+  voiceAvailability?(): Promise<VoiceAvailability>;
+  startCall?(request: OutboundCallRequest): Promise<StartCallResult>;
+  endCall?(providerCallId: string): Promise<EndCallResult>;
   // Inbound/status payloads differ per provider (form-encoded for Twilio, JSON for
   // Telnyx), so the raw payload is passed as unknown and each adapter interprets it.
   parseInbound?(payload: unknown): InboundMessage;
   parseStatus?(payload: unknown): DeliveryStatusUpdate;
+  parseInboundCall?(payload: unknown): InboundCallEvent;
+  parseCallStatus?(payload: unknown): CallStatusUpdate;
 }
 
 // Providers that are designed but not yet shipped as adapters (CLV-008). Surfaced

@@ -293,7 +293,7 @@ only if a concrete operator deployment requires it.
 
 ### Phase 4: Voice architecture and telecom edge support
 
-- [ ] **CLV-015 Define the voice runtime and edge-provider contract.** Add
+- [x] **CLV-012 Define the voice runtime and edge-provider contract.** Add
   provider-neutral voice contracts for local call state, outbound calls, inbound
   call events, call status, call end, caller/callee identity, call log
   persistence, provider errors, and telecom edge boundaries.
@@ -306,7 +306,7 @@ only if a concrete operator deployment requires it.
   - Acceptance: Documentation states that PSTN calling requires a telecom edge
     such as a provider, SIP trunk, carrier partnership, or direct interconnect.
 
-- [ ] **CLV-016 Implement Twilio Voice as the first voice telecom edge adapter.** Restore the
+- [ ] **CLV-013 Implement Twilio Voice as the first voice telecom edge adapter.** Restore the
   useful SCOUT-2 voice capability through the new TypeScript/Electron architecture,
   not by restoring Python code.
   - Acceptance: Outbound call start/end works through the provider contract.
@@ -317,7 +317,7 @@ only if a concrete operator deployment requires it.
     duplicate callback, invalid callback signature where applicable, missing
     credentials, and provider failure.
 
-- [ ] **CLV-017 Decide Twilio Verify scope.** Decide whether phone verification
+- [ ] **CLV-014 Decide Twilio Verify scope.** Decide whether phone verification
   belongs in ForgeLink as a shipped capability, a future provider capability, or
   out of scope.
   - Acceptance: Decision is recorded in `decisions/` or this work item.
@@ -538,3 +538,4 @@ Add or update docs for:
 | 2026-06-20 | CLV-009 complete | Six token-gated contact endpoints (update/delete/points/policy); renderer Edit modal (company/role/tags/notes/trust-level/pinned/favorite) + confirm-guarded delete; v8 migration hardened to skip pre-existing legacy columns | CLV-009 satisfied (evidence 20260620-clv009-contacts-ui). CLV-010 unknown-inbound handling + CLV-011 attention enforcement remain. |
 | 2026-06-20 | CLV-010 complete | Contact-point editor + API client methods; unknown inbound threads remain unlinked until acted on; attach-to-existing adds a contact point; create-from-thread, ignore, and block routes added; message threads resolve through contact_points | CLV-010 satisfied (evidence 20260620-clv010-contact-points). CLV-011 attention enforcement remains next. |
 | 2026-06-20 | CLV-011 complete | Contact policy editor + API client methods; inbound SMS from muted/blocked contact points persists without unread attention; contact-resolved agent messages enforce allow-agent, approval-request, urgent-interrupt, muted, and blocked policy gates | CLV-011 satisfied (evidence 20260620-clv011-contact-policy). Phase 3 contact metadata/policy complete; voice runtime criteria are next. |
+| 2026-06-20 | CLV-012 complete | Provider-neutral voice runtime contract added with local call/request/result/status/persistence shapes, adapter hooks for voice availability/start/end/inbound/status, deterministic contract tests, and `docs/voice-runtime.md` boundary documentation | CLV-012 satisfied (evidence 20260620-clv012-voice-contracts). Twilio Voice implementation remains CLV-013. |

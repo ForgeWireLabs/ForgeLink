@@ -121,8 +121,10 @@
     {
       "id": "CLV-012",
       "text": "Define provider-neutral voice runtime and telecom edge contracts for local call state, outbound calls, inbound call events, call status, call end, caller/callee identity, call log persistence, provider errors, disabled states, and explicit telecom edge boundaries.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260620-clv012-voice-contracts"
+      ]
     },
     {
       "id": "CLV-013",

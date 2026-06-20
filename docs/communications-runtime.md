@@ -13,6 +13,7 @@ ForgeLink-owned communication state            External transport / provider sta
 -----------------------------------            -----------------------------------
 local inbox / outbox (messages)        <--->   provider message IDs, raw payloads
 delivery state (pending/sent/...)      <--->   provider status callbacks
+local call ledger                      <--->   provider call IDs/status callbacks
 contacts & threads                     <--->   E.164 numbers on the wire
 agent messages / approval requests     <--->   (none — local only)
 attention policy                       <--->   (none — local only)
@@ -35,6 +36,11 @@ configured. The right column is reached only through a `ChannelAdapter`
   identity, intent, urgency, and an audit trail — created, displayed, and
   resolved entirely locally, with no telecom provider involved.
 - **Attention policy**: notification routing rules, local only.
+- **Calls**: provider-neutral call state, caller/callee identity, call lifecycle,
+  local call ledger inputs, and disabled voice states are defined in
+  [`voice-runtime.md`](voice-runtime.md). PSTN reachability always requires a
+  telecom edge such as a provider, SIP trunk, carrier partnership, or direct
+  interconnect.
 
 ## Channels are adapters
 
@@ -47,7 +53,8 @@ Adapter kinds:
 - **native** — local desktop / agent delivery (no provider).
 - **internet** — email, push, chat (future).
 - **sms_mms_edge** — carrier SMS/MMS (Twilio today; Telnyx/Plivo/Bandwidth later).
-- **voice_edge** — PSTN voice (future).
+- **voice_edge** — PSTN voice call control and call-history reconciliation
+  through a telecom edge.
 
 ## How existing SMS/MMS maps in
 
