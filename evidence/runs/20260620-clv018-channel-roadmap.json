@@ -1,0 +1,52 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260620-clv018-channel-roadmap",
+  "timestamp": "2026-06-20T21:18:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "python scripts/repopact_cli.py dashboard",
+      "exit_code": 0,
+      "summary": "Regenerated audits/reports/dashboard.md so Repopact reflects CLV-018 as satisfied with the new decision/evidence records."
+    },
+    {
+      "command": "python scripts/repopact_cli.py doctor",
+      "exit_code": 0,
+      "summary": "Repopact doctor reported the repository healthy after CLV-018 records were updated."
+    },
+    {
+      "command": "python scripts/validate_repo.py",
+      "exit_code": 0,
+      "summary": "Repository governance validation passed with the CLV-018 work item and evidence metadata current."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Local system audit passed: required files, work item manifests, stale README checks, and markdown link/date checks are valid."
+    },
+    {
+      "command": "npm run scan:secrets",
+      "exit_code": 0,
+      "summary": "Secret scan completed cleanly."
+    },
+    {
+      "command": "npm run scan:deps",
+      "exit_code": 0,
+      "summary": "Production dependency audit completed with 0 high-or-higher vulnerabilities."
+    }
+  ],
+  "artifacts": [
+    "decisions/0009-channel-roadmap-and-matrix-exclusion.md",
+    "decisions/README.md",
+    "audits/reports/dashboard.md",
+    "work/active/015-communication-channels-and-voice/README.md",
+    "work/active/015-communication-channels-and-voice/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "015 CLV-018 (channel roadmap records). Decision 0009 records future adapter boundaries for email, push, Telegram, WhatsApp Business, Discord, RSS/Atom, first-party mobile companion, local webhook/LAN integrations, and direct telecom separation. The record documents intended use, privacy/security notes, likely credentials, inbound/outbound capability, quick-action support boundaries, failure modes, and why Matrix is excluded from work item 015."
+  }
+}

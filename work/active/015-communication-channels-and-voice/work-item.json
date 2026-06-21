@@ -169,8 +169,10 @@
     {
       "id": "CLV-018",
       "text": "Add roadmap records for email, push, Telegram, WhatsApp, Discord, RSS, and related adapters, including intended use, privacy/security notes, likely credentials, inbound/outbound capability, quick-action support, failure modes, and Matrix exclusion rationale.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260620-clv018-channel-roadmap"
+      ]
     },
     {
       "id": "CLV-019",
