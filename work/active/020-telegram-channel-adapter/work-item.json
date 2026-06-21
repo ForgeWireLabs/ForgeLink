@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "020",
+  "title": "Telegram Channel Adapter",
+  "status": "active",
+  "owner_scope": "work",
+  "affected_scopes": ["work", "backend", "desktop", "ui", "data", "security", "providers", "contacts", "messaging", "docs", "tooling"],
+  "depends_on": ["015", "016"],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-20T21:30:00Z",
+    "note": "Created before implementation work starts for a Telegram channel adapter derived from CLV-018 roadmap records."
+  },
+  "acceptance_criteria": [
+    {"id": "TG-001", "text": "Define Telegram channel contracts for bot outbound messages, inbound updates, callback queries, media metadata, delivery/failure state, disabled states, and credential validation.", "state": "pending", "evidence": []},
+    {"id": "TG-002", "text": "Implement secure bot-token storage and webhook secret handling with no token leakage through renderer, logs, diagnostics, exports, or screenshots.", "state": "pending", "evidence": []},
+    {"id": "TG-003", "text": "Add explicit contact linking for Telegram chat IDs/handles so no Telegram identity gains trust, approval, or urgent-interrupt privileges automatically.", "state": "pending", "evidence": []},
+    {"id": "TG-004", "text": "Implement outbound text behind the channel registry with deterministic tests for send success, provider rejection, missing credentials, rate limit, disabled state, and malformed recipient.", "state": "pending", "evidence": []},
+    {"id": "TG-005", "text": "Implement inbound update normalization with duplicate handling, webhook validation, bounded text/media metadata, contact resolution, and blocked/muted policy enforcement.", "state": "pending", "evidence": []},
+    {"id": "TG-006", "text": "If inline buttons or callback quick actions ship, require signed callback payloads, expiration, replay protection, local pending-action lookup, and durable audit outcomes.", "state": "pending", "evidence": []},
+    {"id": "TG-007", "text": "Add UI for Telegram setup, allowed chats/contact linking, disabled/planned state, test message, quick-action redaction preview, and provider error display.", "state": "pending", "evidence": []},
+    {"id": "TG-008", "text": "Document setup, privacy limitations, bot-mode caveats, failure modes, and what is shipped versus deferred.", "state": "pending", "evidence": []}
+  ],
+  "created": "2026-06-20",
+  "updated": "2026-06-20"
+}

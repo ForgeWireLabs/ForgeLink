@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "021",
+  "title": "WhatsApp Business Channel",
+  "status": "active",
+  "owner_scope": "work",
+  "affected_scopes": ["work", "backend", "desktop", "ui", "data", "security", "providers", "contacts", "messaging", "docs", "tooling"],
+  "depends_on": ["015", "016"],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-20T21:30:00Z",
+    "note": "Created before implementation work starts for a WhatsApp Business channel derived from CLV-018 roadmap records."
+  },
+  "acceptance_criteria": [
+    {"id": "WA-001", "text": "Define WhatsApp Business channel contracts for outbound messages, templates, inbound webhooks, media metadata, delivery statuses, disabled states, and credential validation.", "state": "pending", "evidence": []},
+    {"id": "WA-002", "text": "Record provider prerequisites including business account, phone number ID, app secret, access token, webhook verify token, opt-in expectations, and template constraints before implementation ships.", "state": "pending", "evidence": []},
+    {"id": "WA-003", "text": "Implement secure credential storage and webhook validation with no credential, token, contact, message, or media leakage through renderer, logs, diagnostics, exports, or screenshots.", "state": "pending", "evidence": []},
+    {"id": "WA-004", "text": "Implement outbound and inbound text normalization behind the channel registry with deterministic tests for accepted send, rejected template, missing credentials, rate/quality limit, inbound duplicate, invalid signature, and delivery status update.", "state": "pending", "evidence": []},
+    {"id": "WA-005", "text": "Add contact linking and policy enforcement so WhatsApp contacts do not receive trust, approval, urgent-interrupt, or unblock privileges without explicit operator configuration.", "state": "pending", "evidence": []},
+    {"id": "WA-006", "text": "If interactive quick actions ship, require signed local action IDs, expiration, replay protection, template compliance, local pending-action lookup, and durable audit outcome records.", "state": "pending", "evidence": []},
+    {"id": "WA-007", "text": "Add UI for provider setup, template/quality status, contact linking, disabled state, test send, and privacy/redaction preview.", "state": "pending", "evidence": []},
+    {"id": "WA-008", "text": "Document setup burden, business-policy limitations, privacy limits, opt-in/opt-out behavior, failure modes, and shipped versus deferred features.", "state": "pending", "evidence": []}
+  ],
+  "created": "2026-06-20",
+  "updated": "2026-06-20"
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "018",
+  "title": "Email Channel Adapter",
+  "status": "active",
+  "owner_scope": "work",
+  "affected_scopes": ["work", "backend", "desktop", "ui", "data", "security", "providers", "contacts", "messaging", "docs", "tooling"],
+  "depends_on": ["015", "016"],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-20T21:30:00Z",
+    "note": "Created before implementation work starts for a provider-neutral email channel adapter derived from CLV-018 roadmap records."
+  },
+  "acceptance_criteria": [
+    {"id": "EMAIL-001", "text": "Define provider-neutral email channel contracts for outbound mail, inbound mail normalization, attachments, delivery/failure state, credential validation, and disabled states without coupling ForgeLink to one mail provider.", "state": "pending", "evidence": []},
+    {"id": "EMAIL-002", "text": "Implement secure credential storage/configuration for SMTP plus an explicit inbound option such as IMAP polling or provider webhook, with credentials redacted from renderer, logs, diagnostics, exports, and screenshots.", "state": "pending", "evidence": []},
+    {"id": "EMAIL-003", "text": "Implement outbound email sending behind the channel registry with deterministic tests for success, provider rejection, missing credentials, invalid recipient, attachment bounds, retryable failure, and permanent failure.", "state": "pending", "evidence": []},
+    {"id": "EMAIL-004", "text": "Implement inbound email normalization when enabled, including duplicate detection, contact resolution through email contact points, bounded body/attachment handling, and clear disabled state when inbound is not configured.", "state": "pending", "evidence": []},
+    {"id": "EMAIL-005", "text": "Add UI for email channel configuration and contact email identities without making email the default human loop or granting approval privileges automatically.", "state": "pending", "evidence": []},
+    {"id": "EMAIL-006", "text": "Define and test quick-action boundaries for email replies or signed links so approval/dismiss actions require anti-replay, expiration, contact policy, and local pending-action verification.", "state": "pending", "evidence": []},
+    {"id": "EMAIL-007", "text": "Ensure data safety: email messages and attachments participate in backup/export/retention as private communication data, while support diagnostics exclude bodies, addresses, headers, attachments, and provider IDs by default.", "state": "pending", "evidence": []},
+    {"id": "EMAIL-008", "text": "Document operator setup, privacy limits, likely provider requirements, failure modes, testing strategy, and the exact features shipped versus deferred.", "state": "pending", "evidence": []}
+  ],
+  "created": "2026-06-20",
+  "updated": "2026-06-20"
+}

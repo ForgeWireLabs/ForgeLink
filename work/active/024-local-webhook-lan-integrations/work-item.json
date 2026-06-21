@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "024",
+  "title": "Local Webhook and LAN Integrations",
+  "status": "active",
+  "owner_scope": "work",
+  "affected_scopes": ["work", "backend", "desktop", "ui", "data", "security", "agents", "agent-channel", "local-runtime", "docs", "tooling"],
+  "depends_on": ["015", "016"],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-20T21:30:00Z",
+    "note": "Created before implementation work starts for authenticated local webhook and LAN integration adapters derived from CLV-018 related-adapter records."
+  },
+  "acceptance_criteria": [
+    {"id": "LAN-001", "text": "Define local webhook/LAN adapter contracts for authenticated inbound events, outbound local delivery, capability discovery, disabled states, replay prevention, and diagnostics health.", "state": "pending", "evidence": []},
+    {"id": "LAN-002", "text": "Keep all local webhook/LAN routes loopback or LAN-gated by default with explicit opt-in, origin/host checks, token or signature authentication, rate limits, and bounded payloads.", "state": "pending", "evidence": []},
+    {"id": "LAN-003", "text": "Implement local integration credentials with creation, rotation, revoke, per-integration labels, least privilege, and no plaintext credential leakage through renderer, logs, diagnostics, exports, or screenshots.", "state": "pending", "evidence": []},
+    {"id": "LAN-004", "text": "Normalize inbound local events into ForgeLink-owned agent messages, local messages, or signals only through explicit schemas and policy gates; reject malformed, oversized, replayed, or unauthorized events.", "state": "pending", "evidence": []},
+    {"id": "LAN-005", "text": "If outbound local callbacks or quick actions ship, require signed local pending-action IDs, expiration, replay protection, durable outcome records, and clear operator-visible scope.", "state": "pending", "evidence": []},
+    {"id": "LAN-006", "text": "Add UI for integration credentials, enabled/disabled state, last-used/rejected counters, allowed scope, rotate/revoke, test event, and diagnostics health.", "state": "pending", "evidence": []},
+    {"id": "LAN-007", "text": "Add deterministic tests for auth failure, revoked/disabled credentials, replay, rate limit, malformed payloads, successful normalization, policy rejection, and diagnostics redaction.", "state": "pending", "evidence": []},
+    {"id": "LAN-008", "text": "Document local-only boundaries, LAN exposure risks, setup, failure modes, and how this differs from public webhook ingress and telecom provider webhooks.", "state": "pending", "evidence": []}
+  ],
+  "created": "2026-06-20",
+  "updated": "2026-06-20"
+}

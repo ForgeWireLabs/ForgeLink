@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "022",
+  "title": "Discord Channel Adapter",
+  "status": "active",
+  "owner_scope": "work",
+  "affected_scopes": ["work", "backend", "desktop", "ui", "data", "security", "providers", "contacts", "agent-channel", "docs", "tooling"],
+  "depends_on": ["015", "016", "017"],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-20T21:30:00Z",
+    "note": "Created before implementation work starts for a Discord team/community channel adapter derived from CLV-018 roadmap records."
+  },
+  "acceptance_criteria": [
+    {"id": "DISCORD-001", "text": "Define Discord channel contracts for outbound messages, inbound mentions/DMs/interactions, allowed guild/channel/user identities, delivery/failure state, disabled states, and credential validation.", "state": "pending", "evidence": []},
+    {"id": "DISCORD-002", "text": "Implement secure bot/application credential storage and interaction/webhook validation with no token or private content leakage through renderer, logs, diagnostics, exports, or screenshots.", "state": "pending", "evidence": []},
+    {"id": "DISCORD-003", "text": "Add allow-list and contact/channel linking so shared Discord spaces cannot receive private agent approval details or gain authority by default.", "state": "pending", "evidence": []},
+    {"id": "DISCORD-004", "text": "Implement outbound status/team messages behind the channel registry with deterministic tests for send success, missing permissions, missing credentials, deleted channel, rate limit, and provider rejection.", "state": "pending", "evidence": []},
+    {"id": "DISCORD-005", "text": "Implement inbound interaction or mention normalization only after identity, guild/channel allow-list, duplicate event, and policy enforcement tests exist.", "state": "pending", "evidence": []},
+    {"id": "DISCORD-006", "text": "If buttons/slash-command quick actions ship, require signed local action payloads, expiration, replay protection, local pending-action lookup, and durable audit outcomes.", "state": "pending", "evidence": []},
+    {"id": "DISCORD-007", "text": "Add UI for Discord setup, allow-list management, channel/contact linking, disabled state, test send, permission health, and privacy/redaction preview.", "state": "pending", "evidence": []},
+    {"id": "DISCORD-008", "text": "Document shared-channel privacy limits, setup, required bot permissions, failure modes, and shipped versus deferred features.", "state": "pending", "evidence": []}
+  ],
+  "created": "2026-06-20",
+  "updated": "2026-06-20"
+}

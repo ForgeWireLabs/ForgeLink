@@ -8,7 +8,7 @@
     {
       "command": "python scripts/repopact_cli.py dashboard",
       "exit_code": 0,
-      "summary": "Regenerated audits/reports/dashboard.md so Repopact reflects CLV-018 as satisfied with the new decision/evidence records."
+      "summary": "Regenerated audits/reports/dashboard.md so Repopact reflects CLV-018 as satisfied with the new decision, evidence, and follow-up work item records."
     },
     {
       "command": "python scripts/repopact_cli.py doctor",
@@ -18,7 +18,7 @@
     {
       "command": "python scripts/validate_repo.py",
       "exit_code": 0,
-      "summary": "Repository governance validation passed with the CLV-018 work item and evidence metadata current."
+      "summary": "Repository governance validation passed with the CLV-018 work item, follow-up work items, and evidence metadata current."
     },
     {
       "command": "python .local/validate_system.py",
@@ -41,12 +41,26 @@
     "decisions/README.md",
     "audits/reports/dashboard.md",
     "work/active/015-communication-channels-and-voice/README.md",
-    "work/active/015-communication-channels-and-voice/work-item.json"
+    "work/active/015-communication-channels-and-voice/work-item.json",
+    "work/active/018-email-channel-adapter/work-item.json",
+    "work/active/018-email-channel-adapter/README.md",
+    "work/active/019-push-notification-channel/work-item.json",
+    "work/active/019-push-notification-channel/README.md",
+    "work/active/020-telegram-channel-adapter/work-item.json",
+    "work/active/020-telegram-channel-adapter/README.md",
+    "work/active/021-whatsapp-business-channel/work-item.json",
+    "work/active/021-whatsapp-business-channel/README.md",
+    "work/active/022-discord-channel-adapter/work-item.json",
+    "work/active/022-discord-channel-adapter/README.md",
+    "work/active/023-rss-atom-signal-follow-up/work-item.json",
+    "work/active/023-rss-atom-signal-follow-up/README.md",
+    "work/active/024-local-webhook-lan-integrations/work-item.json",
+    "work/active/024-local-webhook-lan-integrations/README.md"
   ],
   "environment": {
     "repository": "ForgeWireLabs/ForgeLink",
     "branch": "main",
     "platform": "Windows",
-    "process_note": "015 CLV-018 (channel roadmap records). Decision 0009 records future adapter boundaries for email, push, Telegram, WhatsApp Business, Discord, RSS/Atom, first-party mobile companion, local webhook/LAN integrations, and direct telecom separation. The record documents intended use, privacy/security notes, likely credentials, inbound/outbound capability, quick-action support boundaries, failure modes, and why Matrix is excluded from work item 015."
+    "process_note": "015 CLV-018 (channel roadmap records). Decision 0009 records future adapter boundaries for email, push, Telegram, WhatsApp Business, Discord, RSS/Atom, first-party mobile companion, local webhook/LAN integrations, and direct telecom separation. Detailed active work items 018-024 now split the roadmap into implementation-ready records for email, push, Telegram, WhatsApp Business, Discord, RSS/Atom follow-up, and local webhook/LAN integrations. The records document intended use, privacy/security notes, likely credentials, inbound/outbound capability, quick-action support boundaries, failure modes, and why Matrix is excluded from work item 015."
   }
 }

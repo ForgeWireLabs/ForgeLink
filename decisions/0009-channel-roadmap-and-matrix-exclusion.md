@@ -150,6 +150,26 @@ own the product model.
   telecom interconnect, regulatory, emergency-calling, caller-ID, and cost
   boundaries.
 
+## Ledger follow-up items
+
+The CLV-018 roadmap is split into detailed active work items so each channel can
+be sequenced, implemented, tested, documented, and closed independently:
+
+- `018-email-channel-adapter`: provider-neutral email channel for durable,
+  auditable, non-urgent communication.
+- `019-push-notification-channel`: redacted urgent notification channel with
+  signed quick-action boundaries.
+- `020-telegram-channel-adapter`: explicitly linked Telegram bot adapter for
+  bidirectional chat and bounded quick actions.
+- `021-whatsapp-business-channel`: official WhatsApp Business adapter with
+  provider policy, template, and contact-consent gates.
+- `022-discord-channel-adapter`: allow-listed Discord team/community adapter
+  with interaction-signature and privacy controls.
+- `023-rss-atom-signal-follow-up`: feed-signal hardening follow-up that extends
+  the completed RSS/Atom signal lane without duplicating it.
+- `024-local-webhook-lan-integrations`: authenticated local webhook/LAN adapter
+  for operator-controlled local systems.
+
 ## Matrix exclusion
 
 Matrix remains excluded from work item 015. It is a capable federated messaging
@@ -177,3 +197,6 @@ encryption, moderation, export/retention, and diagnostics requirements.
 - The current product remains local-first and provider-optional while preserving
   roadmap visibility for email, push, Telegram, WhatsApp, Discord, RSS, and
   related adapters.
+- Detailed active work items now exist for each CLV-018 follow-up channel path
+  so implementation work can start from acceptance criteria instead of a broad
+  roadmap note.

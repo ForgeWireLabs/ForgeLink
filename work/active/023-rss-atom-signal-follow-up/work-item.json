@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "023",
+  "title": "RSS Atom Signal Follow-Up",
+  "status": "active",
+  "owner_scope": "work",
+  "affected_scopes": ["work", "backend", "desktop", "ui", "data", "security", "agent-channel", "messaging", "docs", "tooling"],
+  "depends_on": ["008", "015", "016"],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-20T21:30:00Z",
+    "note": "Created before implementation work starts for RSS/Atom signal hardening and roadmap follow-up derived from CLV-018 records."
+  },
+  "acceptance_criteria": [
+    {"id": "RSSF-001", "text": "Review completed work item 008 and current signal implementation to identify gaps against CLV-018 roadmap expectations without duplicating already-shipped RSS/Atom behavior.", "state": "pending", "evidence": []},
+    {"id": "RSSF-002", "text": "Define whether RSS/Atom remains a trusted signal lane only or gains any channel-adapter surface; document the boundary so feeds are not treated as person-to-person messages.", "state": "pending", "evidence": []},
+    {"id": "RSSF-003", "text": "Add optional authenticated-feed planning or implementation only if credentials can use secure storage and diagnostics redaction without leaking URL tokens or HTTP credentials.", "state": "pending", "evidence": []},
+    {"id": "RSSF-004", "text": "Harden feed parsing/fetch behavior as needed for redirects, content-type handling, oversized payloads, duplicate IDs, stale feeds, tracking URLs, and malformed XML/Atom fixtures.", "state": "pending", "evidence": []},
+    {"id": "RSSF-005", "text": "Ensure feed-derived items cannot gain approval, urgent-interrupt, or quick-action authority without a separate trusted-source policy and explicit local confirmation.", "state": "pending", "evidence": []},
+    {"id": "RSSF-006", "text": "Improve UI if needed for feed health, mute/retention state, source trust, fetch errors, archive behavior, and clear separation from contacts and private agent requests.", "state": "pending", "evidence": []},
+    {"id": "RSSF-007", "text": "Ensure backup/export/retention and diagnostics behavior for signal subscriptions/items remains covered and redacted where appropriate.", "state": "pending", "evidence": []},
+    {"id": "RSSF-008", "text": "Document shipped RSS/Atom behavior versus future authenticated or action-bearing feed ideas.", "state": "pending", "evidence": []}
+  ],
+  "created": "2026-06-20",
+  "updated": "2026-06-20"
+}

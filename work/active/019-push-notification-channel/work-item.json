@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "019",
+  "title": "Push Notification Channel",
+  "status": "active",
+  "owner_scope": "work",
+  "affected_scopes": ["work", "backend", "desktop", "ui", "security", "providers", "mobile", "agent-channel", "policy", "docs", "tooling"],
+  "depends_on": ["015", "016", "017"],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-20T21:30:00Z",
+    "note": "Created before implementation work starts for a redacted push notification channel derived from CLV-018 roadmap records."
+  },
+  "acceptance_criteria": [
+    {"id": "PUSH-001", "text": "Define push channel contracts for redacted outbound notifications, device/topic identity, delivery attempts, disabled states, provider errors, and optional signed action responses.", "state": "pending", "evidence": []},
+    {"id": "PUSH-002", "text": "Select and document an initial provider strategy such as ntfy, Pushover-style provider, or first-party relay, including why it is appropriate for ForgeLink's local-first boundary.", "state": "pending", "evidence": []},
+    {"id": "PUSH-003", "text": "Implement secure credential/device-token storage with rotation/revoke behavior and no token leakage through renderer, logs, diagnostics, exports, or screenshots.", "state": "pending", "evidence": []},
+    {"id": "PUSH-004", "text": "Implement redaction profiles for push payloads so lock-screen-safe content is the default and private message/contact/approval details are not sent unless policy explicitly allows it.", "state": "pending", "evidence": []},
+    {"id": "PUSH-005", "text": "If quick actions ship, require signed action payloads, expiration, replay protection, local pending-action lookup, contact/agent policy checks, and durable outcome records.", "state": "pending", "evidence": []},
+    {"id": "PUSH-006", "text": "Add UI for push setup, test notification, device/topic status, revoke, disabled state, and redaction preview.", "state": "pending", "evidence": []},
+    {"id": "PUSH-007", "text": "Add deterministic tests for delivery success/failure, stale tokens, duplicate action taps, redaction, missing credentials, provider outage, and diagnostics exclusion.", "state": "pending", "evidence": []},
+    {"id": "PUSH-008", "text": "Document operator setup, privacy limitations, lost-device handling, failure modes, and how this relates to the first-party mobile companion.", "state": "pending", "evidence": []}
+  ],
+  "created": "2026-06-20",
+  "updated": "2026-06-20"
+}
