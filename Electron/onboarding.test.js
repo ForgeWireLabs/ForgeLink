@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { createSettingsStore, validateTwilioCredentials, configureNumberWebhook } = require("./onboarding");
+const { createSettingsStore, validateLocalOnlySettings, validateTwilioCredentials, configureNumberWebhook } = require("./onboarding");
 const { DEFAULT_ATTENTION_POLICY } = require("./attention");
 
 const complete = { account_sid: `AC${"a".repeat(32)}`, auth_token: "secret-token", twilio_number: "+15551234567", public_base_url: "https://phone.example.com", webhook_host: "127.0.0.1", webhook_port: 5055 };
@@ -19,8 +19,11 @@ test("encrypts, redacts, reloads, and removes stored credentials", () => {
     assert.equal(raw.includes("secret-token"), false);
     const reloaded = createSettingsStore({ fs, path, safeStorage, env: {}, userData: directory });
     assert.equal(reloaded.load().settings.auth_token, "secret-token");
-    assert.equal(reloaded.removeCredentials().configured, false);
-    assert.equal(fs.existsSync(path.join(directory, "settings.json")), false);
+    const removed = reloaded.removeCredentials();
+    assert.equal(removed.configured, false);
+    assert.equal(removed.onboardingComplete, true);
+    assert.equal(fs.existsSync(path.join(directory, "settings.json")), true);
+    assert.equal(readFileSync(path.join(directory, "settings.json"), "utf8").includes("secret-token"), false);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -35,7 +38,33 @@ test("loads and removes credentials from the previous app settings path", () => 
     assert.equal(store.load().settings.auth_token, "secret-token");
     assert.equal(store.removeCredentials().configured, false);
     assert.equal(fs.existsSync(path.join(legacy, "settings.json")), false);
+    assert.equal(fs.existsSync(path.join(current, "settings.json")), true);
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("starts local-only onboarding without Twilio credentials", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "forgelink-local-only-"));
+  try {
+    const store = createSettingsStore({ fs, path, safeStorage, env: {}, userData: directory });
+    const initial = store.load();
+    assert.equal(initial.configured, false);
+    assert.equal(initial.onboardingComplete, false);
+    const saved = store.startLocalOnly({ webhook_host: "127.0.0.1", webhook_port: 6060 });
+    assert.equal(saved.configured, false);
+    assert.equal(saved.onboardingComplete, true);
+    assert.equal(saved.settings.webhook_port, 6060);
+    const raw = readFileSync(path.join(directory, "settings.json"), "utf8");
+    assert.equal(raw.includes("auth_token_encrypted"), false);
+    const reloaded = createSettingsStore({ fs, path, safeStorage, env: {}, userData: directory }).load();
+    assert.equal(reloaded.onboardingComplete, true);
+    assert.equal(reloaded.configured, false);
+    assert.equal(reloaded.settings.twilio_number, "");
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("local-only settings keep the service on loopback", () => {
+  assert.equal(validateLocalOnlySettings({ webhook_host: "localhost", webhook_port: 5055 }).onboarding_complete, true);
+  assert.throws(() => validateLocalOnlySettings({ webhook_host: "0.0.0.0", webhook_port: 5055 }), /loopback/);
 });
 
 test("imports environment credentials only through an explicit action", () => {

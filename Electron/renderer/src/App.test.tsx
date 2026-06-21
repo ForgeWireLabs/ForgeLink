@@ -48,8 +48,9 @@ beforeEach(() => {
     getStatus: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored", needs_onboarding: false, settings: { account_sid: "AC123", auth_token_configured: true, twilio_number: "+15550001111", public_base_url: "https://phone.example.com", webhook_host: "127.0.0.1", webhook_port: 5055, attention_policy: attentionPolicy } }),
     validateSettings: vi.fn().mockResolvedValue({ account_name: "Test Account", account_status: "active", phone_number: "+15550002222" }),
     startServer: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5056", configured: true, credential_source: "stored", validation: { account_name: "Test Account", account_status: "active", phone_number: "+15550002222" }, settings: { account_sid: "AC999", auth_token_configured: true, twilio_number: "+15550002222", public_base_url: "https://new.example.com", webhook_host: "127.0.0.1", webhook_port: 5056 } }),
+    startLocalOnly: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: false, credential_source: "none", onboarding_complete: true, needs_onboarding: false, settings: { account_sid: "", auth_token_configured: false, twilio_number: "", public_base_url: "", webhook_host: "127.0.0.1", webhook_port: 5055 } }),
     importEnvironment: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored" }),
-    removeCredentials: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: false, credential_source: "none", needs_onboarding: true }),
+    removeCredentials: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: false, credential_source: "none", onboarding_complete: true, needs_onboarding: false }),
     stopServer: vi.fn().mockResolvedValue({ running: false, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored", settings: { account_sid: "AC999", auth_token_configured: true, twilio_number: "+15550002222", public_base_url: "https://new.example.com", webhook_host: "127.0.0.1", webhook_port: 5056 } }),
     mcpStatus: vi.fn().mockResolvedValue(mcpStatus),
     createMcpToken: vi.fn().mockResolvedValue({ ...mcpStatus, configured: true, token_file_present: true, rotated_at: "2026-06-15T22:00:00.000Z" }),
@@ -145,6 +146,17 @@ describe("React renderer parity", () => {
     await userEvent.click(screen.getByRole("button", { name: "Test connection" }));
     expect(await screen.findByText("Confirmed +15550002222")).toBeTruthy();
     expect(window.desktop?.validateSettings).toHaveBeenCalled();
+    expect(window.desktop?.startServer).not.toHaveBeenCalled();
+  });
+
+  it("starts first-run in local-only mode without validating Twilio", async () => {
+    vi.mocked(window.desktop!.getStatus).mockResolvedValueOnce({ running: true, baseUrl: "http://127.0.0.1:5055", configured: false, credential_source: "none", onboarding_complete: false, needs_onboarding: true, settings: { account_sid: "", auth_token_configured: false, twilio_number: "", public_base_url: "", webhook_host: "127.0.0.1", webhook_port: 5055 } });
+    render(<App/>);
+    expect(await screen.findByRole("dialog", { name: "Welcome to ForgeLink" })).toBeTruthy();
+    expect(screen.getByText(/ForgeLink works without a telecom provider/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Start local-only" }));
+    await waitFor(() => expect(window.desktop?.startLocalOnly).toHaveBeenCalledWith(expect.objectContaining({ webhook_host: "127.0.0.1", webhook_port: 5055 })));
+    expect(window.desktop?.validateSettings).not.toHaveBeenCalled();
     expect(window.desktop?.startServer).not.toHaveBeenCalled();
   });
 

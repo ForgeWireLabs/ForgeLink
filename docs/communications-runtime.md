@@ -77,5 +77,5 @@ provider, a native local channel, or an agent message with no provider at all.
 With no telecom provider configured, the core still represents agent-to-human
 messages and approval requests, contacts, threads, attention policy, and the
 local inbox — the SMS/MMS edge is simply one capability that is absent from the
-registry. (Surfacing local-only mode in Settings/diagnostics and registering a
-native local adapter is CLV-004.)
+registry. First-run setup can now be completed in local-only mode without Twilio
+credentials; SMS/MMS provider setup is an explicit later step from Settings.

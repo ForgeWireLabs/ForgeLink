@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("desktop", {
   getStatus: () => ipcRenderer.invoke("get-status"),
   validateSettings: (settings) => ipcRenderer.invoke("validate-settings", settings),
   startServer: (settings) => ipcRenderer.invoke("start-server", settings),
+  startLocalOnly: (settings) => ipcRenderer.invoke("start-local-only", settings),
   importEnvironment: () => ipcRenderer.invoke("import-environment"),
   removeCredentials: () => ipcRenderer.invoke("remove-credentials"),
   stopServer: () => ipcRenderer.invoke("stop-server"),

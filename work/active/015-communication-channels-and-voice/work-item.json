@@ -185,8 +185,10 @@
     {
       "id": "CLV-020",
       "text": "Make first-run provider-optional: the app installs and onboards into a usable local-only state (agent approvals and the local human loop) with no telecom provider configured, and a 'Start local-only' path is offered so users are never forced to enter Twilio credentials; adding a provider is an explicit later step.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260620-clv020-provider-optional-onboarding"
+      ]
     },
     {
       "id": "CLV-021",

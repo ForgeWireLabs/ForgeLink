@@ -36,6 +36,21 @@ function validateLocalSettings(settings) {
   return next;
 }
 
+function validateLocalOnlySettings(settings) {
+  const next = { ...DEFAULT_SETTINGS, ...settings };
+  next.attention_policy = normalizeAttentionPolicy(next.attention_policy);
+  next.account_sid = "";
+  next.auth_token = "";
+  next.twilio_number = "";
+  next.public_base_url = "";
+  next.webhook_host = String(next.webhook_host || DEFAULT_SETTINGS.webhook_host);
+  next.webhook_port = Number(next.webhook_port || DEFAULT_SETTINGS.webhook_port);
+  next.onboarding_complete = true;
+  if (!new Set(["127.0.0.1", "localhost"]).has(next.webhook_host)) throw new Error("Local service host must remain on loopback.");
+  if (!Number.isInteger(next.webhook_port) || next.webhook_port < 1024 || next.webhook_port > 65535) throw new Error("Local service port must be between 1024 and 65535.");
+  return next;
+}
+
 function validateAttentionPolicy(policy) {
   return normalizeAttentionPolicy(policy);
 }
@@ -136,6 +151,14 @@ function createSettingsStore({ fs, path, safeStorage, env, userData, legacyUserD
     return current();
   }
 
+  function startLocalOnly(nextValue = {}) {
+    const next = validateLocalOnlySettings({ ...settings, ...nextValue });
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(next, null, 2), { mode: 0o600 });
+    settings = next; source = "none";
+    return current();
+  }
+
   function persistAttentionPolicy(policy) {
     const next = { ...settings, attention_policy: normalizeAttentionPolicy(policy) };
     if (settings.auth_token) return persist(next);
@@ -151,16 +174,27 @@ function createSettingsStore({ fs, path, safeStorage, env, userData, legacyUserD
   }
 
   function removeCredentials() {
-    const retained = { ...DEFAULT_SETTINGS, webhook_host: settings.webhook_host, webhook_port: settings.webhook_port };
+    const retained = { ...DEFAULT_SETTINGS, webhook_host: settings.webhook_host, webhook_port: settings.webhook_port, onboarding_complete: true };
     for (const candidate of [file, ...legacyFiles]) {
       try { fs.unlinkSync(candidate); } catch (error) { if (error.code !== "ENOENT") throw error; }
     }
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(retained, null, 2), { mode: 0o600 });
     settings = retained; source = "none"; environmentAvailable = false;
     return current();
   }
 
-  function current() { return { settings: { ...settings, attention_policy: normalizeAttentionPolicy(settings.attention_policy) }, source, environmentAvailable, configured: Boolean(settings.account_sid && settings.auth_token && settings.twilio_number) }; }
-  return { current, importEnvironment, load, persist, persistAttentionPolicy, removeCredentials };
+  function current() {
+    const configured = Boolean(settings.account_sid && settings.auth_token && settings.twilio_number);
+    return {
+      settings: { ...settings, attention_policy: normalizeAttentionPolicy(settings.attention_policy) },
+      source,
+      environmentAvailable,
+      configured,
+      onboardingComplete: Boolean(settings.onboarding_complete || configured || source === "environment")
+    };
+  }
+  return { current, importEnvironment, load, persist, persistAttentionPolicy, removeCredentials, startLocalOnly };
 }
 
-module.exports = { DEFAULT_SETTINGS, createSettingsStore, normalizePhone, validateAttentionPolicy, validateLocalSettings, validateTwilioCredentials, configureNumberWebhook };
+module.exports = { DEFAULT_SETTINGS, createSettingsStore, normalizePhone, validateAttentionPolicy, validateLocalOnlySettings, validateLocalSettings, validateTwilioCredentials, configureNumberWebhook };

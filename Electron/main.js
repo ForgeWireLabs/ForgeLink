@@ -102,7 +102,8 @@ function publicStatus() {
     configured: state.configured,
     credential_source: state.source,
     environment_import_available: state.environmentAvailable,
-    needs_onboarding: !state.configured,
+    onboarding_complete: state.onboardingComplete,
+    needs_onboarding: !state.onboardingComplete,
     configured_port: settings.webhook_port,
     effective_port: effectivePort || settings.webhook_port,
     backend_restarts: backendRestarts.count,
@@ -298,6 +299,15 @@ ipcMain.handle("remove-credentials", async () => {
   settingsStore.removeCredentials();
   await startBackend();
   await waitForBackend();
+  return publicStatus();
+});
+ipcMain.handle("start-local-only", async (_, update = {}) => {
+  settingsStore.startLocalOnly(update);
+  tunnelPublicUrl = "";
+  await tunnelService().stop();
+  await startBackend();
+  if (!(await waitForBackend())) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
+  broadcastStatus();
   return publicStatus();
 });
 ipcMain.handle("stop-server", () => {

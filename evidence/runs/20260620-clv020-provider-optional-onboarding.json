@@ -1,0 +1,84 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260620-clv020-provider-optional-onboarding",
+  "timestamp": "2026-06-21T02:16:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "node --test onboarding.test.js",
+      "exit_code": 0,
+      "summary": "Focused desktop settings-store tests passed, including local-only onboarding persistence, no Twilio credential storage, loopback enforcement, and remove-credentials preserving completed onboarding."
+    },
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript and bundled app build passed with the first-run local-only action and desktop bridge type updates."
+    },
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed after the provider-optional onboarding changes."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "Renderer tests passed, including first-run local-only startup without Twilio validation."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron test suite passed: 81 tests passed and 1 opt-in live Twilio test skipped."
+    },
+    {
+      "command": "python scripts/repopact_cli.py dashboard",
+      "exit_code": 0,
+      "summary": "Regenerated audits/reports/dashboard.md so Repopact reflects CLV-020 as satisfied with new evidence metadata."
+    },
+    {
+      "command": "python scripts/repopact_cli.py doctor",
+      "exit_code": 0,
+      "summary": "Repopact doctor reported the repository healthy after CLV-020 records were updated."
+    },
+    {
+      "command": "python scripts/validate_repo.py",
+      "exit_code": 0,
+      "summary": "Repository governance validation passed with CLV-020 marked satisfied and evidence metadata current."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Local system audit passed with CLV-020 evidence and work item metadata current."
+    },
+    {
+      "command": "npm run scan:secrets",
+      "exit_code": 0,
+      "summary": "Secret scan completed cleanly."
+    },
+    {
+      "command": "npm run scan:deps",
+      "exit_code": 0,
+      "summary": "Production dependency audit completed with 0 high-or-higher vulnerabilities."
+    }
+  ],
+  "artifacts": [
+    "Electron/main.js",
+    "Electron/onboarding.js",
+    "Electron/onboarding.test.js",
+    "Electron/preload.js",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/src/types.ts",
+    "Electron/renderer/app.js",
+    "docs/communications-runtime.md",
+    "audits/reports/dashboard.md",
+    "work/active/015-communication-channels-and-voice/README.md",
+    "work/active/015-communication-channels-and-voice/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "015 CLV-020 (provider-optional first-run). ForgeLink now tracks first-run completion separately from telecom provider credentials. First-run setup offers Start local-only, persists loopback-only local service settings with no Twilio credentials or encrypted token material, starts the backend without Twilio validation, and keeps removing credentials from forcing first-run again. Twilio SMS/MMS remains available as an explicit later Settings action."
+  }
+}
