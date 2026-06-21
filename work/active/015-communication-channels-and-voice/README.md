@@ -364,7 +364,7 @@ only if a concrete operator deployment requires it.
     likely credentials, inbound/outbound capability, quick-action support,
     failure modes, and why Matrix is excluded from this item.
 
-- [ ] **CLV-019 Add direct telecom research record.** Research and record what it
+- [x] **CLV-019 Add direct telecom research record.** Research and record what it
   would actually take to reduce reliance on Twilio/Telnyx/Plivo/Bandwidth for
   carrier SMS/MMS and PSTN voice.
   - Include: SIP trunking, SMPP, SMSC/MMSC access, phone number provisioning,
@@ -545,3 +545,4 @@ Add or update docs for:
 | 2026-06-20 | CLV-016 complete | Enriched durable call history rows with contact names/contact-point labels for the Calls UI; retained direction/provider/from-to/status/timestamps/duration/provider ID/redacted errors; added retention deletion for old calls while keeping backup/export coverage; asserted diagnostics exclude call IDs and phone numbers by default | CLV-016 satisfied (evidence 20260620-clv016-call-history). Contact timeline remains CLV-017. |
 | 2026-06-20 | CLV-017 complete | Added authenticated contact timeline API and contact-detail timeline panel merging SMS/MMS messages, voice call rows, and agent-originated requests; private agent details are redacted by default and revealed only through an explicit operator toggle; renderer/backend tests and visual smoke cover the redacted timeline path | CLV-017 satisfied (evidence 20260620-clv017-contact-timeline). Channel roadmap records remain CLV-018. |
 | 2026-06-20 | CLV-018 complete | Decision `0009` records future channel roadmap boundaries for email, push, Telegram, WhatsApp Business, Discord, RSS/Atom, first-party mobile companion, local webhooks/LAN integrations, and direct telecom separation; detailed active work items `018`-`024` now split those roadmap paths into acceptance criteria; includes privacy/security notes, likely credentials, inbound/outbound capability, quick-action boundary, failure modes, and Matrix exclusion rationale | CLV-018 satisfied (evidence 20260620-clv018-channel-roadmap). Direct telecom research remains CLV-019. |
+| 2026-06-20 | CLV-019 complete | Decision `0010` records direct telecom research for SIP trunking, SMPP, SMSC/MMSC access, phone-number provisioning, A2P/10DLC, STIR/SHAKEN, caller ID reputation, CNAM, E911, toll-free/short-code messaging, carrier partnership, operating costs, and the staged path if ForgeLink later needs a more direct edge | CLV-019 satisfied (evidence 20260620-clv019-direct-telecom-research). Provider-optional onboarding remains CLV-020. |

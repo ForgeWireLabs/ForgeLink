@@ -15,3 +15,4 @@ governance choices should be promoted to this directory.
 - 0007: Telecom edge planning for Plivo and Bandwidth.
 - 0008: Twilio Verify scope.
 - 0009: Channel roadmap records and Matrix exclusion.
+- 0010: Direct telecom research.

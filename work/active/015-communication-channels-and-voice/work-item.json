@@ -177,8 +177,10 @@
     {
       "id": "CLV-019",
       "text": "Add direct telecom research record covering SIP trunking, SMPP, SMSC/MMSC access, phone number provisioning, A2P/10DLC, STIR/SHAKEN, caller ID reputation, CNAM, E911/emergency scope, toll-free/short-code options, carrier partnership, costs, and why direct telecom is not the first implementation path.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260620-clv019-direct-telecom-research"
+      ]
     },
     {
       "id": "CLV-020",

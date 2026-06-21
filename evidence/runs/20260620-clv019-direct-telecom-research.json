@@ -1,0 +1,52 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260620-clv019-direct-telecom-research",
+  "timestamp": "2026-06-21T02:06:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "python scripts/repopact_cli.py dashboard",
+      "exit_code": 0,
+      "summary": "Regenerated audits/reports/dashboard.md so Repopact reflects CLV-019 as satisfied with decision 0010 and evidence metadata."
+    },
+    {
+      "command": "python scripts/repopact_cli.py doctor",
+      "exit_code": 0,
+      "summary": "Repopact doctor reported the repository healthy after CLV-019 records were added."
+    },
+    {
+      "command": "python scripts/validate_repo.py",
+      "exit_code": 0,
+      "summary": "Repository governance validation passed with CLV-019 marked satisfied and the new decision/evidence records current."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Local system audit passed with CLV-019 evidence, decision index, and work item metadata current."
+    },
+    {
+      "command": "npm run scan:secrets",
+      "exit_code": 0,
+      "summary": "Secret scan completed cleanly."
+    },
+    {
+      "command": "npm run scan:deps",
+      "exit_code": 0,
+      "summary": "Production dependency audit completed with 0 high-or-higher vulnerabilities."
+    }
+  ],
+  "artifacts": [
+    "decisions/0010-direct-telecom-research.md",
+    "decisions/README.md",
+    "audits/reports/dashboard.md",
+    "work/active/015-communication-channels-and-voice/README.md",
+    "work/active/015-communication-channels-and-voice/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "015 CLV-019 (direct telecom research). Decision 0010 records what it would take to reduce reliance on Twilio/Telnyx/Plivo/Bandwidth for carrier SMS/MMS and PSTN voice, covering SIP trunking, SMPP, SMSC/MMSC access, phone number provisioning, A2P/10DLC, STIR/SHAKEN, caller ID reputation, CNAM, E911/emergency scope, toll-free/short-code options, carrier partnership, operating costs, why direct telecom is not the first implementation path, and the lowest-friction staged path if ForgeLink later needs a more direct telecom edge."
+  }
+}
