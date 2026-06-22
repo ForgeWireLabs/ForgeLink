@@ -1,7 +1,38 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import test from "node:test";
+import { runSmsEdgeConformance, runVoiceEdgeConformance } from "./channel-conformance";
 import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, parseTwilioCallStatus, parseTwilioInboundCall, sendTwilioMessage, startTwilioCall, validateTwilioSignature } from "./twilio";
+
+const TWILIO_ENV_KEYS = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER", "TWILIO_PUBLIC_BASE_URL"] as const;
+
+async function withoutTwilioCredentials(run: () => void | Promise<void>): Promise<void> {
+  const saved = Object.fromEntries(TWILIO_ENV_KEYS.map((key) => [key, process.env[key]]));
+  for (const key of TWILIO_ENV_KEYS) delete process.env[key];
+  try {
+    await run();
+  } finally {
+    for (const key of TWILIO_ENV_KEYS) {
+      if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key];
+    }
+  }
+}
+
+// Twilio signs `${publicBaseUrl}${path}` + sorted field name/value pairs with HMAC-SHA1.
+// `tamper` swaps in a wrong signature so the conformance kit can assert rejection.
+function twilioSignatureCheck(path: string, fields: Record<string, string>, tamper: boolean): boolean {
+  const saved = { token: process.env.TWILIO_AUTH_TOKEN, base: process.env.TWILIO_PUBLIC_BASE_URL };
+  process.env.TWILIO_AUTH_TOKEN = "conformance-token";
+  process.env.TWILIO_PUBLIC_BASE_URL = "https://phone.example";
+  try {
+    const value = `https://phone.example${path}${Object.keys(fields).sort().map((key) => `${key}${fields[key]}`).join("")}`;
+    const signature = tamper ? "tampered" : createHmac("sha1", "conformance-token").update(value).digest("base64");
+    return validateTwilioSignature(path, fields, signature);
+  } finally {
+    if (saved.token === undefined) delete process.env.TWILIO_AUTH_TOKEN; else process.env.TWILIO_AUTH_TOKEN = saved.token;
+    if (saved.base === undefined) delete process.env.TWILIO_PUBLIC_BASE_URL; else process.env.TWILIO_PUBLIC_BASE_URL = saved.base;
+  }
+}
 
 test("validates Twilio webhook signatures", () => {
   const previousToken = process.env.TWILIO_AUTH_TOKEN;
@@ -124,4 +155,63 @@ test("Twilio Voice API calls use redacted errors and configured callbacks", asyn
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
   }
+});
+
+// Shared provider conformance kit (CLV-021): Twilio must pass the same bar as
+// every other SMS/MMS and voice edge adapter.
+runSmsEdgeConformance({
+  provider: "twilio",
+  makeAdapter: (sender) => createTwilioAdapter(sender),
+  send: {
+    successSender: async () => ({ sid: "SM-CONF", status: "queued" }),
+    expected: { providerMessageId: "SM-CONF", status: "queued" },
+    rejectingSender: async () => { throw new Error("Twilio rejected the message (400)."); },
+    rejectionPattern: /Twilio rejected/
+  },
+  inbound: {
+    sms: {
+      payload: { From: "+15550001111", To: "+15550002222", Body: "hey", MessageSid: "SM-IN" },
+      expected: { from: "+15550001111", to: "+15550002222", body: "hey", mediaUrls: [], providerMessageId: "SM-IN" }
+    },
+    mms: {
+      payload: { From: "+15550001111", To: "+15550002222", Body: "pic", MessageSid: "SM-MMS", NumMedia: "1", MediaUrl0: "https://m/a.jpg" },
+      expectedMediaUrls: ["https://m/a.jpg"],
+      providerMessageId: "SM-MMS"
+    }
+  },
+  status: {
+    payload: { MessageSid: "SM-CONF", MessageStatus: "delivered" },
+    expected: { providerMessageId: "SM-CONF", status: "delivered" }
+  },
+  signature: {
+    valid: () => twilioSignatureCheck("/webhooks/sms", { Body: "hi", From: "+15550001111", MessageSid: "SM-IN" }, false),
+    invalid: () => twilioSignatureCheck("/webhooks/sms", { Body: "hi", From: "+15550001111", MessageSid: "SM-IN" }, true)
+  },
+  withoutCredentials: withoutTwilioCredentials
+});
+
+runVoiceEdgeConformance({
+  provider: "twilio",
+  makeAdapter: (starter, ender) => createTwilioVoiceAdapter(starter, ender),
+  start: {
+    starter: async () => ({ sid: "CA-CONF", status: "queued" }),
+    expected: { providerCallId: "CA-CONF", status: "queued" }
+  },
+  end: {
+    ender: async (providerCallId) => ({ sid: providerCallId, status: "completed" }),
+    expected: { providerCallId: "CA-CONF", status: "completed" }
+  },
+  inboundCall: {
+    payload: { CallSid: "CA-IN", From: "+15551234567", To: "+15550000000", CallStatus: "ringing", Timestamp: "2026-06-20T21:00:00Z" },
+    expected: { providerCallId: "CA-IN", direction: "inbound", status: "ringing" }
+  },
+  callStatus: {
+    payload: { CallSid: "CA-IN", CallStatus: "in-progress", Timestamp: "2026-06-20T21:01:00Z" },
+    expectedStatus: "in_progress"
+  },
+  signature: {
+    valid: () => twilioSignatureCheck("/webhooks/voice/status", { CallSid: "CA-IN", CallStatus: "completed" }, false),
+    invalid: () => twilioSignatureCheck("/webhooks/voice/status", { CallSid: "CA-IN", CallStatus: "completed" }, true)
+  },
+  withoutCredentials: withoutTwilioCredentials
 });

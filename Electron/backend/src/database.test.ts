@@ -78,6 +78,85 @@ test("upgrades a version-one database with a pre-migration backup", () => {
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
+// Schema-migration coordination (work item 015, CLV-022; decision 0011): every
+// migration must upgrade cleanly from a previously shipped schema, and an already
+// partly-migrated database must only run the steps above its version. v7 is the
+// pre-015 baseline (messaging core with delivery-reliability columns) before the
+// 015 band (v8-v10) added contact metadata, contact points/policy, and calls.
+test("upgrades a version-seven (pre-015) database to the current schema without data loss", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-v7-upgrade-"));
+  const path = join(directory, "phone.sqlite3");
+  const legacy = new DatabaseSync(path);
+  // Mirror the shipped v7 messaging core: base contacts/threads plus the v3
+  // delivery-reliability columns on messages and the drafts table that startup
+  // recovery relies on. Unrelated v4-v7 tables (agent messaging, signals) are not
+  // touched by the 015 migrations or startup, so they are omitted from the fixture.
+  legacy.exec(`
+    CREATE TABLE contacts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL DEFAULT '', number TEXT NOT NULL UNIQUE, last_seen TEXT);
+    CREATE TABLE threads (id INTEGER PRIMARY KEY AUTOINCREMENT, contact_id INTEGER REFERENCES contacts(id), canonical_number TEXT NOT NULL UNIQUE, last_msg_ts TEXT, unread_count INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id INTEGER NOT NULL REFERENCES threads(id), direction TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', media_urls TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '', ts TEXT NOT NULL, provider_sid TEXT, attempt_count INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '');
+    CREATE UNIQUE INDEX idx_messages_provider_sid ON messages(provider_sid) WHERE provider_sid IS NOT NULL;
+    CREATE TABLE drafts (thread_id INTEGER PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE, body TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL);
+    INSERT INTO contacts(id, name, number) VALUES(1, 'Pre-015 Contact', '+15551234567');
+    INSERT INTO threads(id, contact_id, canonical_number, last_msg_ts, unread_count) VALUES(1, 1, '+15551234567', '2026-02-01T00:00:00.000Z', 0);
+    INSERT INTO messages(id, thread_id, direction, body, media_urls, status, ts) VALUES('SM-V7', 1, 'inbound', 'Survives the 015 migrations', '', 'received', '2026-02-01T00:00:00.000Z');
+    PRAGMA user_version=7;
+  `);
+  legacy.close();
+  let database: PhoneDatabase | undefined;
+  try {
+    database = new PhoneDatabase(path);
+    assert.equal(database.state.schemaVersion, CURRENT_SCHEMA_VERSION);
+    assert.ok(database.state.migrationBackup && existsSync(database.state.migrationBackup), "pre-migration backup must exist");
+    // Existing contact/message data is preserved across the v8-v10 migrations.
+    assert.equal(database.threads()[0].name, "Pre-015 Contact");
+    assert.equal(database.messages(1)[0].body, "Survives the 015 migrations");
+    // v8 backfills a primary phone contact point; v10 introduces the calls table.
+    assert.ok((database.connection.prepare("SELECT COUNT(*) AS n FROM contact_points WHERE contact_id=1").get() as { n: number }).n >= 1, "v8 must backfill a contact point");
+    assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='calls'").get() as { name: string } | undefined)?.name, "calls");
+    // v11 (016 AGH-001) seeds the primary operator Human Card on upgrade too.
+    assert.equal(database.humanCardByAlias("operator:primary")?.role, "operator");
+  } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// Human Cards (work item 016, AGH-001): resolvable local operator authority.
+test("seeds, resolves, and manages Human Cards (AGH-001)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-human-cards-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    // Fresh install ships a primary operator card.
+    assert.equal(database.humanCards().length, 1);
+    assert.equal(database.humanCardByAlias("operator:primary")?.display_name, "Primary Operator");
+
+    // Well-known operator:* aliases fall back to the primary operator until defined.
+    const fallback = database.resolveHumanCard("operator:emergency_only");
+    assert.equal(fallback?.resolved_via, "operator:primary");
+    assert.ok(fallback?.authority_scopes.includes("emergency"));
+    // Non-operator aliases do not silently fall back.
+    assert.equal(database.resolveHumanCard("agent:rogue"), undefined);
+
+    // Define a dedicated release-approval operator and resolve it exactly.
+    database.upsertHumanCard({ alias: "operator:release_approval", display_name: "Release Approver", role: "operator", authority_scopes: ["release_approval"], preferred_channels: ["local"], notes: "private note" });
+    assert.equal(database.humanCards().length, 2);
+    const release = database.resolveHumanCard("operator:release_approval");
+    assert.equal(release?.resolved_via, "operator:release_approval");
+    assert.deepEqual(release?.authority_scopes, ["release_approval"]);
+    // Redacted resolution does not expose operator-private notes.
+    assert.equal((release as unknown as Record<string, unknown>).notes, undefined);
+
+    // Upsert is idempotent on alias (updates, not duplicates).
+    database.upsertHumanCard({ alias: "operator:release_approval", display_name: "Release Approver 2", role: "operator" });
+    assert.equal(database.humanCards().length, 2);
+    assert.equal(database.humanCardByAlias("operator:release_approval")?.display_name, "Release Approver 2");
+
+    // Malformed aliases are rejected; the primary card cannot be deleted.
+    assert.throws(() => database.upsertHumanCard({ alias: "not an alias" }), /alias/);
+    assert.throws(() => database.deleteHumanCard("operator:primary"), /primary operator/);
+    assert.equal(database.deleteHumanCard("operator:release_approval"), true);
+    assert.equal(database.humanCards().length, 1);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("creates verified backups, restores data, exports JSON, and applies retention", async () => {
   const directory = mkdtempSync(join(tmpdir(), "twilio-phone-lifecycle-"));
   const path = join(directory, "phone.sqlite3");

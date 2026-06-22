@@ -84,6 +84,8 @@ function isMcpSafeRoute(method: string | undefined, pathname: string): boolean {
   if (method === "GET" && pathname === "/api/agent-messages") return true;
   if (method === "POST" && /^\/api\/agent-messages\/[^/]+\/(read|dismiss)$/.test(pathname)) return true;
   if (method === "POST" && /^\/api\/agent-messages\/[^/]+\/actions\/[^/]+$/.test(pathname)) return true;
+  // Agents resolve human authority by alias (AGH-001); resolution is redacted.
+  if (method === "GET" && pathname === "/api/human-cards/resolve") return true;
   return false;
 }
 
@@ -315,6 +317,42 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       if (request.method === "POST" && channelEnabledMatch) {
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         return sendJson(response, { ok: true, channel: database.setAgentChannelEnabled(channelEnabledMatch[1], channelEnabledMatch[2] === "enable") });
+      }
+      // Human Cards (AGH-001): resolvable local operator authority. Resolution is
+      // agent-reachable (mcp-safe) and redacted; management is launch-only.
+      if (request.method === "GET" && url.pathname === "/api/human-cards/resolve") {
+        const resolved = database.resolveHumanCard(url.searchParams.get("alias") || "");
+        if (!resolved) return sendJson(response, { error: "No human authority resolves that alias." }, 404);
+        return sendJson(response, resolved);
+      }
+      if (request.method === "GET" && url.pathname === "/api/human-cards") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.humanCards());
+      }
+      if (request.method === "POST" && url.pathname === "/api/human-cards") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const toList = (value: unknown): string[] => Array.isArray(value) ? value.map((entry) => String(entry)) : [];
+        const optionalText = (value: unknown): string => value === undefined || value === null ? "" : String(value);
+        // Only the alias is strictly validated here; upsertHumanCard bounds the
+        // length of the remaining fields and applies defaults.
+        const card = database.upsertHumanCard({
+          alias: boundedText(payload.alias, "alias", 80, /^[a-z][a-z0-9_]*:[a-z0-9_]+$/),
+          display_name: optionalText(payload.display_name),
+          role: optionalText(payload.role),
+          availability: optionalText(payload.availability),
+          authority_scopes: toList(payload.authority_scopes),
+          preferred_channels: toList(payload.preferred_channels),
+          quiet_hours: optionalText(payload.quiet_hours),
+          redaction_profile: optionalText(payload.redaction_profile),
+          notes: optionalText(payload.notes)
+        });
+        return sendJson(response, { ok: true, card }, 201);
+      }
+      const humanCardMatch = url.pathname.match(/^\/api\/human-cards\/([a-z][a-z0-9_]*:[a-z0-9_]+)$/);
+      if (request.method === "DELETE" && humanCardMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, { ok: database.deleteHumanCard(humanCardMatch[1]) });
       }
       if (request.method === "POST" && url.pathname === "/api/mcp/token") {
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);

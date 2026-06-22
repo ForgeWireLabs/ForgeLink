@@ -1,7 +1,7 @@
 ---
 audience: maintainers and implementation agents
 status: active
-last_verified: 2026-06-18
+last_verified: 2026-06-22
 source_of_truth: work/active/016-agent-human-governance/README.md; work/active/016-agent-human-governance/work-item.json
 ---
 
@@ -88,7 +88,7 @@ This item owns the governance semantics that ride on top of that runtime:
 
 ### Phase 0: Resolvable human authority
 
-- [ ] **AGH-001 Add Human Cards.** Define a local-first `HumanCard` or equivalent
+- [x] **AGH-001 Add Human Cards.** Define a local-first `HumanCard` or equivalent
   operator identity record that lets agents address human authority by role, not
   just by phone number or contact string.
   - Include: display name, role, availability, authority scope, preferred
@@ -417,3 +417,4 @@ Add or update docs for:
 | --- | --- | --- | --- |
 | 2026-06-18 | planning | Deep product review identified governance primitives needed to make ForgeLink human-boundary infrastructure rather than a messaging wrapper | Created item 016 before implementation starts. |
 | 2026-06-18 | gap review | Roadmap gap review with operator: local-only onboarding, public-tunnel hardening, untrusted agent content, key management, agent-facing contract, conformance/integration testing, migration coordination, and distribution/updates | Added acceptance criteria and fixed README acceptance-criteria numbering to match work-item.json. |
+| 2026-06-22 | AGH-001 complete | Human Cards: schema v11 `human_cards` (per decision 0011 allocation table) seeding `operator:primary`; backend `humanCards`/`humanCardByAlias`/`resolveHumanCard`/`upsertHumanCard`/`deleteHumanCard`; launch-only management API + agent-reachable redacted `GET /api/human-cards/resolve` (mcp-safe) with `operator:*`→primary fallback; `docs/human-cards.md`; DB + HTTP tests + v11 from-previous-shipped-schema upgrade assertion (79 backend tests green) | AGH-001 satisfied (evidence 20260622-agh001-human-cards). Authority scopes (AGH-002) build on the stored `authority_scopes`. |

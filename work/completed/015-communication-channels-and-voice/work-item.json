@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/work-item.schema.json",
   "id": "015",
   "title": "Communication Channels and Voice",
-  "status": "active",
+  "status": "completed",
   "owner_scope": "work",
   "affected_scopes": [
     "work",
@@ -193,16 +193,20 @@
     {
       "id": "CLV-021",
       "text": "Add a shared provider conformance test kit: one reusable suite every SMS/MMS and voice edge adapter must pass (send success, send rejection, inbound message, duplicate inbound webhook, delivery status update, backward/duplicate status transition, invalid signature, missing credentials, media handling) so new providers meet one bar rather than ad hoc tests.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260622-clv021-provider-conformance-kit"
+      ]
     },
     {
       "id": "CLV-022",
       "text": "Establish a schema-migration coordination convention across the concurrently-active items 015/016/017 (sequential schema-version ownership and documented migration order) so their database changes do not collide, with each migration tested from the previously shipped schema.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260622-clv022-schema-migration-coordination"
+      ]
     }
   ],
   "created": "2026-06-18",
-  "updated": "2026-06-20"
+  "updated": "2026-06-22"
 }

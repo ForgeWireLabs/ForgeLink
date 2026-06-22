@@ -5,7 +5,7 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 11;
 
 export interface ThreadRow {
   id: number;
@@ -60,6 +60,49 @@ export interface ContactPolicyDecision {
   allowed: boolean;
   reason: string;
   contact_id: number | null;
+}
+
+// Human Cards (work item 016, AGH-001): resolvable local operator authority so
+// agents can address a human by role/alias (for example `operator:primary`)
+// rather than by phone number or contact string. Local data; never published to
+// providers or external channels.
+export interface HumanCardInput {
+  alias: string;
+  display_name?: string;
+  role?: string;
+  availability?: string;
+  authority_scopes?: string[];
+  preferred_channels?: string[];
+  quiet_hours?: string;
+  redaction_profile?: string;
+  notes?: string;
+}
+
+export interface HumanCardRow {
+  id: number;
+  alias: string;
+  display_name: string;
+  role: string;
+  availability: string;
+  authority_scopes: string;     // JSON array text
+  preferred_channels: string;   // JSON array text
+  quiet_hours: string;
+  redaction_profile: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Agent-facing, redacted view returned by alias resolution. Operator-private
+// fields (notes, raw quiet-hours config) are not exposed to agents.
+export interface ResolvedHumanCard {
+  alias: string;
+  display_name: string;
+  role: string;
+  availability: string;
+  authority_scopes: string[];
+  preferred_channels: string[];
+  resolved_via: string;         // the alias actually matched (after fallback)
 }
 
 export interface CallRow {
@@ -513,6 +556,34 @@ export class PhoneDatabase {
         `);
         version = 10;
         this.connection.exec("PRAGMA user_version=10");
+      }
+      if (version === 10) {
+        // Human Cards (work item 016, AGH-001; schema v11 per decision 0011).
+        // Resolvable local operator authority. Seed a default `operator:primary`
+        // so a fresh/local-only install always has a resolvable human authority.
+        const now = utcNow();
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS human_cards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            alias TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL DEFAULT '',
+            role TEXT NOT NULL DEFAULT '',
+            availability TEXT NOT NULL DEFAULT 'available',
+            authority_scopes TEXT NOT NULL DEFAULT '[]',
+            preferred_channels TEXT NOT NULL DEFAULT '[]',
+            quiet_hours TEXT NOT NULL DEFAULT '',
+            redaction_profile TEXT NOT NULL DEFAULT 'desktop_full',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+        `);
+        this.connection.prepare(`
+          INSERT OR IGNORE INTO human_cards(alias, display_name, role, availability, authority_scopes, preferred_channels, redaction_profile, created_at, updated_at)
+          VALUES('operator:primary', 'Primary Operator', 'operator', 'available', ?, '["local"]', 'desktop_full', ?, ?)
+        `).run(JSON.stringify(["release_approval", "security_approval", "general_approval", "emergency"]), now, now);
+        version = 11;
+        this.connection.exec("PRAGMA user_version=11");
       }
       this.connection.exec("COMMIT");
     } catch (error) {
@@ -1039,6 +1110,77 @@ export class PhoneDatabase {
 
   private expireAgentMessages(): void {
     this.connection.prepare("UPDATE agent_messages SET status='expired' WHERE expires_at IS NOT NULL AND expires_at <= ? AND status IN ('unread', 'read')").run(utcNow());
+  }
+
+  // --- Human Cards (work item 016, AGH-001) -----------------------------------
+
+  humanCards(): HumanCardRow[] {
+    return this.connection.prepare("SELECT * FROM human_cards ORDER BY alias").all() as unknown as HumanCardRow[];
+  }
+
+  humanCardByAlias(alias: string): HumanCardRow | undefined {
+    const trimmed = String(alias || "").trim();
+    if (!trimmed) return undefined;
+    const exact = this.connection.prepare("SELECT * FROM human_cards WHERE alias=?").get(trimmed) as unknown as HumanCardRow | undefined;
+    if (exact) return exact;
+    // Single-operator default: any unconfigured `operator:*` role resolves to the
+    // primary operator so the well-known aliases work without multi-operator setup.
+    if (/^operator:/.test(trimmed)) return this.connection.prepare("SELECT * FROM human_cards WHERE alias='operator:primary'").get() as unknown as HumanCardRow | undefined;
+    return undefined;
+  }
+
+  // Agent-facing resolution: redacted, with operator-private fields removed.
+  resolveHumanCard(alias: string): ResolvedHumanCard | undefined {
+    const row = this.humanCardByAlias(alias);
+    if (!row) return undefined;
+    const parseList = (value: string): string[] => { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.map(String) : []; } catch { return []; } };
+    return {
+      alias: String(alias).trim(),
+      display_name: row.display_name,
+      role: row.role,
+      availability: row.availability,
+      authority_scopes: parseList(row.authority_scopes),
+      preferred_channels: parseList(row.preferred_channels),
+      resolved_via: row.alias
+    };
+  }
+
+  upsertHumanCard(input: HumanCardInput): HumanCardRow {
+    const alias = String(input.alias || "").trim();
+    if (!/^[a-z][a-z0-9_]*:[a-z0-9_]+$/.test(alias)) throw new Error("Human Card alias must look like `operator:primary`.");
+    const now = utcNow();
+    this.connection.prepare(`
+      INSERT INTO human_cards(alias, display_name, role, availability, authority_scopes, preferred_channels, quiet_hours, redaction_profile, notes, created_at, updated_at)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(alias) DO UPDATE SET
+        display_name=excluded.display_name,
+        role=excluded.role,
+        availability=excluded.availability,
+        authority_scopes=excluded.authority_scopes,
+        preferred_channels=excluded.preferred_channels,
+        quiet_hours=excluded.quiet_hours,
+        redaction_profile=excluded.redaction_profile,
+        notes=excluded.notes,
+        updated_at=excluded.updated_at
+    `).run(
+      alias,
+      (input.display_name || "").slice(0, 200),
+      (input.role || "").slice(0, 80),
+      (input.availability || "available").slice(0, 40),
+      JSON.stringify(Array.isArray(input.authority_scopes) ? input.authority_scopes.map((scope) => String(scope).slice(0, 80)) : []),
+      JSON.stringify(Array.isArray(input.preferred_channels) ? input.preferred_channels.map((channel) => String(channel).slice(0, 80)) : []),
+      (input.quiet_hours || "").slice(0, 200),
+      (input.redaction_profile || "desktop_full").slice(0, 60),
+      (input.notes || "").slice(0, 2000),
+      now,
+      now
+    );
+    return this.connection.prepare("SELECT * FROM human_cards WHERE alias=?").get(alias) as unknown as HumanCardRow;
+  }
+
+  deleteHumanCard(alias: string): boolean {
+    if (alias === "operator:primary") throw new Error("The primary operator card cannot be deleted.");
+    return this.connection.prepare("DELETE FROM human_cards WHERE alias=?").run(String(alias || "").trim()).changes === 1;
   }
 
   mcpTokenRecord(): McpTokenRecord | undefined {

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { AddressInfo } from "node:net";
+import { CURRENT_SCHEMA_VERSION } from "./database";
 import { createBackend } from "./server";
 
 const apiToken = "local-api-test-token";
@@ -142,7 +143,7 @@ test("backs up, exports, restores, and reports managed data", async () => {
     assert.equal(readFileSync(join(directory, "uploads", "proof.txt"), "utf8"), "before backup");
 
     const status = await fetch(`${localUrl}/api/data/status`, { headers: authorized() }).then((response) => response.json()) as { schema_version: number; backup_count: number; latest_backup: string };
-    assert.equal(status.schema_version, 10);
+    assert.equal(status.schema_version, CURRENT_SCHEMA_VERSION);
     assert.equal(status.backup_count, 1);
     assert.match(status.latest_backup, /^backup-/);
   } finally {
@@ -240,6 +241,53 @@ test("manages MCP token and restricts it to agent-safe routes", async () => {
     const revoked = await fetch(`${localUrl}/api/mcp/token/revoke`, { method: "POST", headers: authorized() });
     assert.equal(revoked.status, 200);
     assert.equal((await fetch(`${localUrl}/health`, { headers: mcpHeaders })).status, 401);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("exposes Human Cards for management and redacted agent resolution (AGH-001)", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-human-cards-api-"));
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  try {
+    // Management is launch-only and ships the seeded primary operator.
+    const listed = await fetch(`${localUrl}/api/human-cards`, { headers: authorized() }).then((response) => response.json()) as Array<{ alias: string }>;
+    assert.deepEqual(listed.map((card) => card.alias), ["operator:primary"]);
+
+    const created = await fetch(`${localUrl}/api/human-cards`, {
+      method: "POST",
+      headers: authorized({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ alias: "operator:release_approval", display_name: "Release Approver", role: "operator", authority_scopes: ["release_approval"], notes: "private" })
+    });
+    assert.equal(created.status, 201);
+
+    // Agents authenticate with the MCP token and resolve authority by alias.
+    const mcpToken = ((await (await fetch(`${localUrl}/api/mcp/token`, { method: "POST", headers: authorized() })).json()) as { token: string }).token;
+    const mcpHeaders = { Authorization: `Bearer ${mcpToken}` };
+
+    const resolved = await fetch(`${localUrl}/api/human-cards/resolve?alias=operator:release_approval`, { headers: mcpHeaders });
+    assert.equal(resolved.status, 200);
+    const resolvedCard = await resolved.json() as Record<string, unknown>;
+    assert.equal(resolvedCard.resolved_via, "operator:release_approval");
+    assert.deepEqual(resolvedCard.authority_scopes, ["release_approval"]);
+    assert.equal(resolvedCard.notes, undefined); // operator-private, never exposed to agents
+
+    // Unconfigured operator:* alias falls back to the primary operator.
+    const fallback = await fetch(`${localUrl}/api/human-cards/resolve?alias=operator:security_approval`, { headers: mcpHeaders }).then((response) => response.json()) as Record<string, unknown>;
+    assert.equal(fallback.resolved_via, "operator:primary");
+
+    // Agents cannot list/manage cards, only resolve.
+    assert.equal((await fetch(`${localUrl}/api/human-cards`, { headers: mcpHeaders })).status, 401);
+    // Unknown non-operator aliases are not resolvable.
+    assert.equal((await fetch(`${localUrl}/api/human-cards/resolve?alias=agent:rogue`, { headers: mcpHeaders })).status, 404);
+
+    // The primary card is protected; other cards can be deleted by the operator.
+    assert.equal((await fetch(`${localUrl}/api/human-cards/operator:primary`, { method: "DELETE", headers: authorized() })).status, 400);
+    assert.equal((await fetch(`${localUrl}/api/human-cards/operator:release_approval`, { method: "DELETE", headers: authorized() })).status, 200);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(directory, { recursive: true, force: true });

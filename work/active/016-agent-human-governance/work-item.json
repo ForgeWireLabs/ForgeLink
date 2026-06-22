@@ -31,8 +31,10 @@
     {
       "id": "AGH-001",
       "text": "Add local-first Human Cards so agents can address human authority by alias/role rather than only by phone number or contact string.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260622-agh001-human-cards"
+      ]
     },
     {
       "id": "AGH-002",
@@ -198,5 +200,5 @@
     }
   ],
   "created": "2026-06-18",
-  "updated": "2026-06-18"
+  "updated": "2026-06-22"
 }

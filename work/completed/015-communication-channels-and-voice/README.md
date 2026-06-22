@@ -1,8 +1,8 @@
 ---
 audience: maintainers and implementation agents
-status: active
-last_verified: 2026-06-20
-source_of_truth: work/active/015-communication-channels-and-voice/README.md; work/active/015-communication-channels-and-voice/work-item.json
+status: completed
+last_verified: 2026-06-22
+source_of_truth: work/completed/015-communication-channels-and-voice/README.md; work/completed/015-communication-channels-and-voice/work-item.json
 ---
 
 # Work Item 015: Communication Channels and Voice
@@ -379,8 +379,8 @@ only if a concrete operator deployment requires it.
 ### Phase 7: Local-only onboarding, provider conformance, and migration safety (added 2026-06-18 gap review)
 
 - [x] **CLV-020 Make first-run provider-optional.** Install and onboard into a usable local-only state (agent approvals + local human loop) with no telecom provider; offer a 'Start local-only' path so Twilio credentials are never forced. Resolves the mismatch where the shipped first-run requires Twilio while CLV-004 promises provider-free operation.
-- [ ] **CLV-021 Add a shared provider conformance test kit.** One reusable suite every SMS/MMS and voice edge adapter must pass (send/reject, inbound, duplicate webhook, status transitions, invalid signature, missing credentials, media) so providers meet one bar.
-- [ ] **CLV-022 Coordinate concurrent schema migrations.** Sequential schema-version ownership across 015/016/017 with documented migration order, each tested from the previously shipped schema.
+- [x] **CLV-021 Add a shared provider conformance test kit.** One reusable suite every SMS/MMS and voice edge adapter must pass (send/reject, inbound, duplicate webhook, status transitions, invalid signature, missing credentials, media) so providers meet one bar.
+- [x] **CLV-022 Coordinate concurrent schema migrations.** Sequential schema-version ownership across 015/016/017 with documented migration order, each tested from the previously shipped schema.
 
 ## Suggested data model direction
 
@@ -547,3 +547,63 @@ Add or update docs for:
 | 2026-06-20 | CLV-018 complete | Decision `0009` records future channel roadmap boundaries for email, push, Telegram, WhatsApp Business, Discord, RSS/Atom, first-party mobile companion, local webhooks/LAN integrations, and direct telecom separation; detailed active work items `018`-`024` now split those roadmap paths into acceptance criteria; includes privacy/security notes, likely credentials, inbound/outbound capability, quick-action boundary, failure modes, and Matrix exclusion rationale | CLV-018 satisfied (evidence 20260620-clv018-channel-roadmap). Direct telecom research remains CLV-019. |
 | 2026-06-20 | CLV-019 complete | Decision `0010` records direct telecom research for SIP trunking, SMPP, SMSC/MMSC access, phone-number provisioning, A2P/10DLC, STIR/SHAKEN, caller ID reputation, CNAM, E911, toll-free/short-code messaging, carrier partnership, operating costs, and the staged path if ForgeLink later needs a more direct edge | CLV-019 satisfied (evidence 20260620-clv019-direct-telecom-research). Provider-optional onboarding remains CLV-020. |
 | 2026-06-20 | CLV-020 complete | Added provider-optional first-run: settings now track `onboarding_complete` separately from telecom credentials; first-run offers `Start local-only`; local-only startup persists loopback-only settings with no Twilio secrets; removing credentials keeps the app onboarded; Settings can restart unconfigured local service without Twilio validation | CLV-020 satisfied (evidence 20260620-clv020-provider-optional-onboarding). Provider conformance test kit remains CLV-021. |
+| 2026-06-22 | CLV-021 complete | Shared provider conformance kit (`backend/src/channel-conformance.ts`) with `runSmsEdgeConformance`/`runVoiceEdgeConformance`; Twilio (SMS + voice) and Telnyx (SMS) now run through the same suite covering capability advertisement, send success/rejection, inbound + MMS/media normalization, status normalization, duplicate-inbound idempotency and backward/duplicate status transition (driven through a temp `PhoneDatabase`), signature valid/invalid, and missing credentials; `docs/provider-conformance.md` documents the bar for new providers; 21 new cases green (`node --test` twilio+telnyx, 58 pass) | CLV-021 satisfied (evidence 20260622-clv021-provider-conformance-kit). Schema-migration coordination remains CLV-022. |
+| 2026-06-22 | CLV-022 complete | Decision `0011` establishes the schema-migration coordination convention: one append-only contiguous migration ladder in `database.ts`, sequential `user_version` ownership tracked per version in an allocation table (v1-v7 foundations; v8-v10 015; future items claim the next free integer and record ownership), documented migration order, a claim procedure, and the rule that every step is tested from a previously shipped schema; added a v7 pre-015 upgrade test alongside the existing v1 legacy upgrade test (both reach `CURRENT_SCHEMA_VERSION` with a pre-migration backup and no data loss); 77 backend tests green | CLV-022 satisfied (evidence 20260622-clv022-schema-migration-coordination). Phase 7 complete; all 015 acceptance criteria satisfied. |
+| 2026-06-22 | closeout | All 22 acceptance criteria (CLV-001..CLV-022) satisfied; item moved to `work/completed/`; status flipped in README frontmatter and `work-item.json` | 015 completed. |
+
+## Closeout
+
+All 22 acceptance criteria (CLV-001 through CLV-022) are satisfied. ForgeLink now
+has a provider-neutral, local-first communications runtime with the channel/edge
+architecture this item set out to build.
+
+### What shipped
+
+- **Channel architecture** — provider-neutral contracts and a capability registry
+  (`backend/src/channels.ts`); native, internet, and telecom-edge channel kinds;
+  clean rejection of unsupported capabilities.
+- **Telecom edges** — Twilio (SMS/MMS + Voice) and Telnyx (SMS/MMS) behind the
+  contract; Plivo/Bandwidth recorded as planning gates (decision 0007).
+- **Native human loop** — local-only agent-to-human messages, approvals, and
+  notifications with no provider required; mobile companion protocol designed and
+  gated (decision 0006), disabled-by-default authenticated route, no public relay.
+- **Contacts** — rich metadata, contact points / channel identities, and
+  contact-level attention policy (schema v8/v9) with renderer UI and enforcement.
+- **Voice** — provider-neutral voice runtime (`docs/voice-runtime.md`), Twilio
+  Voice edge with durable call rows (schema v10), call UI, durable call history,
+  and a merged, redaction-aware contact timeline.
+- **Onboarding** — provider-optional first-run (`Start local-only`).
+- **Quality bar** — shared provider conformance kit
+  (`backend/src/channel-conformance.ts`, `docs/provider-conformance.md`) and a
+  schema-migration coordination convention (decision 0011).
+
+### Decisions produced
+
+0006 (mobile companion), 0007 (Plivo/Bandwidth planning), 0008 (Twilio Verify
+scope), 0009 (channel roadmap / Matrix exclusion), 0010 (direct telecom research),
+0011 (schema-migration coordination).
+
+### Successor work
+
+This item is the architectural anchor for the channel-adapter items it spun out —
+**018** (email), **019** (push), **020** (Telegram), **021** (WhatsApp Business),
+**022** (Discord), **023** (RSS/Atom follow-up), **024** (local webhooks / LAN) —
+all of which `depend_on` 015. Governance (016) and the operator cockpit (017)
+build on this runtime. New telecom/channel adapters must pass the conformance kit
+and claim the next free schema version in the allocation table in decision 0011.
+
+### Limitations / remaining risk
+
+- Live-provider tests remain opt-in; CI coverage is deterministic stubs only.
+- PSTN SMS/MMS and voice still require a telecom edge; no direct carrier
+  interconnect (deliberate, per decision 0010).
+- The mobile companion is designed and gated, not shipped.
+- Schema-version ownership is a documented convention (decision 0011 allocation
+  table), not yet validator-enforced (0011 notes a possible future
+  `CURRENT_SCHEMA_VERSION`-monotonicity check).
+
+### Rollback
+
+No destructive migrations were introduced in the closing slices (CLV-021 is
+test-only; CLV-022 added a test and documentation). Schema v8–v10 each back up the
+database before mutating and are covered by from-previous-shipped-schema tests.
