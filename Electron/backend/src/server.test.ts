@@ -383,6 +383,56 @@ test("ties agent requests to identities and manages the registry (AGH-003)", asy
   }
 });
 
+test("enforces agent trust states and audits transitions (AGH-004)", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-agent-trust-api-"));
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  try {
+    const mcpToken = ((await (await fetch(`${localUrl}/api/mcp/token`, { method: "POST", headers: authorized() })).json()) as { token: string }).token;
+    const channelToken = await createChannel(localUrl);
+    const post = (body: Record<string, unknown>) => fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${mcpToken}`, "Content-Type": "application/json", "X-ForgeLink-Channel-Token": channelToken },
+      body: JSON.stringify({ source: "codex", kind: "approval_request", title: "t", body: "b", ...body })
+    });
+    const setTrust = (state: string) => fetch(`${localUrl}/api/agent-identities/codex/trust`, {
+      method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ trust_state: state, reason: `set ${state}` })
+    });
+
+    // A new (unknown) agent is conservative: normal is fine, urgent is refused.
+    assert.equal((await post({ urgency: "normal" })).status, 201);
+    const urgentDenied = await post({ urgency: "urgent" });
+    assert.equal(urgentDenied.status, 403);
+    assert.equal((await urgentDenied.json() as { reason: string }).reason, "insufficient_trust_for_urgent");
+
+    // Promote to trusted (audited) -> urgent now allowed.
+    assert.equal((await setTrust("trusted")).status, 200);
+    assert.equal((await post({ urgency: "urgent" })).status, 201);
+
+    // Mute -> cannot interrupt at all.
+    assert.equal((await setTrust("muted")).status, 200);
+    const muted = await post({ urgency: "normal" });
+    assert.equal(muted.status, 403);
+    assert.equal((await muted.json() as { reason: string }).reason, "agent_muted");
+
+    // Block -> cannot interrupt.
+    assert.equal((await setTrust("blocked")).status, 200);
+    assert.equal((await post({ urgency: "normal" })).status, 403);
+
+    // The transition audit log is operator-only and records each change with reason.
+    assert.equal((await fetch(`${localUrl}/api/agent-identities/codex/trust-events`, { headers: { Authorization: `Bearer ${mcpToken}` } })).status, 401);
+    const events = await fetch(`${localUrl}/api/agent-identities/codex/trust-events`, { headers: authorized() }).then((r) => r.json()) as Array<{ from_state: string; to_state: string; reason: string }>;
+    assert.deepEqual(events.map((event) => event.to_state), ["blocked", "muted", "trusted"]);
+    assert.equal(events[2].from_state, "unknown");
+    assert.equal(events[0].reason, "set blocked");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("accepts authenticated agent channel messages and records human actions", async () => {
   const directory = mkdtempSync(join(tmpdir(), "twilio-phone-agent-api-"));
   const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
@@ -430,6 +480,8 @@ test("accepts authenticated agent channel messages and records human actions", a
     assert.equal((await policyRejected.json() as { reason: string }).reason, "approval_requests_disallowed");
 
     database.setContactPolicy(contactId, { trust_level: "operator", allow_agent_messages: true, allow_approval_requests: true, allow_urgent_interrupts: false });
+    // Trust the agent (AGH-004) so the request reaches the contact-policy urgent gate.
+    database.upsertAgentIdentity({ id: "fabric-agent", trust_state: "trusted" });
     policyRejected = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": token },
@@ -463,6 +515,9 @@ test("enforces agent channel credentials, revocation, disable, and urgency rate 
   try {
     const token = await createChannel(localUrl);
     const headers = { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": token };
+    // Urgent interrupts require a trusted agent (AGH-004); trust forgewire so this
+    // test exercises the urgency rate limit rather than the trust gate.
+    await fetch(`${localUrl}/api/agent-identities`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ id: "forgewire", trust_state: "trusted" }) });
     assert.equal((await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, { method: "POST", headers: { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": "wrong" }, body: message("bad") })).status, 401);
     for (let index = 0; index < 3; index += 1) {
       assert.equal((await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, { method: "POST", headers, body: message(`urgent-${index}`) })).status, 201);

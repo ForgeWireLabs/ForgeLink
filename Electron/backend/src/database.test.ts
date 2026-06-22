@@ -118,6 +118,8 @@ test("upgrades a version-seven (pre-015) database to the current schema without 
     assert.equal(database.humanCardByAlias("operator:primary")?.role, "operator");
     // v12 (016 AGH-003) adds the agent identity registry.
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_identities'").get() as { name: string } | undefined)?.name, "agent_identities");
+    // v13 (016 AGH-004) adds the trust transition audit log.
+    assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_trust_events'").get() as { name: string } | undefined)?.name, "agent_trust_events");
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -213,6 +215,39 @@ test("registers agent identities with restricted defaults and operator managemen
 
     assert.throws(() => database.upsertAgentIdentity({ id: "codex", trust_state: "supreme" }), /trust state/);
     assert.throws(() => database.recordAgentIdentitySeen("bad id"), /agent identity id/);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// Agent trust states and probation (work item 016, AGH-004).
+test("audits agent trust transitions (AGH-004)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-agent-trust-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    database.recordAgentIdentitySeen("codex", "mcp"); // starts 'unknown', no event
+    assert.equal(database.agentTrustEvents("codex").length, 0);
+
+    // Explicit transitions are recorded with from/to and reason.
+    const probation = database.setAgentTrustState("codex", "probation", "under review");
+    assert.equal(probation.trust_state, "probation");
+    const promoted = database.setAgentTrustState("codex", "trusted", "background check passed");
+    assert.equal(promoted.trust_state, "trusted");
+    const events = database.agentTrustEvents("codex");
+    assert.equal(events.length, 2);
+    assert.equal(events[0].to_state, "trusted");
+    assert.equal(events[0].from_state, "probation");
+    assert.equal(events[0].reason, "background check passed");
+    assert.equal(events[1].from_state, "unknown");
+
+    // No-op transitions and invalid states do not write events.
+    assert.equal(database.setAgentTrustState("codex", "trusted").trust_state, "trusted");
+    assert.equal(database.agentTrustEvents("codex").length, 2);
+    assert.throws(() => database.setAgentTrustState("codex", "supreme"), /trust state/);
+    assert.throws(() => database.setAgentTrustState("ghost", "trusted"), /not found/);
+
+    // Trust changes made through operator management are audited too.
+    database.upsertAgentIdentity({ id: "codex", trust_state: "blocked" });
+    assert.equal(database.agentTrustEvents("codex")[0].to_state, "blocked");
+    assert.equal(database.agentTrustEvents("codex").length, 3);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 

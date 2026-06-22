@@ -55,8 +55,10 @@
     {
       "id": "AGH-004",
       "text": "Add agent trust states and probation so new agents are conservative by default, muted/blocked agents cannot interrupt, and trust changes are explicit/audited.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260622-agh004-agent-trust-states"
+      ]
     },
     {
       "id": "AGH-005",

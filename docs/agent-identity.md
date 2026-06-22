@@ -59,6 +59,39 @@ POST /api/agent-identities
 Management updates governance fields but never resets `last_seen_at`. An invalid
 `trust_state` is rejected.
 
+## Trust states and probation (AGH-004)
+
+An identity's `trust_state` is one of:
+
+```text
+unknown · probation · trusted · restricted · muted · blocked
+```
+
+### Enforcement at ingestion
+
+- **Muted or blocked agents cannot interrupt.** A message from a `muted` or
+  `blocked` agent is rejected with `403` (`reason: agent_muted` / `agent_blocked`).
+- **New agents stay conservative.** Only a `trusted` agent may raise an **urgent**
+  interrupt; `unknown`/`probation`/`restricted` agents requesting `urgency:
+  "urgent"` are rejected with `403` (`reason: insufficient_trust_for_urgent`) and
+  can resend at a lower urgency. Normal/low/high traffic from non-blocked agents is
+  unaffected.
+
+### Audited transitions
+
+Trust changes are **explicit operator decisions** and every change is recorded in
+a tamper-visible audit log (`agent_trust_events`: `from_state`, `to_state`,
+`reason`, `changed_at`). Both the dedicated trust endpoint and ordinary management
+updates write an event when the state actually changes.
+
+```http
+POST /api/agent-identities/<id>/trust          # { "trust_state": "...", "reason": "..." }  (launch only)
+GET  /api/agent-identities/<id>/trust-events    # audit log, newest first (launch only)
+```
+
+A no-op transition (same state) writes no event; an invalid state or unknown
+agent is rejected.
+
 ## Notes
 
 - Schema ownership: `agent_identities` is schema version **v12**, owned by work

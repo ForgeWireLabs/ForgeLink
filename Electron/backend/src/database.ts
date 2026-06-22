@@ -5,7 +5,7 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 12;
+export const CURRENT_SCHEMA_VERSION = 13;
 
 export interface ThreadRow {
   id: number;
@@ -162,6 +162,17 @@ export interface AgentIdentityRow {
   last_seen_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// Trust transition audit (work item 016, AGH-004): trust-state changes are
+// explicit operator decisions and recorded as tamper-visible events.
+export interface AgentTrustEventRow {
+  id: number;
+  agent_id: string;
+  from_state: string;
+  to_state: string;
+  reason: string;
+  changed_at: string;
 }
 
 export interface CallRow {
@@ -667,6 +678,22 @@ export class PhoneDatabase {
         `);
         version = 12;
         this.connection.exec("PRAGMA user_version=12");
+      }
+      if (version === 12) {
+        // Agent trust transition audit (work item 016, AGH-004; schema v13 per decision 0011).
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS agent_trust_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id TEXT NOT NULL,
+            from_state TEXT NOT NULL,
+            to_state TEXT NOT NULL,
+            reason TEXT NOT NULL DEFAULT '',
+            changed_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_agent_trust_events_agent ON agent_trust_events(agent_id, changed_at DESC);
+        `);
+        version = 13;
+        this.connection.exec("PRAGMA user_version=13");
       }
       this.connection.exec("COMMIT");
     } catch (error) {
@@ -1319,6 +1346,7 @@ export class PhoneDatabase {
     if (!isAgentTrustState(trustState)) throw new Error("Invalid agent trust state.");
     const now = utcNow();
     const existing = this.agentIdentity(agentId);
+    const fromState = existing?.trust_state ?? "unknown";
     this.connection.prepare(`
       INSERT INTO agent_identities(id, display_name, source_kind, source_uri, owner, trust_state, default_risk_limit, allowed_channels, allowed_tools, escalation_alias, last_seen_at, created_at, updated_at)
       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1348,7 +1376,32 @@ export class PhoneDatabase {
       existing?.created_at || now,
       now
     );
+    // Any trust change made through management is audited (AGH-004).
+    if (fromState !== trustState) this.recordTrustChange(agentId, fromState, trustState, "operator update", now);
     return this.agentIdentity(agentId)!;
+  }
+
+  private recordTrustChange(agentId: string, fromState: string, toState: string, reason: string, now: string): void {
+    this.connection.prepare("INSERT INTO agent_trust_events(agent_id, from_state, to_state, reason, changed_at) VALUES(?, ?, ?, ?, ?)")
+      .run(agentId, fromState, toState, reason.slice(0, 500), now);
+  }
+
+  // Explicit, audited trust transition (AGH-004). The identity must exist.
+  setAgentTrustState(id: string, toState: string, reason = ""): AgentIdentityRow {
+    const agentId = String(id || "").trim();
+    if (!isAgentTrustState(toState)) throw new Error("Invalid agent trust state.");
+    const existing = this.agentIdentity(agentId);
+    if (!existing) throw new Error("Agent identity not found.");
+    if (existing.trust_state === toState) return existing;
+    const now = utcNow();
+    this.connection.prepare("UPDATE agent_identities SET trust_state=?, updated_at=? WHERE id=?").run(toState, now, agentId);
+    this.recordTrustChange(agentId, existing.trust_state, toState, reason, now);
+    return this.agentIdentity(agentId)!;
+  }
+
+  agentTrustEvents(id?: string): AgentTrustEventRow[] {
+    if (id) return this.connection.prepare("SELECT * FROM agent_trust_events WHERE agent_id=? ORDER BY changed_at DESC, id DESC").all(String(id).trim()) as unknown as AgentTrustEventRow[];
+    return this.connection.prepare("SELECT * FROM agent_trust_events ORDER BY changed_at DESC, id DESC LIMIT 500").all() as unknown as AgentTrustEventRow[];
   }
 
   mcpTokenRecord(): McpTokenRecord | undefined {

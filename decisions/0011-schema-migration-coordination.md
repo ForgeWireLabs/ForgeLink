@@ -68,6 +68,7 @@ the table is the single place that says who owns what.
 | v10 | 015 CLV-013 | `calls` table | shipped |
 | v11 | 016 AGH-001 | `human_cards` (resolvable local operator authority; seeds `operator:primary`) | shipped |
 | v12 | 016 AGH-003 | `agent_identities` (agent identity registry; trust state, owner, allow-lists) | shipped |
+| v13 | 016 AGH-004 | `agent_trust_events` (audited agent trust-state transitions) | shipped |
 
 Future allocations are appended to this table as they land. 015's dependent
 channel-adapter items (018–024) and the governance/cockpit items (016/017) all

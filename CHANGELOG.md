@@ -6,6 +6,29 @@ versions tracked in `VERSION` and `Electron/package.json`.
 
 ## [Unreleased]
 
+### Added
+- Shared provider conformance test kit every SMS/MMS and voice edge adapter must
+  pass, with Twilio and Telnyx wired through it (work item 015, CLV-021).
+- Human Cards: resolvable local operator authority by alias (for example
+  `operator:primary`), with redacted, agent-reachable resolution (work item 016,
+  AGH-001).
+- Authority scopes: approval requests can declare a required authority scope;
+  under-authorized requests are rejected with escalation targets (AGH-002).
+- Agent Identity Registry: agent-originated requests are tied to a first-class
+  identity, and unknown agents are auto-registered with restricted defaults
+  (AGH-003).
+- Agent trust states and probation: muted/blocked agents cannot interrupt, only
+  trusted agents may raise urgent interrupts, and every trust change is audited
+  (AGH-004).
+
+### Changed
+- Completed work item 015 (Communication Channels and Voice); moved to the
+  completed ledger.
+- Schema migrations now follow a single append-only ladder with per-version
+  ownership recorded in decision 0011 (CLV-022). The local schema advanced from
+  v10 to v13. Upgrades back up the database and are tested from previously shipped
+  schemas.
+
 ## [2.0.3] - 2026-06-20 (local build, unsigned)
 
 > Built locally as `Electron/dist/ForgeLink_2.0.3_x64-setup.exe`. Not published to

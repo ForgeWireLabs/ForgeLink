@@ -388,6 +388,19 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         });
         return sendJson(response, { ok: true, identity }, 201);
       }
+      // AGH-004: explicit, audited trust transitions and the trust audit log.
+      const agentTrustMatch = url.pathname.match(/^\/api\/agent-identities\/([A-Za-z0-9_.:-]{1,80})\/trust$/);
+      if (request.method === "POST" && agentTrustMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const identity = database.setAgentTrustState(agentTrustMatch[1], String(payload.trust_state || ""), String(payload.reason || ""));
+        return sendJson(response, { ok: true, identity });
+      }
+      const agentTrustEventsMatch = url.pathname.match(/^\/api\/agent-identities\/([A-Za-z0-9_.:-]{1,80})\/trust-events$/);
+      if (request.method === "GET" && agentTrustEventsMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.agentTrustEvents(agentTrustEventsMatch[1]));
+      }
       if (request.method === "POST" && url.pathname === "/api/mcp/token") {
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         const token = `flmcp_${randomBytes(32).toString("base64url")}`;
@@ -476,6 +489,17 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         // AGH-003: tie the request to a first-class agent identity, auto-registering
         // unknown agents with restricted defaults and recording last-seen.
         const agentIdentity = database.recordAgentIdentitySeen(source, String(payload.source_kind || "mcp"));
+        // AGH-004 trust enforcement: muted/blocked agents cannot interrupt, and only
+        // trusted agents may raise an urgent interrupt (new agents stay conservative).
+        if (agentIdentity.trust_state === "blocked" || agentIdentity.trust_state === "muted") {
+          const reason = agentIdentity.trust_state === "blocked" ? "agent_blocked" : "agent_muted";
+          database.markAgentChannelRejected(channelId, urgency, reason);
+          return sendJson(response, { error: "Agent is not permitted to interrupt.", reason, agent: { id: agentIdentity.id, trust_state: agentIdentity.trust_state } }, 403);
+        }
+        if (urgency === "urgent" && agentIdentity.trust_state !== "trusted") {
+          database.markAgentChannelRejected(channelId, urgency, "insufficient_trust_for_urgent");
+          return sendJson(response, { error: "Urgent interrupts require a trusted agent.", reason: "insufficient_trust_for_urgent", agent: { id: agentIdentity.id, trust_state: agentIdentity.trust_state } }, 403);
+        }
         // AGH-002 authority gate: when a request declares a required authority
         // scope, the addressed human (default operator:primary) must hold it, else
         // the request is rejected with escalation targets. Optional and backward
