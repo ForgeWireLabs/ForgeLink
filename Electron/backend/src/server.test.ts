@@ -294,6 +294,95 @@ test("exposes Human Cards for management and redacted agent resolution (AGH-001)
   }
 });
 
+test("checks authority scopes and gates under-authorized requests (AGH-002)", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-authority-api-"));
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  try {
+    // A limited operator that holds only release_approval.
+    await fetch(`${localUrl}/api/human-cards`, {
+      method: "POST",
+      headers: authorized({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ alias: "operator:release_approval", role: "operator", authority_scopes: ["release_approval"] })
+    });
+
+    const mcpToken = ((await (await fetch(`${localUrl}/api/mcp/token`, { method: "POST", headers: authorized() })).json()) as { token: string }).token;
+    const mcpHeaders = { Authorization: `Bearer ${mcpToken}` };
+
+    // Agent dry-run checks (mcp-safe).
+    const granted = await fetch(`${localUrl}/api/authority/check?alias=operator:primary&scope=security_approval`, { headers: mcpHeaders }).then((r) => r.json()) as { granted: boolean };
+    assert.equal(granted.granted, true);
+    const denied = await fetch(`${localUrl}/api/authority/check?alias=operator:release_approval&scope=security_approval`, { headers: mcpHeaders }).then((r) => r.json()) as { granted: boolean; escalate_to: string[] };
+    assert.equal(denied.granted, false);
+    assert.ok(denied.escalate_to.includes("operator:primary"));
+    assert.equal((await fetch(`${localUrl}/api/authority/check?scope=bogus`, { headers: mcpHeaders })).status, 400);
+
+    // Ingestion gate: a request requiring security_approval addressed to the
+    // release-only operator is rejected with escalation; addressed to the default
+    // primary it is accepted; a request with no required_authority is unaffected.
+    const channelToken = await createChannel(localUrl);
+    const post = (body: Record<string, unknown>) => fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
+      method: "POST",
+      headers: { ...mcpHeaders, "Content-Type": "application/json", "X-ForgeLink-Channel-Token": channelToken },
+      body: JSON.stringify({ source: "codex", kind: "approval_request", urgency: "normal", title: "t", body: "b", ...body })
+    });
+
+    const blocked = await post({ required_authority: "security_approval", to_human: "operator:release_approval" });
+    assert.equal(blocked.status, 403);
+    assert.equal((await blocked.json() as { reason: string }).reason, "insufficient_authority");
+    assert.equal((await post({ required_authority: "security_approval" })).status, 201); // defaults to operator:primary
+    assert.equal((await post({})).status, 201); // backward compatible
+    assert.equal((await post({ required_authority: "bogus" })).status, 400);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("ties agent requests to identities and manages the registry (AGH-003)", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-agent-identity-api-"));
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  try {
+    const mcpToken = ((await (await fetch(`${localUrl}/api/mcp/token`, { method: "POST", headers: authorized() })).json()) as { token: string }).token;
+    const channelToken = await createChannel(localUrl);
+
+    // A posted agent message ties to a first-class identity (auto-registered unknown).
+    const posted = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${mcpToken}`, "Content-Type": "application/json", "X-ForgeLink-Channel-Token": channelToken },
+      body: JSON.stringify({ source: "codex", kind: "approval_request", urgency: "normal", title: "t", body: "b" })
+    });
+    assert.equal(posted.status, 201);
+    assert.deepEqual((await posted.json() as { agent: unknown }).agent, { id: "codex", trust_state: "unknown" });
+
+    // Registry is operator-only and shows the auto-registered agent.
+    assert.equal((await fetch(`${localUrl}/api/agent-identities`, { headers: { Authorization: `Bearer ${mcpToken}` } })).status, 401);
+    const listed = await fetch(`${localUrl}/api/agent-identities`, { headers: authorized() }).then((r) => r.json()) as Array<{ id: string; trust_state: string; last_seen_at: string | null }>;
+    assert.equal(listed.length, 1);
+    assert.equal(listed[0].id, "codex");
+    assert.ok(listed[0].last_seen_at);
+
+    // Operator promotes the agent to trusted.
+    const promoted = await fetch(`${localUrl}/api/agent-identities`, {
+      method: "POST",
+      headers: authorized({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ id: "codex", display_name: "Codex", owner: "platform", trust_state: "trusted" })
+    });
+    assert.equal(promoted.status, 201);
+    assert.equal((await promoted.json() as { identity: { trust_state: string } }).identity.trust_state, "trusted");
+    // Invalid trust state is rejected.
+    assert.equal((await fetch(`${localUrl}/api/agent-identities`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ id: "codex", trust_state: "supreme" }) })).status, 400);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("accepts authenticated agent channel messages and records human actions", async () => {
   const directory = mkdtempSync(join(tmpdir(), "twilio-phone-agent-api-"));
   const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });

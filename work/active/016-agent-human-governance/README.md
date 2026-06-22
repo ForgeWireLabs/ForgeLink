@@ -100,7 +100,7 @@ This item owns the governance semantics that ride on top of that runtime:
   - Acceptance: Human Cards are local data and are not published externally by
     default.
 
-- [ ] **AGH-002 Add authority scopes.** Model what each human/operator identity is
+- [x] **AGH-002 Add authority scopes.** Model what each human/operator identity is
   allowed to approve.
   - Acceptance: Approval requests declare required authority scope.
   - Acceptance: ForgeLink rejects or escalates requests addressed to humans who
@@ -110,7 +110,7 @@ This item owns the governance semantics that ride on top of that runtime:
 
 ### Phase 1: Agent identity and trust
 
-- [ ] **AGH-003 Add Agent Identity Registry.** Add first-class identities for
+- [x] **AGH-003 Add Agent Identity Registry.** Add first-class identities for
   agents, systems, MCP clients, and local workflow sources.
   - Include: agent ID, display name, owner, repo/app/source, signing key or
     stable local identity, allowed tools/channels, default risk limit,
@@ -418,3 +418,5 @@ Add or update docs for:
 | 2026-06-18 | planning | Deep product review identified governance primitives needed to make ForgeLink human-boundary infrastructure rather than a messaging wrapper | Created item 016 before implementation starts. |
 | 2026-06-18 | gap review | Roadmap gap review with operator: local-only onboarding, public-tunnel hardening, untrusted agent content, key management, agent-facing contract, conformance/integration testing, migration coordination, and distribution/updates | Added acceptance criteria and fixed README acceptance-criteria numbering to match work-item.json. |
 | 2026-06-22 | AGH-001 complete | Human Cards: schema v11 `human_cards` (per decision 0011 allocation table) seeding `operator:primary`; backend `humanCards`/`humanCardByAlias`/`resolveHumanCard`/`upsertHumanCard`/`deleteHumanCard`; launch-only management API + agent-reachable redacted `GET /api/human-cards/resolve` (mcp-safe) with `operator:*`→primary fallback; `docs/human-cards.md`; DB + HTTP tests + v11 from-previous-shipped-schema upgrade assertion (79 backend tests green) | AGH-001 satisfied (evidence 20260622-agh001-human-cards). Authority scopes (AGH-002) build on the stored `authority_scopes`. |
+| 2026-06-22 | AGH-002 complete | Authority scopes: canonical `AUTHORITY_SCOPES` (general/release/security/emergency); `checkAuthority(alias,scope)` returns grant + escalation targets, with `humanCardsWithAuthority`; agent-reachable dry-run `GET /api/authority/check` (mcp-safe, 400 on unknown scope); ingestion gate enforces optional `required_authority`+`to_human` (403 `insufficient_authority` + escalation when the addressed human lacks the scope), backward compatible; seeded `operator:primary` holds all scopes so single-operator stays simple; `docs/human-cards.md` authority section; DB + HTTP tests (81 backend tests green) | AGH-002 satisfied (evidence 20260622-agh002-authority-scopes). Required scope is enforced at ingestion but persisted with the approval schema (AGH-006). Agent Identity Registry (AGH-003) is next. |
+| 2026-06-22 | AGH-003 complete | Agent Identity Registry: schema v12 `agent_identities` (per decision 0011); `recordAgentIdentitySeen` auto-registers unknown agents with restricted defaults (trust_state `unknown`, empty allow-lists) and bumps last-seen; `upsertAgentIdentity` for operator management with validated trust state; `agentIdentities`/`agentIdentity`; agent message ingestion now ties each request to an identity and echoes `{ agent: { id, trust_state } }`; launch-only `GET/POST /api/agent-identities`; `docs/agent-identity.md`; DB + HTTP tests + v12 upgrade assertion (83 backend tests green) | AGH-003 satisfied (evidence 20260622-agh003-agent-identity-registry). Trust-state transitions/probation are AGH-004 (next); per-message identity persistence is AGH-006. |

@@ -116,6 +116,8 @@ test("upgrades a version-seven (pre-015) database to the current schema without 
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='calls'").get() as { name: string } | undefined)?.name, "calls");
     // v11 (016 AGH-001) seeds the primary operator Human Card on upgrade too.
     assert.equal(database.humanCardByAlias("operator:primary")?.role, "operator");
+    // v12 (016 AGH-003) adds the agent identity registry.
+    assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_identities'").get() as { name: string } | undefined)?.name, "agent_identities");
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -154,6 +156,63 @@ test("seeds, resolves, and manages Human Cards (AGH-001)", () => {
     assert.throws(() => database.deleteHumanCard("operator:primary"), /primary operator/);
     assert.equal(database.deleteHumanCard("operator:release_approval"), true);
     assert.equal(database.humanCards().length, 1);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// Authority scopes (work item 016, AGH-002).
+test("checks authority scopes and offers escalation targets (AGH-002)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-authority-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    // The seeded primary operator holds every scope, so single-operator stays simple.
+    assert.equal(database.checkAuthority("operator:primary", "security_approval").granted, true);
+    assert.deepEqual(database.humanCardsWithAuthority("emergency").map((card) => card.alias), ["operator:primary"]);
+
+    // A limited operator lacks scopes it was not granted; escalation points to a holder.
+    database.upsertHumanCard({ alias: "operator:release_approval", role: "operator", authority_scopes: ["release_approval"] });
+    assert.equal(database.checkAuthority("operator:release_approval", "release_approval").granted, true);
+    const denied = database.checkAuthority("operator:release_approval", "security_approval");
+    assert.equal(denied.granted, false);
+    assert.equal(denied.resolved_via, "operator:release_approval");
+    assert.ok(denied.escalate_to.includes("operator:primary"));
+
+    // An unresolved, non-operator alias grants nothing but still offers escalation.
+    const unresolved = database.checkAuthority("agent:rogue", "release_approval");
+    assert.equal(unresolved.granted, false);
+    assert.equal(unresolved.resolved_via, null);
+    assert.ok(unresolved.escalate_to.includes("operator:primary"));
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// Agent Identity Registry (work item 016, AGH-003).
+test("registers agent identities with restricted defaults and operator management (AGH-003)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-agent-identity-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    // An unknown agent is auto-registered on first sight with restricted defaults.
+    const first = database.recordAgentIdentitySeen("codex", "mcp");
+    assert.equal(first.trust_state, "unknown");
+    assert.equal(first.allowed_channels, "[]");
+    assert.equal(first.allowed_tools, "[]");
+    assert.ok(first.last_seen_at);
+    assert.equal(database.agentIdentities().length, 1);
+
+    // Seeing it again updates last-seen without creating a duplicate.
+    const second = database.recordAgentIdentitySeen("codex", "mcp");
+    assert.equal(database.agentIdentities().length, 1);
+    assert.ok((second.last_seen_at as string) >= (first.last_seen_at as string));
+
+    // Operators promote/configure identities; trust state is validated.
+    const trusted = database.upsertAgentIdentity({ id: "codex", display_name: "Codex", owner: "platform", trust_state: "trusted", allowed_tools: ["git_commit"], escalation_alias: "operator:primary" });
+    assert.equal(trusted.trust_state, "trusted");
+    assert.equal(trusted.owner, "platform");
+    assert.deepEqual(JSON.parse(trusted.allowed_tools), ["git_commit"]);
+    // Management does not duplicate or reset last-seen.
+    assert.equal(database.agentIdentities().length, 1);
+    assert.equal(trusted.last_seen_at, second.last_seen_at);
+
+    assert.throws(() => database.upsertAgentIdentity({ id: "codex", trust_state: "supreme" }), /trust state/);
+    assert.throws(() => database.recordAgentIdentitySeen("bad id"), /agent identity id/);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 

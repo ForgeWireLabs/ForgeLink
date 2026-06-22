@@ -67,6 +67,7 @@ the table is the single place that says who owns what.
 | v9 | 015 CLV-011 | `contact_policy.quiet_hours_override` | shipped |
 | v10 | 015 CLV-013 | `calls` table | shipped |
 | v11 | 016 AGH-001 | `human_cards` (resolvable local operator authority; seeds `operator:primary`) | shipped |
+| v12 | 016 AGH-003 | `agent_identities` (agent identity registry; trust state, owner, allow-lists) | shipped |
 
 Future allocations are appended to this table as they land. 015's dependent
 channel-adapter items (018–024) and the governance/cockpit items (016/017) all

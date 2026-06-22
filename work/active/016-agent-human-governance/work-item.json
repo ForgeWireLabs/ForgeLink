@@ -39,14 +39,18 @@
     {
       "id": "AGH-002",
       "text": "Add authority scopes so approval requests declare required authority and ForgeLink can reject or escalate requests addressed to humans without that authority.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260622-agh002-authority-scopes"
+      ]
     },
     {
       "id": "AGH-003",
       "text": "Add Agent Identity Registry for agents, systems, MCP clients, and local workflow sources, including source, owner, allowed tools/channels, default risk limit, escalation contact, and trust state.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260622-agh003-agent-identity-registry"
+      ]
     },
     {
       "id": "AGH-004",

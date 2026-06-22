@@ -67,6 +67,68 @@ GET    /api/human-cards/resolve?alias=...     # resolve (agent-reachable, redact
 
 `operator:primary` cannot be deleted — it is the guaranteed fallback authority.
 
+## Authority scopes (AGH-002)
+
+A Human Card's `authority_scopes` declares what that operator may approve. The
+canonical scopes are:
+
+```text
+general_approval
+release_approval
+security_approval
+emergency
+```
+
+The seeded `operator:primary` holds all of them, so single-operator installs work
+without configuration. Multi-operator setups give each card a narrower set.
+
+An approval request **declares the scope it requires**, and ForgeLink decides
+whether the addressed human may grant it. Agents can check this before
+interrupting (a dry run):
+
+```http
+GET /api/authority/check?alias=operator:release_approval&scope=security_approval
+```
+
+```jsonc
+{
+  "scope": "security_approval",
+  "addressed_alias": "operator:release_approval",
+  "resolved_via": "operator:release_approval",
+  "granted": false,
+  "escalate_to": ["operator:primary"]   // aliases that DO hold the scope
+}
+```
+
+When `granted` is false, `escalate_to` lists the operators who hold the scope so
+the request can be re-addressed or escalated. An unknown scope returns `400`.
+
+### Enforcement at ingestion
+
+When an agent message declares `required_authority` (optionally with `to_human`,
+defaulting to `operator:primary`), ForgeLink enforces the scope before accepting:
+
+```jsonc
+POST /api/agent-channels/<channel>/messages
+{ "source": "codex", "kind": "approval_request", "urgency": "normal",
+  "title": "...", "body": "...",
+  "required_authority": "security_approval", "to_human": "operator:release_approval" }
+```
+
+If the addressed human lacks the scope the request is rejected with `403`:
+
+```jsonc
+{ "error": "Addressed human lacks the required authority.",
+  "reason": "insufficient_authority",
+  "required_authority": "security_approval",
+  "addressed": "operator:release_approval",
+  "escalate_to": ["operator:primary"] }
+```
+
+Requests without `required_authority` are unaffected (backward compatible). The
+required scope is enforced at ingestion but not yet persisted on the message —
+durable approval-request fields arrive with the approval request schema (AGH-006).
+
 ## Security notes
 
 - Human Cards are local operator records, not public identity documents. They are

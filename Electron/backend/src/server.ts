@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:
 import { createServer, IncomingMessage, Server, ServerResponse } from "node:http";
 import { extname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
-import { AgentAction, AgentChannelRecord, AgentUrgency, PhoneDatabase } from "./database";
+import { AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, isAuthorityScope, PhoneDatabase } from "./database";
 import { utcNow } from "./phone";
 import { fetchTrustedSignalFeed } from "./signals";
 import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, loadTwilioConfig, sendTwilioMessage, startTwilioCall, validateTwilioSignature } from "./twilio";
@@ -86,6 +86,8 @@ function isMcpSafeRoute(method: string | undefined, pathname: string): boolean {
   if (method === "POST" && /^\/api\/agent-messages\/[^/]+\/actions\/[^/]+$/.test(pathname)) return true;
   // Agents resolve human authority by alias (AGH-001); resolution is redacted.
   if (method === "GET" && pathname === "/api/human-cards/resolve") return true;
+  // Agents check whether an addressed human holds a required authority (AGH-002).
+  if (method === "GET" && pathname === "/api/authority/check") return true;
   return false;
 }
 
@@ -325,6 +327,13 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         if (!resolved) return sendJson(response, { error: "No human authority resolves that alias." }, 404);
         return sendJson(response, resolved);
       }
+      // AGH-002: agents check (dry-run) whether the addressed human can approve a
+      // required authority scope before interrupting. Returns escalation targets.
+      if (request.method === "GET" && url.pathname === "/api/authority/check") {
+        const scope = String(url.searchParams.get("scope") || "");
+        if (!isAuthorityScope(scope)) return sendJson(response, { error: "Unknown authority scope.", scopes: AUTHORITY_SCOPES }, 400);
+        return sendJson(response, database.checkAuthority(url.searchParams.get("alias") || "operator:primary", scope));
+      }
       if (request.method === "GET" && url.pathname === "/api/human-cards") {
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         return sendJson(response, database.humanCards());
@@ -353,6 +362,31 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       if (request.method === "DELETE" && humanCardMatch) {
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         return sendJson(response, { ok: database.deleteHumanCard(humanCardMatch[1]) });
+      }
+      // Agent Identity Registry (AGH-003): operator-only governance management.
+      // Agent-originated requests are tied to an identity automatically at ingestion.
+      if (request.method === "GET" && url.pathname === "/api/agent-identities") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.agentIdentities());
+      }
+      if (request.method === "POST" && url.pathname === "/api/agent-identities") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const toList = (value: unknown): string[] => Array.isArray(value) ? value.map((entry) => String(entry)) : [];
+        const optionalText = (value: unknown): string => value === undefined || value === null ? "" : String(value);
+        const identity = database.upsertAgentIdentity({
+          id: boundedText(payload.id, "agent id", 80, /^[A-Za-z0-9_.:-]+$/),
+          display_name: optionalText(payload.display_name),
+          source_kind: optionalText(payload.source_kind),
+          source_uri: optionalText(payload.source_uri),
+          owner: optionalText(payload.owner),
+          trust_state: payload.trust_state === undefined ? undefined : String(payload.trust_state),
+          default_risk_limit: optionalText(payload.default_risk_limit),
+          allowed_channels: toList(payload.allowed_channels),
+          allowed_tools: toList(payload.allowed_tools),
+          escalation_alias: optionalText(payload.escalation_alias)
+        });
+        return sendJson(response, { ok: true, identity }, 201);
       }
       if (request.method === "POST" && url.pathname === "/api/mcp/token") {
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
@@ -439,6 +473,22 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const channelId = agentMessageMatch[1];
         const source = boundedText(payload.source, "source", 80, /^[A-Za-z0-9_.:-]+$/);
         const kind = boundedText(payload.kind, "kind", 80, /^[A-Za-z0-9_.:-]+$/);
+        // AGH-003: tie the request to a first-class agent identity, auto-registering
+        // unknown agents with restricted defaults and recording last-seen.
+        const agentIdentity = database.recordAgentIdentitySeen(source, String(payload.source_kind || "mcp"));
+        // AGH-002 authority gate: when a request declares a required authority
+        // scope, the addressed human (default operator:primary) must hold it, else
+        // the request is rejected with escalation targets. Optional and backward
+        // compatible; requests without `required_authority` are unaffected.
+        if (payload.required_authority !== undefined && payload.required_authority !== "") {
+          const requiredAuthority = String(payload.required_authority);
+          if (!isAuthorityScope(requiredAuthority)) throw new Error("required_authority is invalid.");
+          const decision = database.checkAuthority(payload.to_human ? String(payload.to_human) : "operator:primary", requiredAuthority);
+          if (!decision.granted) {
+            database.markAgentChannelRejected(channelId, urgency, "insufficient_authority");
+            return sendJson(response, { error: "Addressed human lacks the required authority.", reason: "insufficient_authority", required_authority: requiredAuthority, addressed: decision.addressed_alias, escalate_to: decision.escalate_to }, 403);
+          }
+        }
         const policyDecision = database.agentContactPolicyDecision(source, kind, urgency);
         if (!policyDecision.allowed) {
           database.markAgentChannelRejected(channelId, urgency, policyDecision.reason);
@@ -462,7 +512,7 @@ export function createBackend(options: BackendOptions): { server: Server; databa
           expires_at: optionalIso(payload.expires_at)
         });
         database.markAgentChannelUsed(channelId, urgency);
-        return sendJson(response, { ok: true, message }, 201);
+        return sendJson(response, { ok: true, message, agent: { id: agentIdentity.id, trust_state: agentIdentity.trust_state } }, 201);
       }
       const agentStatusMatch = url.pathname.match(/^\/api\/agent-messages\/([^/]+)\/(read|dismiss)$/);
       if (request.method === "POST" && agentStatusMatch) {

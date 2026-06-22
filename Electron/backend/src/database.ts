@@ -5,7 +5,7 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;
 
 export interface ThreadRow {
   id: number;
@@ -103,6 +103,65 @@ export interface ResolvedHumanCard {
   authority_scopes: string[];
   preferred_channels: string[];
   resolved_via: string;         // the alias actually matched (after fallback)
+}
+
+// Authority scopes (work item 016, AGH-002): what an operator may approve.
+// Canonical set; approval requests declare the scope they require, and ForgeLink
+// rejects/escalates requests addressed to humans who do not hold it.
+export const AUTHORITY_SCOPES = ["general_approval", "release_approval", "security_approval", "emergency"] as const;
+export type AuthorityScope = typeof AUTHORITY_SCOPES[number];
+
+export function isAuthorityScope(value: string): value is AuthorityScope {
+  return (AUTHORITY_SCOPES as readonly string[]).includes(value);
+}
+
+export interface AuthorityDecision {
+  scope: string;
+  addressed_alias: string;
+  resolved_via: string | null;  // card matched after fallback, or null if unresolved
+  granted: boolean;
+  escalate_to: string[];        // aliases that hold the scope (for escalation)
+}
+
+// Agent Identity Registry (work item 016, AGH-003): first-class identities for
+// agents, MCP clients, systems, and local workflows so agent-originated requests
+// are tied to a known identity. Trust-state transitions/probation are AGH-004;
+// AGH-003 records identities and gives unknown agents restricted defaults.
+export const AGENT_TRUST_STATES = ["unknown", "probation", "trusted", "restricted", "muted", "blocked"] as const;
+export type AgentTrustState = typeof AGENT_TRUST_STATES[number];
+
+export function isAgentTrustState(value: string): value is AgentTrustState {
+  return (AGENT_TRUST_STATES as readonly string[]).includes(value);
+}
+
+export interface AgentIdentityInput {
+  id: string;
+  display_name?: string;
+  source_kind?: string;
+  source_uri?: string;
+  owner?: string;
+  trust_state?: string;
+  default_risk_limit?: string;
+  allowed_channels?: string[];
+  allowed_tools?: string[];
+  escalation_alias?: string;
+}
+
+export interface AgentIdentityRow {
+  id: string;
+  display_name: string;
+  source_kind: string;
+  source_uri: string;
+  owner: string;
+  signing_key_ref: string;
+  trust_state: string;
+  default_risk_limit: string;
+  allowed_channels: string;   // JSON array text
+  allowed_tools: string;      // JSON array text
+  escalation_alias: string;
+  last_seen_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface CallRow {
@@ -584,6 +643,30 @@ export class PhoneDatabase {
         `).run(JSON.stringify(["release_approval", "security_approval", "general_approval", "emergency"]), now, now);
         version = 11;
         this.connection.exec("PRAGMA user_version=11");
+      }
+      if (version === 11) {
+        // Agent Identity Registry (work item 016, AGH-003; schema v12 per decision 0011).
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS agent_identities (
+            id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL DEFAULT '',
+            source_kind TEXT NOT NULL DEFAULT 'unknown',
+            source_uri TEXT NOT NULL DEFAULT '',
+            owner TEXT NOT NULL DEFAULT '',
+            signing_key_ref TEXT NOT NULL DEFAULT '',
+            trust_state TEXT NOT NULL DEFAULT 'unknown',
+            default_risk_limit TEXT NOT NULL DEFAULT 'normal',
+            allowed_channels TEXT NOT NULL DEFAULT '[]',
+            allowed_tools TEXT NOT NULL DEFAULT '[]',
+            escalation_alias TEXT NOT NULL DEFAULT '',
+            last_seen_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_agent_identities_trust ON agent_identities(trust_state);
+        `);
+        version = 12;
+        this.connection.exec("PRAGMA user_version=12");
       }
       this.connection.exec("COMMIT");
     } catch (error) {
@@ -1181,6 +1264,91 @@ export class PhoneDatabase {
   deleteHumanCard(alias: string): boolean {
     if (alias === "operator:primary") throw new Error("The primary operator card cannot be deleted.");
     return this.connection.prepare("DELETE FROM human_cards WHERE alias=?").run(String(alias || "").trim()).changes === 1;
+  }
+
+  private cardAuthorityScopes(row: HumanCardRow): string[] {
+    try { const parsed = JSON.parse(row.authority_scopes); return Array.isArray(parsed) ? parsed.map(String) : []; } catch { return []; }
+  }
+
+  humanCardsWithAuthority(scope: string): HumanCardRow[] {
+    return this.humanCards().filter((row) => this.cardAuthorityScopes(row).includes(scope));
+  }
+
+  // Decide whether the human addressed by `alias` may approve `scope`. When not
+  // granted, `escalate_to` lists the aliases that do hold it so the request can be
+  // re-addressed or escalated (AGH-002).
+  checkAuthority(alias: string, scope: string): AuthorityDecision {
+    const addressed = String(alias || "").trim();
+    const card = this.humanCardByAlias(addressed);
+    const granted = card ? this.cardAuthorityScopes(card).includes(scope) : false;
+    const escalateTo = granted ? [] : this.humanCardsWithAuthority(scope).map((row) => row.alias).filter((candidate) => candidate !== card?.alias);
+    return { scope, addressed_alias: addressed, resolved_via: card?.alias ?? null, granted, escalate_to: escalateTo };
+  }
+
+  // --- Agent Identity Registry (work item 016, AGH-003) -----------------------
+
+  agentIdentities(): AgentIdentityRow[] {
+    return this.connection.prepare("SELECT * FROM agent_identities ORDER BY id").all() as unknown as AgentIdentityRow[];
+  }
+
+  agentIdentity(id: string): AgentIdentityRow | undefined {
+    return this.connection.prepare("SELECT * FROM agent_identities WHERE id=?").get(String(id || "").trim()) as unknown as AgentIdentityRow | undefined;
+  }
+
+  // Auto-register an agent the first time it is seen, with restricted defaults
+  // (trust_state 'unknown', no allowed channels/tools), and bump last_seen. Ties
+  // agent-originated requests to a durable identity without operator setup.
+  recordAgentIdentitySeen(id: string, sourceKind = "unknown"): AgentIdentityRow {
+    const agentId = String(id || "").trim();
+    if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(agentId)) throw new Error("Invalid agent identity id.");
+    const now = utcNow();
+    this.connection.prepare(`
+      INSERT INTO agent_identities(id, source_kind, last_seen_at, created_at, updated_at)
+      VALUES(?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET last_seen_at=excluded.last_seen_at, updated_at=excluded.updated_at
+    `).run(agentId, sourceKind.slice(0, 40), now, now, now);
+    return this.agentIdentity(agentId)!;
+  }
+
+  // Operator management: create or update governance fields for an agent. Does not
+  // touch last_seen. Trust-state transition policy/audit is AGH-004.
+  upsertAgentIdentity(input: AgentIdentityInput): AgentIdentityRow {
+    const agentId = String(input.id || "").trim();
+    if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(agentId)) throw new Error("Invalid agent identity id.");
+    const trustState = input.trust_state ?? "unknown";
+    if (!isAgentTrustState(trustState)) throw new Error("Invalid agent trust state.");
+    const now = utcNow();
+    const existing = this.agentIdentity(agentId);
+    this.connection.prepare(`
+      INSERT INTO agent_identities(id, display_name, source_kind, source_uri, owner, trust_state, default_risk_limit, allowed_channels, allowed_tools, escalation_alias, last_seen_at, created_at, updated_at)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        display_name=excluded.display_name,
+        source_kind=excluded.source_kind,
+        source_uri=excluded.source_uri,
+        owner=excluded.owner,
+        trust_state=excluded.trust_state,
+        default_risk_limit=excluded.default_risk_limit,
+        allowed_channels=excluded.allowed_channels,
+        allowed_tools=excluded.allowed_tools,
+        escalation_alias=excluded.escalation_alias,
+        updated_at=excluded.updated_at
+    `).run(
+      agentId,
+      (input.display_name || "").slice(0, 200),
+      (input.source_kind || "unknown").slice(0, 40),
+      (input.source_uri || "").slice(0, 400),
+      (input.owner || "").slice(0, 200),
+      trustState,
+      (input.default_risk_limit || "normal").slice(0, 40),
+      JSON.stringify(Array.isArray(input.allowed_channels) ? input.allowed_channels.map((channel) => String(channel).slice(0, 80)) : []),
+      JSON.stringify(Array.isArray(input.allowed_tools) ? input.allowed_tools.map((tool) => String(tool).slice(0, 80)) : []),
+      (input.escalation_alias || "").slice(0, 80),
+      existing?.last_seen_at ?? null,
+      existing?.created_at || now,
+      now
+    );
+    return this.agentIdentity(agentId)!;
   }
 
   mcpTokenRecord(): McpTokenRecord | undefined {
