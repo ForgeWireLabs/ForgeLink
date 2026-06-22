@@ -6,6 +6,15 @@ versions tracked in `VERSION` and `Electron/package.json`.
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-06-20 (local build, unsigned)
+
+> Built locally as `Electron/dist/ForgeLink_2.0.3_x64-setup.exe`. Not published to
+> GitHub Releases (still payment-locked); distribute the local installer directly.
+
+### Changed
+- Version bump to 2.0.3 and local rebuild/reinstall of the Windows installer. No
+  functional changes over 2.0.2.
+
 ## [2.0.2] - 2026-06-18 (local build, unsigned)
 
 > Built locally as `Electron/dist/ForgeLink_2.0.2_x64-setup.exe`
