@@ -445,6 +445,39 @@ repopact validate
 
 Implementation work should also run the tests named by the relevant work item. Do not close criteria based on code inspection alone.
 
+### Enforcement (work item 025)
+
+`validate_system.py` is wired as a git gate via `core.hooksPath = .githooks`:
+the audit runs on every commit, and the audit plus the test suite run on every
+push. New clones enable it once with:
+
+```text
+git config core.hooksPath .githooks
+```
+
+The audit is structural, not advisory. It fails — not warns — when a README
+contradicts its `work-item.json` (a satisfied criterion left unchecked, a
+checked criterion still pending, a satisfied criterion whose evidence id is
+missing from the README evidence log) or when the schema-migration ladder
+violates [decision 0011](../decisions/0011-schema-migration-coordination.md). If
+the audit passes, the ledger is internally consistent; treat a red audit as a
+real defect, never as something to work around.
+
+### Per-criterion closeout checklist
+
+When a single acceptance criterion is finished, do all of the following before
+moving on — the audit enforces the structural items, the rest are judgment:
+
+1. set the criterion `state` to `satisfied` (or `waived` with a reason) in
+   `work-item.json`, with an `evidence` id;
+2. check its README box (`[x]`) and add an evidence-log row that names the same
+   evidence id;
+3. update `docs/` if the behavior is user-, operator-, security-, or
+   agent-facing (shipped behavior only);
+4. add a CHANGELOG `[Unreleased]` entry if the change is user/operator-facing;
+5. record commands run, limitations, and rollback notes;
+6. run `python .local/validate_system.py` and the work item's tests.
+
 ## Moving Work Between States
 
 To move active work to completed:

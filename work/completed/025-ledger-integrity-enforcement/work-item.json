@@ -1,0 +1,62 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "025",
+  "title": "Ledger Integrity Enforcement",
+  "status": "completed",
+  "owner_scope": "work",
+  "affected_scopes": [
+    "work",
+    "tooling",
+    "docs"
+  ],
+  "depends_on": [],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-22T23:58:52Z",
+    "note": "Created before implementation work starts. Hardens RepoPact/validate_system.py so README<->work-item.json drift fails the audit instead of passing silently, and makes the audit a commit/push gate."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "LIE-001",
+      "text": "validate_system.py fails when a README acceptance-criterion checkbox does not match the work-item.json criterion state (satisfied must be [x], pending must be [ ]) or when a criterion in the manifest has no checkbox line in the README.",
+      "state": "satisfied",
+      "evidence": [
+        "20260622-025-ledger-integrity-enforcement"
+      ]
+    },
+    {
+      "id": "LIE-002",
+      "text": "validate_system.py fails when a satisfied criterion's evidence id is not referenced in the work item's README evidence log, so 'satisfied' always has a narrated, traceable record.",
+      "state": "satisfied",
+      "evidence": [
+        "20260622-025-ledger-integrity-enforcement"
+      ]
+    },
+    {
+      "id": "LIE-003",
+      "text": "validate_system.py enforces the decision 0011 schema-migration invariants: CURRENT_SCHEMA_VERSION in database.ts equals the highest contiguous migration step, the version guards are contiguous from 0, and every shipped version has an allocation-table row in decision 0011.",
+      "state": "satisfied",
+      "evidence": [
+        "20260622-025-ledger-integrity-enforcement"
+      ]
+    },
+    {
+      "id": "LIE-004",
+      "text": "A versioned .githooks/ gate runs the audit on every commit and the audit plus the test suite on every push, wired via core.hooksPath with a documented one-line setup, so drift cannot reach the branch by relying on memory.",
+      "state": "satisfied",
+      "evidence": [
+        "20260622-025-ledger-integrity-enforcement"
+      ]
+    },
+    {
+      "id": "LIE-005",
+      "text": "A per-criterion closeout definition-of-done checklist is recorded in work/README.md, and the pre-commit hook emits a soft (non-blocking) reminder when backend source changes without a CHANGELOG entry, covering the judgment-laden steps that cannot be fully automated.",
+      "state": "satisfied",
+      "evidence": [
+        "20260622-025-ledger-integrity-enforcement"
+      ]
+    }
+  ],
+  "created": "2026-06-22",
+  "updated": "2026-06-22"
+}

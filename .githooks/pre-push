@@ -1,0 +1,19 @@
+#!/bin/sh
+# ForgeLink pre-push gate (work item 025, LIE-004).
+# Full gate before code reaches the remote: the work-ledger audit and the test
+# suite must both pass.
+
+echo "[pre-push] running work-ledger audit..."
+if ! python .local/validate_system.py; then
+  echo "[pre-push] ledger audit FAILED."
+  exit 1
+fi
+
+echo "[pre-push] running test suite (Electron)..."
+if ! ( cd Electron && npm test ); then
+  echo "[pre-push] tests FAILED."
+  exit 1
+fi
+
+echo "[pre-push] all checks passed."
+exit 0

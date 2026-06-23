@@ -1,0 +1,22 @@
+#!/bin/sh
+# ForgeLink pre-commit gate (work item 025, LIE-004/005).
+# Fast structural gate: the work-ledger audit must pass on every commit so
+# README/manifest drift and schema-ladder violations cannot be committed.
+
+echo "[pre-commit] running work-ledger audit..."
+if ! python .local/validate_system.py; then
+  echo "[pre-commit] ledger audit FAILED - fix the issues above before committing."
+  exit 1
+fi
+
+# LIE-005 soft reminder (non-blocking): backend source changed without a CHANGELOG
+# entry. CHANGELOG-worthiness is a judgment call, so this only warns.
+staged="$(git diff --cached --name-only)"
+if printf '%s\n' "$staged" | grep -q '^Electron/backend/src/'; then
+  if ! printf '%s\n' "$staged" | grep -q '^CHANGELOG\.md$'; then
+    echo "[pre-commit] note: backend source changed but CHANGELOG.md is not staged."
+    echo "[pre-commit]       add an [Unreleased] entry if this is user/operator-facing (non-blocking)."
+  fi
+fi
+
+exit 0

@@ -168,7 +168,7 @@ only if a concrete operator deployment requires it.
 
 ### Phase 0: Local communications runtime and channel architecture
 
-- [ ] **CLV-001 Define the local communications runtime.** Formalize the
+- [x] **CLV-001 Define the local communications runtime.** Formalize the
   ForgeLink-owned backend for local inbox/outbox, message state, call state,
   approval state, channel registry, contact identity, contact policy, attention
   policy, retries, reconciliation, and diagnostics.
@@ -179,7 +179,7 @@ only if a concrete operator deployment requires it.
   - Acceptance: Existing SMS/MMS messages continue to map into the same local
     communication model.
 
-- [ ] **CLV-002 Define the channel and edge-adapter model.** Introduce
+- [x] **CLV-002 Define the channel and edge-adapter model.** Introduce
   provider-neutral contracts for native channels, external internet adapters, and
   telecom edge adapters, including capabilities, provider identity,
   send/receive results, webhook parsing, delivery status, errors, media support,
@@ -193,7 +193,7 @@ only if a concrete operator deployment requires it.
   - Acceptance: Tests prove the app can select a configured provider and reject
     unsupported capabilities cleanly.
 
-- [ ] **CLV-003 Preserve Twilio as the first SMS/MMS telecom edge adapter.** Move current
+- [x] **CLV-003 Preserve Twilio as the first SMS/MMS telecom edge adapter.** Move current
   Twilio-specific SMS/MMS logic behind the provider contract while preserving
   existing onboarding, webhook, status, media, retry, and delivery behavior.
   - Acceptance: Existing Twilio tests are updated to prove contract compliance.
@@ -204,7 +204,7 @@ only if a concrete operator deployment requires it.
 
 ### Phase 1: ForgeLink-native human loop
 
-- [ ] **CLV-004 Add local-only agent-to-human channel support.** Ensure the MCP
+- [x] **CLV-004 Add local-only agent-to-human channel support.** Ensure the MCP
   bridge and local API can deliver agent messages and approval requests through
   ForgeLink's native desktop UI without requiring SMS/MMS, voice, or any third
   party provider.
@@ -214,7 +214,7 @@ only if a concrete operator deployment requires it.
   - Acceptance: Local-only operation is represented clearly in Settings and
     diagnostics.
 
-- [ ] **CLV-005 Design ForgeLink mobile companion protocol.** Define a first-party
+- [x] **CLV-005 Design ForgeLink mobile companion protocol.** Define a first-party
   mobile companion path as the native non-SaaS replacement for the primary human
   loop.
   - Include: QR-code or equivalent pairing, device identity, key exchange, local
@@ -227,7 +227,7 @@ only if a concrete operator deployment requires it.
   - Acceptance: The design supports agent approvals without SMS or external chat
     providers.
 
-- [ ] **CLV-006 Add mobile companion planning gate.** Add implementation stubs,
+- [x] **CLV-006 Add mobile companion planning gate.** Add implementation stubs,
   schemas, or route contracts for future desktop-to-mobile pairing without
   shipping an incomplete mobile product.
   - Acceptance: The current desktop app can represent the companion as planned or
@@ -238,7 +238,7 @@ only if a concrete operator deployment requires it.
 
 ### Phase 2: Telecom SMS/MMS edge expansion
 
-- [ ] **CLV-007 Add Telnyx SMS/MMS telecom edge support.** Implement Telnyx as the
+- [x] **CLV-007 Add Telnyx SMS/MMS telecom edge support.** Implement Telnyx as the
   second SMS/MMS provider because it closely matches ForgeLink's needs:
   outbound SMS/MMS, inbound webhooks, delivery status updates, signature
   verification, provider errors, media handling, and messaging profiles.
@@ -250,7 +250,7 @@ only if a concrete operator deployment requires it.
     setup.
   - Acceptance: Telnyx provider documentation is added under `docs/`.
 
-- [ ] **CLV-008 Add Plivo and Bandwidth telecom edge planning gates.** Add provider stubs or
+- [x] **CLV-008 Add Plivo and Bandwidth telecom edge planning gates.** Add provider stubs or
   decision records for Plivo and Bandwidth with explicit capability mapping,
   credential requirements, webhook validation requirements, MMS/media handling,
   and test fixture requirements.

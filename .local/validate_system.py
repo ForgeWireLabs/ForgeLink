@@ -284,12 +284,106 @@ def _validate_work_item(item_dir: Path, lifecycle: str, errors: list[str]) -> No
     if len(criterion_ids) != len(set(criterion_ids)):
         errors.append(f"duplicate acceptance criterion IDs in {manifest.relative_to(ROOT)}")
 
+    _validate_readme_parity(readme, relative_dir, criteria, errors)
+
+
+CHECKBOX = re.compile(r"-\s*\[([ xX])\]\s*\*\*([A-Z]+-\d+)\b")
+EVIDENCE_LOG_HEADING = re.compile(r"^#+\s*Evidence log\b", re.IGNORECASE | re.MULTILINE)
+
+
+def _validate_readme_parity(
+    readme: Path, relative_dir: Path, criteria: list[Any], errors: list[str]
+) -> None:
+    """README must not contradict work-item.json.
+
+    LIE-001: where a README uses the ``- [ ] **ID** ...`` checklist convention,
+    every manifest criterion must have a checkbox whose state matches the manifest
+    (satisfied -> [x], pending -> [ ]).
+    LIE-002: where a README maintains an "Evidence log" section, every satisfied
+    criterion's evidence id must appear in it, so "satisfied" is always traceable.
+
+    Both checks are gated on the convention being present so legacy/minimal READMEs
+    that defer to work-item.json are not forced to restructure.
+    """
+
+    if not readme.is_file():
+        return
+
+    text = readme.read_text(encoding="utf-8")
+    boxes = {match.group(2): match.group(1).strip().lower() for match in CHECKBOX.finditer(text)}
+
+    # LIE-001: checkbox parity (only for READMEs that use the checklist convention).
+    if boxes:
+        for criterion in criteria:
+            if not isinstance(criterion, dict):
+                continue
+            criterion_id = str(criterion.get("id"))
+            state = criterion.get("state")
+            box = boxes.get(criterion_id)
+            if box is None:
+                errors.append(f"criterion {criterion_id} has no README checkbox: {relative_dir}/README.md")
+                continue
+            if state == "satisfied" and box != "x":
+                errors.append(f"criterion {criterion_id} is satisfied but its README checkbox is unchecked: {relative_dir}/README.md")
+            elif state == "pending" and box == "x":
+                errors.append(f"criterion {criterion_id} is pending but its README checkbox is checked: {relative_dir}/README.md")
+
+    # LIE-002: evidence cross-reference (only where an Evidence log section exists).
+    if EVIDENCE_LOG_HEADING.search(text):
+        for criterion in criteria:
+            if not isinstance(criterion, dict) or criterion.get("state") != "satisfied":
+                continue
+            for evidence_id in criterion.get("evidence", []) or []:
+                if evidence_id and str(evidence_id) not in text:
+                    errors.append(
+                        f"satisfied criterion {criterion.get('id')} evidence id not in README evidence log: "
+                        f"{evidence_id} ({relative_dir}/README.md)"
+                    )
+
+
+def _check_schema_ladder(errors: list[str]) -> None:
+    """Enforce the decision 0011 schema-migration invariants (LIE-003).
+
+    The migration ladder in database.ts is a single contiguous sequence, and every
+    shipped version is owned in the decision 0011 allocation table. This catches a
+    skipped number, a CURRENT_SCHEMA_VERSION that does not match the last step, or a
+    forgotten allocation row.
+    """
+
+    database = ROOT / "Electron" / "backend" / "src" / "database.ts"
+    decision = ROOT / "decisions" / "0011-schema-migration-coordination.md"
+    if not database.is_file():
+        return  # No runtime to enforce against; skip rather than fail.
+
+    text = database.read_text(encoding="utf-8")
+    match = re.search(r"CURRENT_SCHEMA_VERSION\s*=\s*(\d+)", text)
+    if not match:
+        errors.append("schema ladder: CURRENT_SCHEMA_VERSION not found in database.ts")
+        return
+    current = int(match.group(1))
+
+    guards = sorted(int(value) for value in re.findall(r"if\s*\(\s*version\s*===\s*(\d+)\s*\)", text))
+    if guards != list(range(0, current)):
+        errors.append(
+            f"schema ladder: migration guards must be contiguous 0..{current - 1} to match "
+            f"CURRENT_SCHEMA_VERSION={current}, found {guards}"
+        )
+
+    if decision.is_file():
+        documented = {int(value) for value in re.findall(r"\|\s*v(\d+)\s*\|", decision.read_text(encoding="utf-8"))}
+        missing = [version for version in range(1, current + 1) if version not in documented]
+        if missing:
+            errors.append(f"schema ladder: decision 0011 allocation table missing rows for versions {missing}")
+    else:
+        errors.append("schema ladder: decision 0011 not found for allocation-table check")
+
 
 def main() -> int:
     errors: list[str] = []
     markdown_files: list[Path] = []
 
     _check_stale_work_readme(errors)
+    _check_schema_ladder(errors)
 
     for relative in REQUIRED:
         path = ROOT / relative
@@ -382,6 +476,8 @@ def main() -> int:
 
     print("- Stale README checks: passed")
     print("- Work item manifest checks: passed")
+    print("- README/manifest parity checks: passed")
+    print("- Schema-ladder checks: passed")
     print("- Markdown link/date checks: passed")
     return 0
 
