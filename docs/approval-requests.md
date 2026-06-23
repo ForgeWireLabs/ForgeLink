@@ -252,11 +252,48 @@ Decision Records are only written from the local operator surface (launch token)
 never from an agent (MCP) token, so a well-formed agent action cannot forge an
 operator decision. The read endpoints reject agent tokens.
 
+## Audit Chain
+
+Governance records are committed to an append-only, hash-linked **audit chain**
+(work item 016, AGH-016) so a later edit to any record — or to the chain itself —
+is detectable after the fact. This is a lightweight local integrity check, not
+blockchain or remote attestation.
+
+When an approval request is created, ForgeLink appends an `approval_request` entry
+(and an `evidence_pack` entry when a pack is present). When the operator decides,
+it appends a `decision` entry. Each entry stores:
+
+| Field | Purpose |
+| --- | --- |
+| `seq` | Monotonic position in the chain. |
+| `entry_type` | `approval_request`, `evidence_pack`, or `decision`. |
+| `ref_id` | The referenced record's id. |
+| `approval_request_id` | The owning approval request, for per-request replay. |
+| `payload_hash` | Hash of the referenced record's canonical content. |
+| `prev_hash` | The previous entry's `entry_hash` (empty at the genesis entry). |
+| `entry_hash` | Hash committing to this entry **and** `prev_hash`. |
+
+Because each entry commits to the previous entry's hash, editing any earlier entry
+invalidates every entry after it. Operators inspect and verify the chain through:
+
+```http
+GET /api/audit-chain                              # full chain (oldest first)
+GET /api/audit-chain?approval_request_id=<id>     # one request's lifecycle
+GET /api/audit-chain/verify                        # recompute and report integrity
+```
+
+`verify` walks the chain and confirms three things for every entry: it links to the
+previous entry (`broken_link` otherwise), its stored fields still hash to its
+`entry_hash` (`tampered_entry` otherwise), and its `payload_hash` still matches the
+live source record (`tampered_payload` otherwise). It returns
+`{ ok, length, broken_at, reason }`, reporting the first break. A source record
+removed by retention is not treated as tampering. Like Decision Records, the audit
+chain endpoints are operator-only.
+
 ## Boundaries
 
-- Decision Records are persisted and replayable now (AGH-013). Decision **memory**
-  (AGH-014), outcome callbacks (AGH-015), the tamper-evident audit **chain** linking
-  records together (AGH-016), and the operator replay **view** (AGH-017) are later
-  criteria.
-- The `decision_hash` makes each record self-verifying, but records are not yet
-  hash-linked into a chain; cross-record tamper evidence is AGH-016.
+- The chain covers approval requests, evidence packs, and decisions today. Outcome
+  entries are added when outcome callbacks land (AGH-015).
+- Decision **memory** (AGH-014) and the operator replay **view** (AGH-017) are later
+  criteria; the data the replay view needs (per-request decision and chain) is
+  already exposed by the endpoints above.

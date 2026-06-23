@@ -38,13 +38,19 @@ versions tracked in `VERSION` and `Electron/package.json`.
   and replayable through operator-only endpoints. Records are written only from
   the local operator surface, so an agent cannot forge an operator decision
   (AGH-013).
+- Tamper-evident audit chain: approval requests, evidence packs, and operator
+  decisions are committed to an append-only, hash-linked local chain. Each entry
+  commits to the previous entry's hash, so editing any record or entry is
+  detectable. Operators can list and verify the chain through operator-only
+  endpoints; verification reports the first broken link, tampered entry, or
+  tampered payload (AGH-016).
 
 ### Changed
 - Completed work item 015 (Communication Channels and Voice); moved to the
   completed ledger.
 - Schema migrations now follow a single append-only ladder with per-version
   ownership recorded in decision 0011 (CLV-022). The local schema advanced from
-  v10 to v17. Upgrades back up the database and are tested from previously shipped
+  v10 to v18. Upgrades back up the database and are tested from previously shipped
   schemas.
 
 ## [2.0.3] - 2026-06-20 (local build, unsigned)

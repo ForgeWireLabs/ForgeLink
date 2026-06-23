@@ -147,8 +147,10 @@
     {
       "id": "AGH-016",
       "text": "Add tamper-evident local audit chain for approval requests, evidence packs, decisions, and outcomes using practical local hash-linked records.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260623-agh016-audit-chain"
+      ]
     },
     {
       "id": "AGH-017",

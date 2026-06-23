@@ -5,7 +5,7 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 17;
+export const CURRENT_SCHEMA_VERSION = 18;
 
 export interface ThreadRow {
   id: number;
@@ -317,6 +317,29 @@ export interface DecisionRecordRow {
 // approve, or a custom approval option) is treated as granting the request's
 // required authority.
 const DENIAL_DECISIONS = new Set(["deny", "dismiss", "reject", "decline", "cancel"]);
+
+// Tamper-evident local audit chain (work item 016, AGH-016): an append-only,
+// hash-linked log of governance records (approval requests, evidence packs,
+// decisions, outcomes). Each entry commits to the previous entry's hash, so a
+// later edit to any record or entry breaks the chain and is detectable. This is a
+// lightweight local integrity check, not blockchain or remote attestation.
+export interface AuditChainRow {
+  seq: number;
+  entry_type: string;          // approval_request | evidence_pack | decision | outcome
+  ref_id: string;              // id of the referenced record
+  approval_request_id: string; // owning approval request, for per-request replay
+  payload_hash: string;        // hash of the referenced record's canonical content
+  prev_hash: string;           // entry_hash of the previous chain entry ("" at genesis)
+  entry_hash: string;          // hash committing to this entry and prev_hash
+  created_at: string;
+}
+
+export interface AuditChainVerification {
+  ok: boolean;
+  length: number;
+  broken_at: number | null;    // seq of the first broken entry, if any
+  reason: string;              // "" | broken_link | tampered_entry | tampered_payload
+}
 
 export interface McpTokenStatus {
   configured: boolean;
@@ -872,6 +895,26 @@ export class PhoneDatabase {
         version = 17;
         this.connection.exec("PRAGMA user_version=17");
       }
+      if (version === 17) {
+        // Tamper-evident local audit chain (work item 016, AGH-016; schema v18 per
+        // decision 0011). Append-only, hash-linked log of governance records so a
+        // later edit to any record or chain entry is detectable after the fact.
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS audit_chain (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_type TEXT NOT NULL,
+            ref_id TEXT NOT NULL,
+            approval_request_id TEXT NOT NULL DEFAULT '',
+            payload_hash TEXT NOT NULL,
+            prev_hash TEXT NOT NULL DEFAULT '',
+            entry_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_audit_chain_request ON audit_chain(approval_request_id, seq);
+        `);
+        version = 18;
+        this.connection.exec("PRAGMA user_version=18");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -925,6 +968,7 @@ export class PhoneDatabase {
       messages: this.connection.prepare("SELECT * FROM messages ORDER BY ts, id").all(),
       agent_messages: this.connection.prepare("SELECT * FROM agent_messages ORDER BY created_at, id").all(),
       decision_records: this.connection.prepare("SELECT * FROM decision_records ORDER BY decided_at, id").all(),
+      audit_chain: this.connection.prepare("SELECT * FROM audit_chain ORDER BY seq").all(),
       signal_subscriptions: this.connection.prepare("SELECT * FROM signal_subscriptions ORDER BY title, id").all(),
       signal_items: this.connection.prepare("SELECT * FROM signal_items ORDER BY received_at, id").all(),
       mcp_tokens: this.connection.prepare("SELECT id, created_at, rotated_at, revoked_at, last_used_at, last_test_at, last_test_status FROM mcp_tokens ORDER BY id").all(),
@@ -1411,6 +1455,13 @@ export class PhoneDatabase {
       this.connection.prepare("INSERT INTO agent_message_events(message_id, event_type, detail, created_at) VALUES(?, 'expired', ?, ?)")
         .run(message.id, JSON.stringify({ timeout_behavior: message.timeout_behavior || "", no_response_behavior: message.no_response_behavior || "", escalation_behavior: message.escalation_behavior || "" }), createdAt);
     }
+    // Commit governed approval requests (and their evidence packs) to the
+    // tamper-evident audit chain (AGH-016) so the full lifecycle is integrity-checkable.
+    if (message.kind === "approval_request") {
+      const row = this.connection.prepare("SELECT * FROM agent_messages WHERE id=?").get(message.id) as unknown as AgentMessageRow;
+      this.appendAuditChainEntry("approval_request", row.id, row.id, this.requestHash(row), createdAt);
+      if (row.evidence_pack && row.evidence_pack !== "{}") this.appendAuditChainEntry("evidence_pack", row.id, row.id, this.evidenceHashOf(row), createdAt);
+    }
     return this.agentMessage(message.id)!;
   }
 
@@ -1454,7 +1505,7 @@ export class PhoneDatabase {
 
   // Stable hash over the governed request the operator decided on, so a stored
   // decision can be replayed and checked against the request later. Built from a
-  // fixed field order joined by a NUL separator that cannot appear in the text.
+  // fixed field order joined by a space separator.
   private requestHash(message: AgentMessageRow): string {
     const canonical = [
       message.id, message.channel_id, message.source, message.kind, message.urgency,
@@ -1465,7 +1516,23 @@ export class PhoneDatabase {
       message.no_response_behavior, String(message.can_batch), message.can_wait_until || "",
       message.expires_at || "", message.created_at
     ];
-    return createHash("sha256").update(canonical.join(" ")).digest("hex");
+    return createHash("sha256").update(canonical.join("\u0000")).digest("hex");
+  }
+
+  // Hash of the evidence pack the operator reviewed. Stored text is hashed as-is so
+  // any later edit to the pack changes the hash.
+  private evidenceHashOf(message: AgentMessageRow): string {
+    return createHash("sha256").update(message.evidence_pack || "{}").digest("hex");
+  }
+
+  // Decision hash formula (shipped in v17, AGH-013). Kept as one helper so the
+  // write path and the audit-chain verifier compute it identically.
+  private decisionHashOf(record: { id: string; approval_request_id: string; request_hash: string; evidence_hash: string; decision: string; selected_options: string; operator_alias: string; device_id: string; authority_grant: string; decided_at: string }): string {
+    // NUL separator matches the shipped v17 (AGH-013) decision-hash formula so
+    // existing decision records still verify against the chain.
+    return createHash("sha256")
+      .update([record.id, record.approval_request_id, record.request_hash, record.evidence_hash, record.decision, record.selected_options, record.operator_alias, record.device_id, record.authority_grant, record.decided_at].join("\u0000"))
+      .digest("hex");
   }
 
   recordDecision(input: DecisionRecordInput): DecisionRecordRow {
@@ -1483,11 +1550,11 @@ export class PhoneDatabase {
     // the request itself declared — a decision never invents new authority.
     const authorityGrant = !denied && message.required_authority ? message.required_authority : "";
     const requestHash = this.requestHash(message);
-    const evidenceHash = createHash("sha256").update(message.evidence_pack || "{}").digest("hex");
+    const evidenceHash = this.evidenceHashOf(message);
     const decidedAt = utcNow();
     const id = randomUUID();
     const decisionHash = createHash("sha256")
-      .update([id, message.id, requestHash, evidenceHash, decision, JSON.stringify(selectedOptions), operatorAlias, deviceId, authorityGrant, decidedAt].join(" "))
+      .update([id, message.id, requestHash, evidenceHash, decision, JSON.stringify(selectedOptions), operatorAlias, deviceId, authorityGrant, decidedAt].join("\u0000"))
       .digest("hex");
     this.connection.exec("BEGIN IMMEDIATE");
     try {
@@ -1499,6 +1566,8 @@ export class PhoneDatabase {
       `).run(id, message.id, operatorAlias, deviceId, decision, JSON.stringify(selectedOptions), comment, authorityGrant, requestHash, evidenceHash, decisionHash, decidedAt);
       this.connection.prepare("INSERT INTO agent_message_events(message_id, event_type, detail, created_at) VALUES(?, 'decision', ?, ?)")
         .run(message.id, JSON.stringify({ decision, operator_alias: operatorAlias, decision_record_id: id, authority_grant: authorityGrant }), decidedAt);
+      // Commit the decision to the tamper-evident audit chain (AGH-016).
+      this.appendAuditChainEntry("decision", id, message.id, decisionHash, decidedAt);
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -1519,6 +1588,64 @@ export class PhoneDatabase {
   // Latest decision for a request, used to replay what the operator decided.
   decisionForRequest(requestId: string): DecisionRecordRow | undefined {
     return this.connection.prepare("SELECT * FROM decision_records WHERE approval_request_id=? ORDER BY decided_at DESC, id DESC LIMIT 1").get(requestId) as unknown as DecisionRecordRow | undefined;
+  }
+
+  // --- Tamper-evident audit chain (work item 016, AGH-016) --------------------
+
+  // Hash committing to one chain entry and the previous entry's hash, so editing
+  // any earlier entry invalidates every entry after it.
+  private auditEntryHash(entryType: string, refId: string, approvalRequestId: string, payloadHash: string, prevHash: string, createdAt: string): string {
+    return createHash("sha256").update([entryType, refId, approvalRequestId, payloadHash, prevHash, createdAt].join(" ")).digest("hex");
+  }
+
+  // Append-only: link a new governance record into the chain. Callers run inside a
+  // transaction; the previous entry's hash is read under that lock.
+  private appendAuditChainEntry(entryType: string, refId: string, approvalRequestId: string, payloadHash: string, at: string): void {
+    const prev = (this.connection.prepare("SELECT entry_hash FROM audit_chain ORDER BY seq DESC LIMIT 1").get() as { entry_hash: string } | undefined)?.entry_hash || "";
+    const entryHash = this.auditEntryHash(entryType, refId, approvalRequestId, payloadHash, prev, at);
+    this.connection.prepare("INSERT INTO audit_chain(entry_type, ref_id, approval_request_id, payload_hash, prev_hash, entry_hash, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)")
+      .run(entryType, refId, approvalRequestId, payloadHash, prev, entryHash, at);
+  }
+
+  auditChain(approvalRequestId?: string): AuditChainRow[] {
+    if (approvalRequestId) return this.connection.prepare("SELECT * FROM audit_chain WHERE approval_request_id=? ORDER BY seq ASC").all(approvalRequestId) as unknown as AuditChainRow[];
+    return this.connection.prepare("SELECT * FROM audit_chain ORDER BY seq ASC").all() as unknown as AuditChainRow[];
+  }
+
+  // Recompute the payload hash from the live source record so a later edit to that
+  // record (not just the chain entry) is detected. Returns null when the source
+  // record is gone (for example after retention deleted the agent message), which
+  // is not treated as tampering.
+  private livePayloadHash(entry: AuditChainRow): string | null {
+    if (entry.entry_type === "approval_request" || entry.entry_type === "evidence_pack") {
+      const message = this.connection.prepare("SELECT * FROM agent_messages WHERE id=?").get(entry.ref_id) as unknown as AgentMessageRow | undefined;
+      if (!message) return null;
+      return entry.entry_type === "approval_request" ? this.requestHash(message) : this.evidenceHashOf(message);
+    }
+    if (entry.entry_type === "decision") {
+      const record = this.decisionRecord(entry.ref_id);
+      if (!record) return null;
+      return this.decisionHashOf(record);
+    }
+    return null;
+  }
+
+  // Walk the chain in order and confirm each entry links to the previous, each
+  // entry hash still matches its fields, and each payload still matches its live
+  // record. Returns the first break, if any.
+  verifyAuditChain(): AuditChainVerification {
+    const entries = this.auditChain();
+    let prev = "";
+    for (const entry of entries) {
+      if (entry.prev_hash !== prev) return { ok: false, length: entries.length, broken_at: entry.seq, reason: "broken_link" };
+      if (this.auditEntryHash(entry.entry_type, entry.ref_id, entry.approval_request_id, entry.payload_hash, entry.prev_hash, entry.created_at) !== entry.entry_hash) {
+        return { ok: false, length: entries.length, broken_at: entry.seq, reason: "tampered_entry" };
+      }
+      const live = this.livePayloadHash(entry);
+      if (live !== null && live !== entry.payload_hash) return { ok: false, length: entries.length, broken_at: entry.seq, reason: "tampered_payload" };
+      prev = entry.entry_hash;
+    }
+    return { ok: true, length: entries.length, broken_at: null, reason: "" };
   }
 
   // --- Human Cards (work item 016, AGH-001) -----------------------------------

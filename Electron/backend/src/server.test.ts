@@ -562,6 +562,17 @@ test("accepts authenticated agent channel messages and records human actions", a
     const mcpToken = ((await (await fetch(`${localUrl}/api/mcp/token`, { method: "POST", headers: authorized() })).json()) as { token: string }).token;
     assert.equal((await fetch(`${localUrl}/api/decision-records`, { headers: { Authorization: `Bearer ${mcpToken}` } })).status, 401);
 
+    // The governed lifecycle is committed to the tamper-evident audit chain (AGH-016):
+    // approval request, evidence pack, then the operator decision, and it verifies.
+    const chain = await fetch(`${localUrl}/api/audit-chain?approval_request_id=agent-http-1`, { headers: authorized() }).then((r) => r.json()) as Array<{ entry_type: string }>;
+    assert.deepEqual(chain.map((entry) => entry.entry_type), ["approval_request", "evidence_pack", "decision"]);
+    const verified = await fetch(`${localUrl}/api/audit-chain/verify`, { headers: authorized() }).then((r) => r.json()) as { ok: boolean; length: number };
+    assert.equal(verified.ok, true);
+    assert.ok(verified.length >= 3);
+    // The audit chain is operator-only; an agent (MCP) token cannot read or verify it.
+    assert.equal((await fetch(`${localUrl}/api/audit-chain`, { headers: { Authorization: `Bearer ${mcpToken}` } })).status, 401);
+    assert.equal((await fetch(`${localUrl}/api/audit-chain/verify`, { headers: { Authorization: `Bearer ${mcpToken}` } })).status, 401);
+
     const contactId = database.upsertContact("Fabric", "+15550001111");
     database.addContactPoint(contactId, "handle", "fabric-agent", "agent", false);
     let policyRejected = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {

@@ -606,6 +606,17 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         return sendJson(response, database.decisionForRequest(decodeURIComponent(decisionMatch[1])) || null);
       }
+      // Tamper-evident audit chain (AGH-016): operator-only. `verify` recomputes the
+      // chain and reports the first break; the list and per-request views support replay.
+      if (request.method === "GET" && url.pathname === "/api/audit-chain/verify") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.verifyAuditChain());
+      }
+      if (request.method === "GET" && url.pathname === "/api/audit-chain") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const requestId = url.searchParams.get("approval_request_id");
+        return sendJson(response, database.auditChain(requestId ? requestId : undefined));
+      }
       if (request.method === "GET" && url.pathname === "/api/signals/subscriptions") {
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         return sendJson(response, database.signalSubscriptions());

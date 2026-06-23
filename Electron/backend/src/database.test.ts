@@ -133,6 +133,8 @@ test("upgrades a version-seven (pre-015) database to the current schema without 
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_message_events'").get() as { name: string } | undefined)?.name, "agent_message_events");
     // v17 (016 AGH-013) adds durable operator decision records.
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='decision_records'").get() as { name: string } | undefined)?.name, "decision_records");
+    // v18 (016 AGH-016) adds the tamper-evident audit chain.
+    assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='audit_chain'").get() as { name: string } | undefined)?.name, "audit_chain");
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -399,6 +401,63 @@ test("records operator decisions with bound request/evidence hashes and authorit
     assert.equal(other.authority_grant, "general_approval");
 
     assert.throws(() => database.recordDecision({ approval_request_id: "missing", decision: "approve" }), /not found/);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// Tamper-evident audit chain (work item 016, AGH-016): hash-linked governance
+// records that detect mutation of a record or a chain entry after the fact.
+test("hash-links governance records into a tamper-evident chain (AGH-016)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-audit-chain-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    // A fresh database has an empty but valid chain.
+    assert.deepEqual(database.verifyAuditChain(), { ok: true, length: 0, broken_at: null, reason: "" });
+
+    // Creating an approval request appends a request entry and an evidence entry.
+    database.addAgentMessage({
+      id: "agent-chain", channel_id: "forgewire", source: "fabric", kind: "approval_request", urgency: "normal",
+      title: "Release approval", body: "Publish the build.", intent: "Release", requested_action: "Publish",
+      reason_for_interrupt: "Needs operator authority.", risk: "normal", required_authority: "release_approval",
+      to_human: "operator:primary", affected_resources: ["repo:ForgeLink"], decision_options: [{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }],
+      evidence_pack: { summary: "Ready", affected_resources: ["repo:ForgeLink"], diff_summary: "metadata", proposed_operation: "publish", checks: ["tests"], rollback_plan: "delete draft", links: [], limitations: "synthetic", redaction_profile: "desktop_full" }
+    });
+    // A plain alert is not a governed record and is not chained.
+    database.addAgentMessage({ id: "alert-1", channel_id: "forgewire", source: "fabric", kind: "alert", urgency: "low", title: "FYI", body: "no chain" });
+    assert.deepEqual(database.auditChain().map((entry) => entry.entry_type), ["approval_request", "evidence_pack"]);
+
+    // Recording the decision appends a linked decision entry; the chain stays valid.
+    const decision = database.recordDecision({ approval_request_id: "agent-chain", decision: "approve" });
+    const chain = database.auditChain("agent-chain");
+    assert.deepEqual(chain.map((entry) => entry.entry_type), ["approval_request", "evidence_pack", "decision"]);
+    assert.equal(chain[0].prev_hash, "");
+    assert.equal(chain[1].prev_hash, chain[0].entry_hash);
+    assert.equal(chain[2].prev_hash, chain[1].entry_hash);
+    assert.equal(chain[2].payload_hash, decision.decision_hash);
+    assert.equal(database.verifyAuditChain().ok, true);
+    assert.equal(database.verifyAuditChain().length, 3);
+
+    // Mutating the underlying decision record is detected (payload no longer hashes
+    // to the frozen chain entry).
+    database.connection.prepare("UPDATE decision_records SET decision='deny' WHERE id=?").run(decision.id);
+    const tamperedPayload = database.verifyAuditChain();
+    assert.equal(tamperedPayload.ok, false);
+    assert.equal(tamperedPayload.reason, "tampered_payload");
+    assert.equal(tamperedPayload.broken_at, chain[2].seq);
+
+    // Restoring the record makes the chain verify again.
+    database.connection.prepare("UPDATE decision_records SET decision='approve' WHERE id=?").run(decision.id);
+    assert.equal(database.verifyAuditChain().ok, true);
+
+    // Mutating a chain entry's stored fields breaks its self-hash.
+    database.connection.prepare("UPDATE audit_chain SET payload_hash='deadbeef' WHERE seq=?").run(chain[0].seq);
+    const tamperedEntry = database.verifyAuditChain();
+    assert.equal(tamperedEntry.ok, false);
+    assert.equal(tamperedEntry.reason, "tampered_entry");
+    assert.equal(tamperedEntry.broken_at, chain[0].seq);
+
+    // The chain is part of the durable export.
+    const exported = database.exportData() as { audit_chain: Array<unknown> };
+    assert.equal(exported.audit_chain.length, 3);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
