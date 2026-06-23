@@ -1,8 +1,8 @@
 # Repository Dashboard
 
 > Generated from source records. Do not edit manually.
-> Generated: 2026-06-20
-> RepoPact spec version: 1.4.0
+> Generated: 2026-06-22
+> RepoPact spec version: 1.6.0
 
 ## Health
 
@@ -10,21 +10,21 @@
 | --- | ---: |
 | Invariants | 6 |
 | Frozen-surface entries | 5 |
-| Scope contracts | 5 |
-| Audit registry entries | 5 |
+| Scope contracts | 7 |
+| Audit registry entries | 7 |
 | Audit findings | 0 |
-| Decision records | 10 |
+| Decision records | 12 |
 | Policy records | 0 |
-| Evidence runs | 36 |
+| Evidence runs | 45 |
 
 ## Work
 
 | Status | Count |
 | --- | ---: |
-| active | 11 |
+| active | 10 |
 | blocked | 0 |
 | deferred | 0 |
-| completed | 14 |
+| completed | 18 |
 
 ## Audit freshness
 
@@ -33,7 +33,6 @@ All audit scopes are within their review cadence.
 ## Active items
 
 - 011: Production Readiness (active)
-- 015: Communication Channels and Voice (active)
 - 016: Agent-Human Governance (active)
 - 017: Operator Cockpit and Native Experience (active)
 - 018: Email Channel Adapter (active)

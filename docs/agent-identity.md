@@ -92,6 +92,43 @@ GET  /api/agent-identities/<id>/trust-events    # audit log, newest first (launc
 A no-op transition (same state) writes no event; an invalid state or unknown
 agent is rejected.
 
+## Background-check checklist (AGH-005)
+
+Before promoting an agent to `trusted`, the operator should complete a local
+review and record the decision reason on the trust transition. The checklist is
+deliberately local and reproducible: it relies on registry fields, recent
+behavior, and validation evidence rather than agent self-description.
+
+Use this checklist for promotion from `unknown`, `probation`, or `restricted` to
+`trusted`:
+
+| Check | Pass condition |
+| --- | --- |
+| Source and repo/app | `source_kind` and `source_uri` identify where the agent comes from, and the source is expected for this workspace. |
+| Owner | `owner` names the person, team, or local system responsible for the agent. |
+| Allowed scopes | `default_risk_limit`, `allowed_channels`, and `allowed_tools` are no broader than the agent's job. |
+| Recent behavior | `last_seen_at` and recent requests match expected timing, channel, urgency, and task type. |
+| Failed requests | Recent failures are understood and do not indicate malformed requests, privilege probing, or repeated urgency inflation. |
+| Denied requests | Denials have been reviewed; promotion is not granted to bypass a pattern of operator denials. |
+| Tool permissions | Requested tools are necessary, bounded, and consistent with the agent's source and owner. |
+| Last validation | The agent has current validation evidence, such as tests, release checks, or a known-good local workflow run. |
+
+Promotion guidance:
+
+- Prefer `probation` when source, owner, or validation is incomplete but the
+  agent is useful.
+- Use `restricted` when the agent may continue low-risk work but should not
+  broaden tools, channels, or urgency.
+- Use `muted` or `blocked` when behavior is noisy, suspicious, spoofed, or
+  outside the declared owner/source.
+- When promoting to `trusted`, include a concise reason naming the checklist
+  result, for example: `source/owner verified; tools limited to git status and
+  tests; no denied urgent requests; validation 20260622 passed`.
+
+The checklist does not grant authority by itself. It only makes the trust review
+repeatable; approval authority, evidence packs, risk tiers, and action-specific
+policy remain governed by later AGH criteria.
+
 ## Notes
 
 - Schema ownership: `agent_identities` is schema version **v12**, owned by work

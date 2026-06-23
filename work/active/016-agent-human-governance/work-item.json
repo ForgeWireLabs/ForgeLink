@@ -63,8 +63,10 @@
     {
       "id": "AGH-005",
       "text": "Add agent background-check checklist for promoting agents to trusted status based on source, owner, scopes, behavior, tool permissions, and validation history.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260622-agh005-agent-background-check"
+      ]
     },
     {
       "id": "AGH-006",
