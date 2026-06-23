@@ -1,0 +1,31 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260622-agh003-agent-identity-registry",
+  "timestamp": "2026-06-22T21:00:00Z",
+  "work_item": "016",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend build passed with schema v12 agent_identities."
+    },
+    {
+      "command": "node --test backend-dist/database.test.js backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Agent identity DB + HTTP tests passed, including v12 upgrade assertion and ingestion identity tie."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "docs/agent-identity.md",
+    "work/active/016-agent-human-governance/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "AGH-003 Agent Identity Registry: schema v12, auto-register unknown agents with restricted defaults, operator management, request<->identity tie."
+  }
+}

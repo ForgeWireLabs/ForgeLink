@@ -1,0 +1,32 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260622-clv021-provider-conformance-kit",
+  "timestamp": "2026-06-22T18:00:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed with the shared channel-conformance kit."
+    },
+    {
+      "command": "node --test backend-dist/twilio.test.js backend-dist/telnyx.test.js backend-dist/channels.test.js backend-dist/database.test.js",
+      "exit_code": 0,
+      "summary": "58 tests passed including 21 new conformance cases (Twilio SMS+voice, Telnyx SMS)."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/channel-conformance.ts",
+    "Electron/backend/src/twilio.test.ts",
+    "Electron/backend/src/telnyx.test.ts",
+    "docs/provider-conformance.md",
+    "work/completed/015-communication-channels-and-voice/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "CLV-021 shared provider conformance kit: one reusable suite (capability advertisement, send success/rejection, inbound + MMS/media normalization, status normalization, duplicate-inbound idempotency, backward/duplicate status transition via a temp PhoneDatabase, signature valid/invalid, missing credentials) that Twilio and Telnyx now run through."
+  }
+}

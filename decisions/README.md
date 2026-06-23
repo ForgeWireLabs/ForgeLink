@@ -17,3 +17,4 @@ governance choices should be promoted to this directory.
 - 0009: Channel roadmap records and Matrix exclusion.
 - 0010: Direct telecom research.
 - 0011: Schema migration coordination across concurrent work items.
+- 0012: RepoPact 1.5.0 upgrade and single-authoritative-validator architecture.

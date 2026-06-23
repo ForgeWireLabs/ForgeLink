@@ -1,0 +1,48 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260622-026-repopact-1-5-0-vendor-upgrade",
+  "timestamp": "2026-06-22T20:50:00Z",
+  "work_item": "026",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cp ../repopact/scripts/{init_repo,new,takeover,generate_spec,generate_dashboard,doctor,repopact_cli,repo_model}.py scripts/",
+      "exit_code": 0,
+      "summary": "Re-vendored RepoPact 1.5.0 CLI scripts; preserved validate_repo.py preflight extension and FL-local helpers."
+    },
+    {
+      "command": "python scripts/validate_repo.py",
+      "exit_code": 0,
+      "summary": "Authoritative RepoPact governance validation passed (was 14 errors before evidence reconciliation and registry fixes)."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Unified ForgeLink audit passed: RepoPact authoritative pass plus checkbox parity (LIE-001), schema-ladder (LIE-003), and link/last_verified checks."
+    }
+  ],
+  "artifacts": [
+    "scripts/init_repo.py",
+    "scripts/new.py",
+    "scripts/takeover.py",
+    "scripts/generate_spec.py",
+    "scripts/generate_dashboard.py",
+    "scripts/doctor.py",
+    "scripts/repopact_cli.py",
+    "scripts/repo_model.py",
+    "scripts/REPOPACT_VERSION",
+    "requirements-repopact.txt",
+    "audits/registry.json",
+    ".local/validate_system.py",
+    "decisions/0012-repopact-1-5-0-upgrade-and-validator-unification.md",
+    "evidence/runs/20260622-clv021-provider-conformance-kit.json",
+    "evidence/runs/20260622-agh001-human-cards.json",
+    "evidence/runs/20260622-025-ledger-integrity-enforcement.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "026 RepoPact 1.5.0 vendor upgrade and validator unification. Re-vendored 1.5.0 CLI scripts, bumped pins, reconciled 7 missing evidence/runs records, fixed audit-registry drift, and made scripts/validate_repo.py authoritative with .local/validate_system.py as a thin extension (parity, schema-ladder, link/date). Retired the tautological LIE-002. Both validators pass."
+  }
+}

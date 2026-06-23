@@ -1,0 +1,31 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260622-agh001-human-cards",
+  "timestamp": "2026-06-22T20:00:00Z",
+  "work_item": "016",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend build passed with schema v11 human_cards and methods."
+    },
+    {
+      "command": "node --test backend-dist/database.test.js backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Human Cards DB + HTTP tests passed, including v11 upgrade assertion and redacted resolution."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "docs/human-cards.md",
+    "work/active/016-agent-human-governance/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "AGH-001 Human Cards: schema v11, resolve/upsert/delete with operator:* fallback, launch-only management plus agent-reachable redacted resolve."
+  }
+}

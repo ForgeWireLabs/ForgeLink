@@ -5,10 +5,10 @@
       "path": ".",
       "owner": "governance-owner",
       "contract": "AGENTS.md",
-      "last_reviewed": "2026-06-16",
-      "next_review": "2026-09-16",
+      "last_reviewed": "2026-06-22",
+      "next_review": "2026-09-23",
       "alignment": "current",
-      "notes": "ForgeLink root contract; RepoPact 1.2.0 vendored around it."
+      "notes": "ForgeLink root contract; RepoPact 1.5.0 vendored around it."
     },
     {
       "path": "work/active/011-production-readiness",
@@ -20,13 +20,13 @@
       "notes": "Production-readiness initiative (migrated from pre-ledger todos/001 to work item 011) carries its own scoped contract and _audit companion."
     },
     {
-      "path": "work/active/015-communication-channels-and-voice",
+      "path": "work/completed/015-communication-channels-and-voice",
       "owner": "planning-agent",
-      "contract": "work/active/015-communication-channels-and-voice/AGENTS.md",
-      "last_reviewed": "2026-06-18",
-      "next_review": "2026-09-18",
+      "contract": "work/completed/015-communication-channels-and-voice/AGENTS.md",
+      "last_reviewed": "2026-06-22",
+      "next_review": "2026-09-22",
       "alignment": "current",
-      "notes": "Planning roadmap item; scoped contract under active work."
+      "notes": "Completed communications/voice arc; scoped contract retained under completed work."
     },
     {
       "path": "work/active/016-agent-human-governance",
@@ -45,6 +45,24 @@
       "next_review": "2026-09-18",
       "alignment": "current",
       "notes": "Planning roadmap item; scoped contract under active work."
+    },
+    {
+      "path": "work/completed/025-ledger-integrity-enforcement",
+      "owner": "planning-agent",
+      "contract": "work/completed/025-ledger-integrity-enforcement/AGENTS.md",
+      "last_reviewed": "2026-06-22",
+      "next_review": "2026-09-22",
+      "alignment": "current",
+      "notes": "Completed ledger-integrity tooling; scoped contract retained under completed work."
+    },
+    {
+      "path": "work/completed/026-repopact-1-5-0-vendor-upgrade",
+      "owner": "planning-agent",
+      "contract": "work/completed/026-repopact-1-5-0-vendor-upgrade/AGENTS.md",
+      "last_reviewed": "2026-06-22",
+      "next_review": "2026-09-23",
+      "alignment": "current",
+      "notes": "RepoPact 1.5.0 vendor upgrade and validator unification; scoped contract under active work."
     }
   ]
 }

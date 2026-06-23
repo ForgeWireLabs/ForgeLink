@@ -1,0 +1,33 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260622-025-ledger-integrity-enforcement",
+  "timestamp": "2026-06-22T23:30:00Z",
+  "work_item": "025",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Audit passed with new parity/evidence/schema-ladder checks; first run caught and fixed real drift (015 CLV-001..008 unchecked)."
+    },
+    {
+      "command": "node --test backend-dist/...",
+      "exit_code": 0,
+      "summary": "Full Electron suite green via pre-push gate (119 tests, 1 opt-in skipped)."
+    }
+  ],
+  "artifacts": [
+    ".local/validate_system.py",
+    ".githooks/pre-commit",
+    ".githooks/pre-push",
+    ".gitattributes",
+    "work/README.md",
+    "work/completed/025-ledger-integrity-enforcement/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "025 ledger integrity: README<->manifest parity, evidence cross-reference, schema-ladder invariants, git-hook gate, and per-criterion closeout checklist."
+  }
+}

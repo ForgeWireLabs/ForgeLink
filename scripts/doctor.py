@@ -121,9 +121,9 @@ def _dead_source_of_truth(root: Path) -> list[Finding]:
     Records (work item READMEs, _audit companions, decisions, policies) often pin
     a `source_of_truth:` to the files that authoritatively back them. When those
     files are renamed, moved, or deleted the pointer dangles silently — the kind
-    of drift that let stale trackers reference a long-gone `docs/` / `todos/` tree.
-    Only path-like, single-token targets are checked, so prose entries do not
-    produce false positives. Not auto-fixed: the correct target needs judgment.
+    of drift that lets stale records reference a long-gone tree. Only path-like,
+    single-token targets are checked, so prose entries do not produce false
+    positives. Not auto-fixed: the correct target needs judgment.
     """
     out: list[Finding] = []
     patterns = ("work/**/*.md", "decisions/*.md", "governance/**/*.md",

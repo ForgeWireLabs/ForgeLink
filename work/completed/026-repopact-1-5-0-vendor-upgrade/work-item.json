@@ -1,0 +1,62 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "026",
+  "title": "RepoPact 1.5.0 Vendor Upgrade and Validator Unification",
+  "status": "completed",
+  "owner_scope": "work",
+  "affected_scopes": [
+    "work",
+    "tooling",
+    "docs"
+  ],
+  "depends_on": [],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-22T00:40:12Z",
+    "note": "Created before implementation work starts. Brings ForgeLink's vendored RepoPact from 1.4.0 to 1.5.0, reconciles the evidence drift introduced while closing 015/016/025, fixes audit registry drift, and unifies the two diverging validators so the vendored RepoPact validator is authoritative again."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "RPU-001",
+      "text": "Re-vendor RepoPact 1.5.0 CLI scripts (init_repo, new, takeover, generate_spec, generate_dashboard, doctor, repopact_cli, repo_model) into scripts/, preserving ForgeLink's local preflight extension in validate_repo.py and the schema, and bump the pinned version (scripts/REPOPACT_VERSION, requirements-repopact.txt, audits/registry.json) to 1.5.0.",
+      "state": "satisfied",
+      "evidence": [
+        "20260622-026-repopact-1-5-0-vendor-upgrade"
+      ]
+    },
+    {
+      "id": "RPU-002",
+      "text": "Reconcile the evidence drift: create the missing formal evidence/runs/*.json records for the criteria closed with dangling evidence ids (CLV-021, CLV-022, AGH-001, AGH-002, AGH-003, AGH-004, and 025) so every satisfied criterion references a real evidence record.",
+      "state": "satisfied",
+      "evidence": [
+        "20260622-026-repopact-1-5-0-vendor-upgrade"
+      ]
+    },
+    {
+      "id": "RPU-003",
+      "text": "Fix audits/registry.json drift: point the 015 scope at work/completed, register the 015 and 025 nested AGENTS.md contracts, so the vendored validator's contract and audit-scope checks pass.",
+      "state": "satisfied",
+      "evidence": [
+        "20260622-026-repopact-1-5-0-vendor-upgrade"
+      ]
+    },
+    {
+      "id": "RPU-004",
+      "text": "Unify the validators: .local/validate_system.py runs the vendored RepoPact validate_repo.py as the authoritative governance check and then layers the ForgeLink-only structural checks RepoPact lacks (checkbox parity LIE-001, schema-ladder LIE-003, markdown link/date); the tautological evidence-log check (LIE-002) is retired in favor of RepoPact's formal evidence check. Both validators pass on the tree.",
+      "state": "satisfied",
+      "evidence": [
+        "20260622-026-repopact-1-5-0-vendor-upgrade"
+      ]
+    },
+    {
+      "id": "RPU-005",
+      "text": "Record a decision documenting the 1.5.0 upgrade, the evidence reconciliation, and the single-authoritative-validator architecture, and note which ForgeLink-local extensions (preflight, checkbox parity, schema-ladder) are candidates to contribute upstream to RepoPact later.",
+      "state": "satisfied",
+      "evidence": [
+        "20260622-026-repopact-1-5-0-vendor-upgrade"
+      ]
+    }
+  ],
+  "created": "2026-06-22",
+  "updated": "2026-06-22"
+}

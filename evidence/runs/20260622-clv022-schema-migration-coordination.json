@@ -1,0 +1,35 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260622-clv022-schema-migration-coordination",
+  "timestamp": "2026-06-22T19:00:00Z",
+  "work_item": "015",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend build passed."
+    },
+    {
+      "command": "node --test backend-dist/database.test.js",
+      "exit_code": 0,
+      "summary": "Migration tests passed, including the v7 pre-015 upgrade test alongside the v1 legacy upgrade."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Local audit passed after recording decision 0011."
+    }
+  ],
+  "artifacts": [
+    "decisions/0011-schema-migration-coordination.md",
+    "Electron/backend/src/database.test.ts",
+    "work/completed/015-communication-channels-and-voice/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "CLV-022 schema-migration coordination: decision 0011 establishes one append-only contiguous ladder with per-version ownership and from-previous-shipped-schema tests."
+  }
+}

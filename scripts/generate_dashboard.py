@@ -20,10 +20,10 @@ def _count_json_records(directory: Path) -> int:
 
 
 def _spec_version(root: Path) -> str:
-    # Prefer the vendored RepoPact version (scripts/REPOPACT_VERSION) so an adopter
-    # repository can use its root VERSION file for its own product version without
-    # mislabelling the dashboard. Falls back to VERSION, which is the RepoPact
-    # version in the upstream repository.
+    # Prefer a vendored RepoPact version marker (scripts/REPOPACT_VERSION) so an
+    # adopter repository can use its root VERSION file for its own product version
+    # without mislabelling the dashboard. Falls back to VERSION, which is the
+    # RepoPact version in this repository.
     for candidate in (root / "scripts" / "REPOPACT_VERSION", root / "VERSION"):
         if candidate.is_file():
             return candidate.read_text(encoding="utf-8").strip()
