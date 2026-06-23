@@ -20,13 +20,17 @@ versions tracked in `VERSION` and `Electron/package.json`.
 - Agent trust states and probation: muted/blocked agents cannot interrupt, only
   trusted agents may raise urgent interrupts, and every trust change is audited
   (AGH-004).
+- Structured approval requests: `approval_request` agent messages now require and
+  persist intent, requested action, interruption reason, risk, authority,
+  affected resources, expiration behavior, denial behavior, and decision options
+  (AGH-006).
 
 ### Changed
 - Completed work item 015 (Communication Channels and Voice); moved to the
   completed ledger.
 - Schema migrations now follow a single append-only ladder with per-version
   ownership recorded in decision 0011 (CLV-022). The local schema advanced from
-  v10 to v13. Upgrades back up the database and are tested from previously shipped
+  v10 to v14. Upgrades back up the database and are tested from previously shipped
   schemas.
 
 ## [2.0.3] - 2026-06-20 (local build, unsigned)

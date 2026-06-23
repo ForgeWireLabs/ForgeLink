@@ -71,8 +71,10 @@
     {
       "id": "AGH-006",
       "text": "Add structured approval request schema with intent, requested action, reason for interrupt, risk, authority, affected resources, expiration, timeout behavior, deny behavior, and decision options.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260622-agh006-structured-approval-requests"
+      ]
     },
     {
       "id": "AGH-007",

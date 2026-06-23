@@ -134,5 +134,5 @@ policy remain governed by later AGH criteria.
 - Schema ownership: `agent_identities` is schema version **v12**, owned by work
   item 016 per [decision 0011](../decisions/0011-schema-migration-coordination.md).
 - A well-formed request grants no trust; identities start `unknown`.
-- The agent `id` equals the request `source`; durable per-message linkage of the
-  identity arrives with the approval request schema (AGH-006).
+- The agent `id` equals the request `source`; structured approval request fields
+  are described in [Structured Approval Requests](approval-requests.md).

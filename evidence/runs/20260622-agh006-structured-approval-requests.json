@@ -1,0 +1,48 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260622-agh006-structured-approval-requests",
+  "timestamp": "2026-06-23T02:27:40Z",
+  "work_item": "016",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed with schema v14 structured approval request fields."
+    },
+    {
+      "command": "node --test backend-dist/database.test.js backend-dist/server.test.js backend-dist/migration.test.js backend-dist/twilio.test.js backend-dist/telnyx.test.js backend-dist/channels.test.js backend-dist/signals.test.js",
+      "exit_code": 0,
+      "summary": "85 backend tests passed, including v14 migration, structured approval persistence, incomplete approval rejection, and API round-trip coverage."
+    },
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript build passed with the extended AgentMessage type."
+    },
+    {
+      "command": "python .local\\validate_system.py",
+      "exit_code": 0,
+      "summary": "Local audit passed after AGH-006 implementation and ledger updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/types.ts",
+    "docs/approval-requests.md",
+    "docs/agent-identity.md",
+    "decisions/0011-schema-migration-coordination.md",
+    "CHANGELOG.md",
+    "work/active/016-agent-human-governance/README.md",
+    "work/active/016-agent-human-governance/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "AGH-006 structured approval request schema: approval_request payloads now require and persist intent, requested action, interruption reason, risk, authority, affected resources, expiration/timeout/deny behavior, and decision options."
+  }
+}

@@ -120,6 +120,10 @@ test("upgrades a version-seven (pre-015) database to the current schema without 
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_identities'").get() as { name: string } | undefined)?.name, "agent_identities");
     // v13 (016 AGH-004) adds the trust transition audit log.
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_trust_events'").get() as { name: string } | undefined)?.name, "agent_trust_events");
+    // v14 (016 AGH-006) adds durable structured approval request fields.
+    const agentMessageColumns = new Set((database.connection.prepare("PRAGMA table_info(agent_messages)").all() as Array<{ name: string }>).map((column) => column.name));
+    assert.equal(agentMessageColumns.has("requested_action"), true);
+    assert.equal(agentMessageColumns.has("decision_options"), true);
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -287,9 +291,22 @@ test("stores agent channel messages separately with export, actions, expiry, and
       body: "ForgeWire wants approval.",
       actions: [{ id: "approve", label: "Approve" }],
       created_at: "2020-01-01T00:00:00.000Z",
-      expires_at: "2099-01-01T00:00:00.000Z"
+      expires_at: "2099-01-01T00:00:00.000Z",
+      intent: "Release ForgeLink",
+      requested_action: "Publish the release build.",
+      reason_for_interrupt: "Publishing requires operator approval.",
+      risk: "normal",
+      required_authority: "release_approval",
+      to_human: "operator:primary",
+      affected_resources: ["repo:ForgeLink", "release:2.0.3"],
+      timeout_behavior: "deny_on_timeout",
+      deny_behavior: "do_not_publish",
+      decision_options: [{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }]
     });
     assert.equal(stored.status, "unread");
+    assert.equal(stored.requested_action, "Publish the release build.");
+    assert.deepEqual(JSON.parse(stored.affected_resources), ["repo:ForgeLink", "release:2.0.3"]);
+    assert.deepEqual(JSON.parse(stored.decision_options).map((option: { id: string }) => option.id), ["approve", "deny"]);
     assert.equal(database.agentMessages()[0].channel_id, "forgewire");
     assert.equal(database.updateAgentMessageStatus("agent-1", "acted", "approve").status, "acted");
     const exported = database.exportData() as { messages: Array<unknown>; agent_messages: Array<{ id: string }> };

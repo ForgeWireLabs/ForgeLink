@@ -125,9 +125,9 @@ If the addressed human lacks the scope the request is rejected with `403`:
   "escalate_to": ["operator:primary"] }
 ```
 
-Requests without `required_authority` are unaffected (backward compatible). The
-required scope is enforced at ingestion but not yet persisted on the message —
-durable approval-request fields arrive with the approval request schema (AGH-006).
+Requests without `required_authority` are unaffected unless they are structured
+approval requests. Durable approval-request fields are described in
+[Structured Approval Requests](approval-requests.md).
 
 ## Security notes
 

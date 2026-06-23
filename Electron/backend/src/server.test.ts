@@ -21,6 +21,32 @@ async function createChannel(localUrl: string, channel_id = "forgewire"): Promis
   return ((await response.json()) as { token: string }).token;
 }
 
+function approvalRequest(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const source = String(overrides.source || "forgewire");
+  const title = String(overrides.title || "Release approval");
+  const actions = overrides.actions || [{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }];
+  return {
+    source,
+    kind: "approval_request",
+    urgency: "normal",
+    title,
+    body: String(overrides.body || "A governed action needs approval."),
+    intent: String(overrides.intent || title),
+    requested_action: String(overrides.requested_action || "Run the requested governed action."),
+    reason_for_interrupt: String(overrides.reason_for_interrupt || "The agent cannot proceed without operator approval."),
+    risk: String(overrides.risk || "normal"),
+    required_authority: String(overrides.required_authority || "general_approval"),
+    to_human: String(overrides.to_human || "operator:primary"),
+    affected_resources: overrides.affected_resources || [`agent:${source}`],
+    expires_at: String(overrides.expires_at || "2099-01-01T00:00:00.000Z"),
+    timeout_behavior: String(overrides.timeout_behavior || "deny_on_timeout"),
+    deny_behavior: String(overrides.deny_behavior || "do_not_run"),
+    decision_options: overrides.decision_options || actions,
+    actions,
+    ...overrides
+  };
+}
+
 function signature(baseUrl: string, pathname: string, fields: Record<string, string>, token: string): string {
   const value = `${baseUrl}${pathname}${Object.keys(fields).sort().map((key) => `${key}${fields[key]}`).join("")}`;
   return createHmac("sha1", token).update(value).digest("base64");
@@ -232,7 +258,7 @@ test("manages MCP token and restricts it to agent-safe routes", async () => {
     const posted = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
       method: "POST",
       headers: { ...mcpHeaders, "X-ForgeLink-Channel-Token": channelToken },
-      body: JSON.stringify({ source: "codex", kind: "approval_request", urgency: "normal", title: "MCP approval", body: "Need approval", actions: [{ id: "approve", label: "Approve" }] })
+      body: JSON.stringify(approvalRequest({ source: "codex", title: "MCP approval", body: "Need approval" }))
     });
     assert.equal(posted.status, 201);
     const listed = await fetch(`${localUrl}/api/agent-messages`, { headers: mcpHeaders }).then((response) => response.json()) as Array<{ title: string }>;
@@ -326,7 +352,7 @@ test("checks authority scopes and gates under-authorized requests (AGH-002)", as
     const post = (body: Record<string, unknown>) => fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
       method: "POST",
       headers: { ...mcpHeaders, "Content-Type": "application/json", "X-ForgeLink-Channel-Token": channelToken },
-      body: JSON.stringify({ source: "codex", kind: "approval_request", urgency: "normal", title: "t", body: "b", ...body })
+      body: JSON.stringify(approvalRequest({ source: "codex", title: "t", body: "b", ...body }))
     });
 
     const blocked = await post({ required_authority: "security_approval", to_human: "operator:release_approval" });
@@ -355,7 +381,7 @@ test("ties agent requests to identities and manages the registry (AGH-003)", asy
     const posted = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
       method: "POST",
       headers: { Authorization: `Bearer ${mcpToken}`, "Content-Type": "application/json", "X-ForgeLink-Channel-Token": channelToken },
-      body: JSON.stringify({ source: "codex", kind: "approval_request", urgency: "normal", title: "t", body: "b" })
+      body: JSON.stringify(approvalRequest({ source: "codex", title: "t", body: "b" }))
     });
     assert.equal(posted.status, 201);
     assert.deepEqual((await posted.json() as { agent: unknown }).agent, { id: "codex", trust_state: "unknown" });
@@ -395,7 +421,7 @@ test("enforces agent trust states and audits transitions (AGH-004)", async () =>
     const post = (body: Record<string, unknown>) => fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
       method: "POST",
       headers: { Authorization: `Bearer ${mcpToken}`, "Content-Type": "application/json", "X-ForgeLink-Channel-Token": channelToken },
-      body: JSON.stringify({ source: "codex", kind: "approval_request", title: "t", body: "b", ...body })
+      body: JSON.stringify(approvalRequest({ source: "codex", title: "t", body: "b", ...body }))
     });
     const setTrust = (state: string) => fetch(`${localUrl}/api/agent-identities/codex/trust`, {
       method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ trust_state: state, reason: `set ${state}` })
@@ -447,21 +473,29 @@ test("accepts authenticated agent channel messages and records human actions", a
     const created = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": token },
-      body: JSON.stringify({
+      body: JSON.stringify(approvalRequest({
         id: "agent-http-1",
-        source: "forgewire",
-        kind: "approval_request",
-        urgency: "normal",
         title: "Task needs approval",
         body: "ForgeWire wants to run a release workflow.",
-        actions: [{ id: "approve", label: "Approve" }],
-        expires_at: "2099-01-01T00:00:00.000Z"
-      })
+        requested_action: "Run the release workflow.",
+        affected_resources: ["repo:ForgeLink", "workflow:release"]
+      }))
     });
     assert.equal(created.status, 201);
-    const listed = await fetch(`${localUrl}/api/agent-messages`, { headers: authorized() }).then((response) => response.json()) as Array<{ id: string; status: string }>;
+    const listed = await fetch(`${localUrl}/api/agent-messages`, { headers: authorized() }).then((response) => response.json()) as Array<{ id: string; status: string; requested_action: string; affected_resources: string; required_authority: string; decision_options: string }>;
     assert.deepEqual(listed.map((message) => message.id), ["agent-http-1"]);
     assert.equal(listed[0].status, "unread");
+    assert.equal(listed[0].requested_action, "Run the release workflow.");
+    assert.deepEqual(JSON.parse(listed[0].affected_resources), ["repo:ForgeLink", "workflow:release"]);
+    assert.equal(listed[0].required_authority, "general_approval");
+    assert.deepEqual(JSON.parse(listed[0].decision_options).map((option: { id: string }) => option.id), ["approve", "deny"]);
+
+    const incomplete = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": token },
+      body: JSON.stringify({ source: "forgewire", kind: "approval_request", title: "Incomplete", body: "Missing structured fields." })
+    });
+    assert.equal(incomplete.status, 400);
 
     const acted = await fetch(`${localUrl}/api/agent-messages/agent-http-1/actions/approve`, { method: "POST", headers: authorized() });
     assert.equal(acted.status, 200);
@@ -474,7 +508,7 @@ test("accepts authenticated agent channel messages and records human actions", a
     let policyRejected = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": token },
-      body: JSON.stringify({ id: "agent-policy-approval", source: "fabric-agent", kind: "approval_request", urgency: "normal", title: "Blocked approval", body: "Needs policy.", actions: [{ id: "approve", label: "Approve" }] })
+      body: JSON.stringify(approvalRequest({ id: "agent-policy-approval", source: "fabric-agent", title: "Blocked approval", body: "Needs policy." }))
     });
     assert.equal(policyRejected.status, 403);
     assert.equal((await policyRejected.json() as { reason: string }).reason, "approval_requests_disallowed");
@@ -493,7 +527,7 @@ test("accepts authenticated agent channel messages and records human actions", a
     const policyAllowed = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": token },
-      body: JSON.stringify({ id: "agent-policy-ok", source: "fabric-agent", kind: "approval_request", urgency: "normal", title: "Allowed approval", body: "Policy allows it.", actions: [{ id: "approve", label: "Approve" }] })
+      body: JSON.stringify(approvalRequest({ id: "agent-policy-ok", source: "fabric-agent", title: "Allowed approval", body: "Policy allows it." }))
     });
     assert.equal(policyAllowed.status, 201);
 
@@ -511,7 +545,7 @@ test("enforces agent channel credentials, revocation, disable, and urgency rate 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
   const localUrl = `http://127.0.0.1:${port}`;
-  const message = (id: string, urgency = "urgent") => JSON.stringify({ id, source: "forgewire", kind: "approval_request", urgency, title: `Approval ${id}`, body: "Need approval", actions: [{ id: "approve", label: "Approve" }] });
+  const message = (id: string, urgency = "urgent") => JSON.stringify(approvalRequest({ id, urgency, title: `Approval ${id}`, body: "Need approval" }));
   try {
     const token = await createChannel(localUrl);
     const headers = { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": token };

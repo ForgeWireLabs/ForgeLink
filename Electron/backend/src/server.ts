@@ -135,6 +135,45 @@ function agentActions(value: unknown): AgentAction[] {
   });
 }
 
+function boundedStringList(value: unknown, label: string, maxItems: number, maxLength: number): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > maxItems) throw new Error(`${label} must be an array of up to ${maxItems} items.`);
+  return value.map((item) => boundedText(item, label, maxLength));
+}
+
+function structuredApprovalFields(payload: Record<string, unknown>, fallbackActions: AgentAction[]): {
+  intent: string;
+  requested_action: string;
+  reason_for_interrupt: string;
+  risk: string;
+  required_authority: string;
+  to_human: string;
+  affected_resources: string[];
+  timeout_behavior: string;
+  deny_behavior: string;
+  decision_options: AgentAction[];
+} {
+  const risk = boundedText(payload.risk, "risk", 40, /^[A-Za-z0-9_.:-]+$/);
+  const requiredAuthority = boundedText(payload.required_authority, "required_authority", 80, /^[A-Za-z0-9_.:-]+$/);
+  if (!isAuthorityScope(requiredAuthority)) throw new Error("required_authority is invalid.");
+  if (payload.expires_at === undefined || payload.expires_at === null || payload.expires_at === "") throw new Error("expires_at is required.");
+  optionalIso(payload.expires_at);
+  const decisionOptions = agentActions(payload.decision_options === undefined ? fallbackActions : payload.decision_options);
+  if (!decisionOptions.length) throw new Error("decision_options must include at least one option.");
+  return {
+    intent: boundedText(payload.intent, "intent", 500),
+    requested_action: boundedText(payload.requested_action, "requested_action", 1000),
+    reason_for_interrupt: boundedText(payload.reason_for_interrupt, "reason_for_interrupt", 500),
+    risk,
+    required_authority: requiredAuthority,
+    to_human: boundedText(payload.to_human || "operator:primary", "to_human", 80, /^[A-Za-z0-9_.:-]+$/),
+    affected_resources: boundedStringList(payload.affected_resources, "affected_resources", 20, 240),
+    timeout_behavior: boundedText(payload.timeout_behavior, "timeout_behavior", 500),
+    deny_behavior: boundedText(payload.deny_behavior, "deny_behavior", 500),
+    decision_options: decisionOptions
+  };
+}
+
 function boundedOptionalNumber(value: unknown, fallback: number, min: number, max: number, label: string): number {
   if (value === undefined || value === null || value === "") return fallback;
   const number = Number(value);
@@ -486,6 +525,8 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const channelId = agentMessageMatch[1];
         const source = boundedText(payload.source, "source", 80, /^[A-Za-z0-9_.:-]+$/);
         const kind = boundedText(payload.kind, "kind", 80, /^[A-Za-z0-9_.:-]+$/);
+        const actions = agentActions(payload.actions);
+        const approval = kind === "approval_request" ? structuredApprovalFields(payload, actions) : undefined;
         // AGH-003: tie the request to a first-class agent identity, auto-registering
         // unknown agents with restricted defaults and recording last-seen.
         const agentIdentity = database.recordAgentIdentitySeen(source, String(payload.source_kind || "mcp"));
@@ -504,10 +545,10 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         // scope, the addressed human (default operator:primary) must hold it, else
         // the request is rejected with escalation targets. Optional and backward
         // compatible; requests without `required_authority` are unaffected.
-        if (payload.required_authority !== undefined && payload.required_authority !== "") {
-          const requiredAuthority = String(payload.required_authority);
+        if ((approval?.required_authority || payload.required_authority) !== undefined && (approval?.required_authority || payload.required_authority) !== "") {
+          const requiredAuthority = String(approval?.required_authority || payload.required_authority);
           if (!isAuthorityScope(requiredAuthority)) throw new Error("required_authority is invalid.");
-          const decision = database.checkAuthority(payload.to_human ? String(payload.to_human) : "operator:primary", requiredAuthority);
+          const decision = database.checkAuthority(approval?.to_human || (payload.to_human ? String(payload.to_human) : "operator:primary"), requiredAuthority);
           if (!decision.granted) {
             database.markAgentChannelRejected(channelId, urgency, "insufficient_authority");
             return sendJson(response, { error: "Addressed human lacks the required authority.", reason: "insufficient_authority", required_authority: requiredAuthority, addressed: decision.addressed_alias, escalate_to: decision.escalate_to }, 403);
@@ -532,8 +573,9 @@ export function createBackend(options: BackendOptions): { server: Server; databa
           urgency: urgency as AgentUrgency,
           title: boundedText(payload.title, "title", 160),
           body: boundedText(payload.body, "body", 4000),
-          actions: agentActions(payload.actions),
-          expires_at: optionalIso(payload.expires_at)
+          actions,
+          expires_at: optionalIso(payload.expires_at),
+          ...approval
         });
         database.markAgentChannelUsed(channelId, urgency);
         return sendJson(response, { ok: true, message, agent: { id: agentIdentity.id, trust_state: agentIdentity.trust_state } }, 201);

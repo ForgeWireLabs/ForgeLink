@@ -5,7 +5,7 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 13;
+export const CURRENT_SCHEMA_VERSION = 14;
 
 export interface ThreadRow {
   id: number;
@@ -54,6 +54,16 @@ export interface AgentMessageInput {
   actions?: AgentAction[];
   expires_at?: string | null;
   created_at?: string;
+  intent?: string;
+  requested_action?: string;
+  reason_for_interrupt?: string;
+  risk?: string;
+  required_authority?: string;
+  to_human?: string;
+  affected_resources?: string[];
+  timeout_behavior?: string;
+  deny_behavior?: string;
+  decision_options?: AgentAction[];
 }
 
 export interface ContactPolicyDecision {
@@ -227,6 +237,16 @@ export interface AgentMessageRow {
   last_error: string;
   created_at: string;
   expires_at?: string | null;
+  intent: string;
+  requested_action: string;
+  reason_for_interrupt: string;
+  risk: string;
+  required_authority: string;
+  to_human: string;
+  affected_resources: string;
+  timeout_behavior: string;
+  deny_behavior: string;
+  decision_options: string;
 }
 
 export interface McpTokenStatus {
@@ -694,6 +714,38 @@ export class PhoneDatabase {
         `);
         version = 13;
         this.connection.exec("PRAGMA user_version=13");
+      }
+      if (version === 13) {
+        // Structured approval requests (work item 016, AGH-006; schema v14 per decision 0011).
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS agent_messages (
+            id TEXT PRIMARY KEY,
+            channel_id TEXT NOT NULL,
+            source TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            urgency TEXT NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            actions TEXT NOT NULL DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT 'unread',
+            action_result TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            expires_at TEXT,
+            last_error TEXT NOT NULL DEFAULT ''
+          );
+          ALTER TABLE agent_messages ADD COLUMN intent TEXT NOT NULL DEFAULT '';
+          ALTER TABLE agent_messages ADD COLUMN requested_action TEXT NOT NULL DEFAULT '';
+          ALTER TABLE agent_messages ADD COLUMN reason_for_interrupt TEXT NOT NULL DEFAULT '';
+          ALTER TABLE agent_messages ADD COLUMN risk TEXT NOT NULL DEFAULT '';
+          ALTER TABLE agent_messages ADD COLUMN required_authority TEXT NOT NULL DEFAULT '';
+          ALTER TABLE agent_messages ADD COLUMN to_human TEXT NOT NULL DEFAULT '';
+          ALTER TABLE agent_messages ADD COLUMN affected_resources TEXT NOT NULL DEFAULT '[]';
+          ALTER TABLE agent_messages ADD COLUMN timeout_behavior TEXT NOT NULL DEFAULT '';
+          ALTER TABLE agent_messages ADD COLUMN deny_behavior TEXT NOT NULL DEFAULT '';
+          ALTER TABLE agent_messages ADD COLUMN decision_options TEXT NOT NULL DEFAULT '[]';
+        `);
+        version = 14;
+        this.connection.exec("PRAGMA user_version=14");
       }
       this.connection.exec("COMMIT");
     } catch (error) {
@@ -1191,9 +1243,35 @@ export class PhoneDatabase {
     const createdAt = message.created_at || utcNow();
     const status: AgentMessageStatus = message.expires_at && new Date(message.expires_at).getTime() <= Date.now() ? "expired" : "unread";
     this.connection.prepare(`
-      INSERT INTO agent_messages(id, channel_id, source, kind, urgency, title, body, actions, status, created_at, expires_at)
-      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(message.id, message.channel_id, message.source, message.kind, message.urgency, message.title, message.body, JSON.stringify(message.actions || []), status, createdAt, message.expires_at || null);
+      INSERT INTO agent_messages(
+        id, channel_id, source, kind, urgency, title, body, actions, status, created_at, expires_at,
+        intent, requested_action, reason_for_interrupt, risk, required_authority, to_human,
+        affected_resources, timeout_behavior, deny_behavior, decision_options
+      )
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      message.id,
+      message.channel_id,
+      message.source,
+      message.kind,
+      message.urgency,
+      message.title,
+      message.body,
+      JSON.stringify(message.actions || []),
+      status,
+      createdAt,
+      message.expires_at || null,
+      message.intent || "",
+      message.requested_action || "",
+      message.reason_for_interrupt || "",
+      message.risk || "",
+      message.required_authority || "",
+      message.to_human || "",
+      JSON.stringify(message.affected_resources || []),
+      message.timeout_behavior || "",
+      message.deny_behavior || "",
+      JSON.stringify(message.decision_options || message.actions || [])
+    );
     return this.agentMessage(message.id)!;
   }
 
