@@ -41,6 +41,10 @@ function approvalRequest(overrides: Record<string, unknown> = {}): Record<string
     expires_at: String(overrides.expires_at || "2099-01-01T00:00:00.000Z"),
     timeout_behavior: String(overrides.timeout_behavior || "deny_on_timeout"),
     deny_behavior: String(overrides.deny_behavior || "do_not_run"),
+    expected_response_time: String(overrides.expected_response_time || "15 minutes"),
+    no_response_behavior: String(overrides.no_response_behavior || "deny_on_timeout"),
+    can_batch: overrides.can_batch ?? false,
+    can_wait_until: overrides.can_wait_until,
     decision_options: overrides.decision_options || actions,
     template_id: String(overrides.template_id || "file_write"),
     evidence_pack: overrides.evidence_pack || {
@@ -492,11 +496,14 @@ test("accepts authenticated agent channel messages and records human actions", a
       body: JSON.stringify(approvalRequest({ template_id: "github_release", risk: "high", urgency: "normal", evidence_pack: { summary: "Too thin" } }))
     });
     assert.equal(dryRun.status, 200);
-    const dryRunPayload = await dryRun.json() as { approval_required: boolean; estimated_risk: string; missing_evidence: string[]; batching_defer_recommendation: string; validation_errors: string[]; template: { id: string } };
+    const dryRunPayload = await dryRun.json() as { approval_required: boolean; estimated_risk: string; missing_evidence: string[]; batching_defer_recommendation: string; validation_errors: string[]; template: { id: string }; interruption_policy: string; escalation_behavior: string; preferred_channel: string };
     assert.equal(dryRunPayload.approval_required, true);
     assert.equal(dryRunPayload.estimated_risk, "high");
     assert.equal(dryRunPayload.template.id, "github_release");
     assert.equal(dryRunPayload.batching_defer_recommendation, "send_now");
+    assert.equal(dryRunPayload.interruption_policy, "urgent_interrupt");
+    assert.equal(dryRunPayload.preferred_channel, "desktop_interrupt");
+    assert.equal(dryRunPayload.escalation_behavior, "escalate_channel_if_unanswered");
     assert.ok(dryRunPayload.missing_evidence.includes("rollback_plan"));
     assert.ok(dryRunPayload.validation_errors.length >= 1);
 
@@ -512,7 +519,7 @@ test("accepts authenticated agent channel messages and records human actions", a
       }))
     });
     assert.equal(created.status, 201);
-    const listed = await fetch(`${localUrl}/api/agent-messages`, { headers: authorized() }).then((response) => response.json()) as Array<{ id: string; status: string; requested_action: string; affected_resources: string; required_authority: string; decision_options: string; template_id: string; evidence_pack: string }>;
+    const listed = await fetch(`${localUrl}/api/agent-messages`, { headers: authorized() }).then((response) => response.json()) as Array<{ id: string; status: string; requested_action: string; affected_resources: string; required_authority: string; decision_options: string; template_id: string; evidence_pack: string; interruption_policy: string; escalation_behavior: string; expected_response_time: string; no_response_behavior: string; can_batch: number }>;
     assert.deepEqual(listed.map((message) => message.id), ["agent-http-1"]);
     assert.equal(listed[0].status, "unread");
     assert.equal(listed[0].requested_action, "Run the release workflow.");
@@ -521,6 +528,11 @@ test("accepts authenticated agent channel messages and records human actions", a
     assert.deepEqual(JSON.parse(listed[0].decision_options).map((option: { id: string }) => option.id), ["approve", "deny"]);
     assert.equal(listed[0].template_id, "file_write");
     assert.equal(JSON.parse(listed[0].evidence_pack).redaction_profile, "desktop_full");
+    assert.equal(listed[0].interruption_policy, "normal_approval");
+    assert.equal(listed[0].escalation_behavior, "deny_or_defer_on_timeout");
+    assert.equal(listed[0].expected_response_time, "15 minutes");
+    assert.equal(listed[0].no_response_behavior, "deny_on_timeout");
+    assert.equal(listed[0].can_batch, 0);
 
     const incomplete = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
       method: "POST",

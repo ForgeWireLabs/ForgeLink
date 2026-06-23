@@ -166,20 +166,20 @@ This item owns the governance semantics that ride on top of that runtime:
 
 ### Phase 3: Risk, interruption, escalation
 
-- [ ] **AGH-010 Add risk-tiered interruption policy.** Define consequence-based
+- [x] **AGH-010 Add risk-tiered interruption policy.** Define consequence-based
   levels for agent requests.
   - Suggested levels: log only, passive notification, normal approval, urgent
     interrupt, fail-closed critical approval, multi-party approval/cannot proceed.
   - Acceptance: Request routing is determined by risk, authority, contact policy,
     operator mode, and agent trust.
 
-- [ ] **AGH-011 Add explicit timeout and escalation behavior.** Every approval
+- [x] **AGH-011 Add explicit timeout and escalation behavior.** Every approval
   class must define what happens when the human does not answer.
   - Options: deny by default, defer, retry later, escalate to another channel,
     escalate to another operator, or fail closed.
   - Acceptance: Expired requests are visible and audit-recorded.
 
-- [ ] **AGH-012 Add agent etiquette protocol.** Require agents to explain why they
+- [x] **AGH-012 Add agent etiquette protocol.** Require agents to explain why they
   are interrupting and whether the request can wait or batch.
   - Required fields: urgency, reason for interrupt, expected response time,
     what-if-no-response, can-batch, can-wait-until.
@@ -424,3 +424,4 @@ Add or update docs for:
 | 2026-06-22 | AGH-005 complete | Agent background-check checklist: `docs/agent-identity.md` now gives operators a reproducible trust-promotion review covering source/repo/app, owner, allowed scopes/channels/tools, recent behavior, failed and denied requests, tool permissions, last validation, and promotion/restriction/mute/block guidance. | AGH-005 satisfied (evidence 20260622-agh005-agent-background-check). This is docs-only; AGH-006 is next for the structured approval request schema. |
 | 2026-06-22 | AGH-006 complete | Structured approval requests: schema v14 adds durable request fields on `agent_messages` (`intent`, `requested_action`, `reason_for_interrupt`, `risk`, `required_authority`, `to_human`, `affected_resources`, `timeout_behavior`, `deny_behavior`, `decision_options`); agent-channel ingestion now rejects incomplete `approval_request` payloads with 400, persists the structured fields, and keeps AGH-002 authority gating; `docs/approval-requests.md`; renderer type updated; DB + HTTP tests cover v14 migration, persistence, validation, and API round-trip (85 backend tests green). | AGH-006 satisfied (evidence 20260622-agh006-structured-approval-requests). Evidence Packs (AGH-007) are next. |
 | 2026-06-22 | AGH-007-009 complete | Evidence packs/templates/dry-run: schema v15 adds `template_id` and `evidence_pack` to `agent_messages`; `approval_request` submissions require bounded evidence packs with summary/resources/diff/proposed operation/checks/rollback/links/limitations/redaction profile; `GET /api/approval-templates` exposes file-write/data-delete/git-commit/GitHub-release/mirror-sync/external-message/credential-change/network-access/purchase/provider-setting playbooks; `POST /api/approval-requests/dry-run` returns approval-required, estimated risk, missing evidence, preferred channel, batching/defer recommendation, validation errors, template, and authority simulation without persisting or interrupting; `docs/approval-requests.md`; DB + HTTP tests cover v15 migration, persistence, templates, and dry-run (85 backend tests green). | AGH-007, AGH-008, and AGH-009 satisfied (evidence 20260622-agh007-009-evidence-templates-dry-run). Risk-tiered interruption policy (AGH-010) is next. |
+| 2026-06-23 | AGH-010-012 complete | Phase 3 risk/timeout/etiquette: schema v16 adds `interruption_policy`, `escalation_behavior`, `expected_response_time`, `no_response_behavior`, `can_batch`, `can_wait_until`, and `agent_message_events`; dry-run and submit paths classify requests across log-only/passive/normal/urgent/fail-closed/multi-party states using risk, urgency, authority, contact policy, operator mode, and trust; approval requests require etiquette fields; expired requests are visible and audit-recorded; `GET /api/agent-messages/:id/events`; `docs/approval-requests.md`; DB + HTTP tests cover v16 migration, routing, etiquette persistence, dry-run policy output, and expiry audit events (85 backend tests green). | AGH-010, AGH-011, and AGH-012 satisfied (evidence 20260623-agh010-012-phase3-risk-timeout-etiquette). Decision records (AGH-013) are next. |

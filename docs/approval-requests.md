@@ -28,6 +28,10 @@ POST /api/agent-channels/<channel>/messages
   "expires_at": "2026-06-23T23:00:00.000Z",
   "timeout_behavior": "deny_on_timeout",
   "deny_behavior": "do_not_publish",
+  "expected_response_time": "15 minutes",
+  "no_response_behavior": "deny_on_timeout",
+  "can_batch": false,
+  "can_wait_until": null,
   "template_id": "github_release",
   "decision_options": [
     { "id": "approve", "label": "Approve" },
@@ -63,6 +67,10 @@ For `kind: "approval_request"`, ForgeLink requires:
 | `expires_at` | ISO timestamp after which the request is expired. |
 | `timeout_behavior` | What the agent must do if the request expires or receives no answer. |
 | `deny_behavior` | What the agent must do if the operator denies the request. |
+| `expected_response_time` | Human-readable time window the agent expects, such as `15 minutes`. |
+| `no_response_behavior` | What the agent will do if no response arrives. |
+| `can_batch` | Whether the request can be batched instead of interrupting immediately. |
+| `can_wait_until` | ISO timestamp for the latest acceptable wait time when `can_batch` is true. |
 | `template_id` | Approval template/playbook id. Defaults are visible through `/api/approval-templates`. |
 | `decision_options` | Up to eight operator choices. Existing `actions` are still accepted for UI compatibility, but `decision_options` is the governed schema field. |
 | `evidence_pack` | Evidence summary the human can review without reading raw agent logs. |
@@ -156,10 +164,42 @@ The response includes:
 Dry-run performs validation and authority simulation only. It does not persist a
 message, notify the human, consume rate limits, or imply approval.
 
+## Risk, Timeout, and Etiquette
+
+ForgeLink classifies approval requests into an `interruption_policy` before they
+reach the operator:
+
+| Policy | Use |
+| --- | --- |
+| `log_only` | No operator interruption; keep an audit trail only. |
+| `passive_notification` | Non-urgent, low-risk information. |
+| `normal_approval` | Ordinary approval card, optionally batched in focus mode. |
+| `urgent_interrupt` | High-risk, urgent, or emergency-only routing. |
+| `fail_closed_critical_approval` | Critical/emergency risk; do nothing unless approval can be obtained. |
+| `multi_party_cannot_proceed` | Authority/contact/operator state prevents progress. |
+
+Routing considers declared risk, urgency, addressed authority, contact policy,
+operator mode, and agent trust. The current operator mode is supplied as
+`operator_mode` on dry-run or submit payloads and defaults to `available`.
+
+Approval requests also carry explicit timeout/escalation behavior:
+
+- `timeout_behavior` and `no_response_behavior` declare the agent's fail-safe.
+- `escalation_behavior` is computed by ForgeLink and persisted with the message.
+- When a request expires, ForgeLink marks it `expired` and records an
+  `agent_message_events` audit event. Events are visible at:
+
+```http
+GET /api/agent-messages/<id>/events
+```
+
+The etiquette fields (`urgency`, `reason_for_interrupt`,
+`expected_response_time`, `no_response_behavior`, `can_batch`, and
+`can_wait_until` when batching is allowed) are required for
+`approval_request`. Badly formed or under-explained requests are rejected before
+they can interrupt the operator.
+
 ## Boundaries
 
-- Risk-tier classification and interruption policy are AGH-010.
-- Timeout and escalation execution are AGH-011; AGH-006 records the declared
-  behavior.
 - Decision records, callbacks, audit chain, and replay are AGH-013 through
   AGH-017.

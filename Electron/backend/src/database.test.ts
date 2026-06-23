@@ -127,6 +127,10 @@ test("upgrades a version-seven (pre-015) database to the current schema without 
     // v15 (016 AGH-007) adds durable evidence pack fields.
     assert.equal(agentMessageColumns.has("template_id"), true);
     assert.equal(agentMessageColumns.has("evidence_pack"), true);
+    // v16 (016 AGH-010/011/012) adds routing/etiquette fields and message events.
+    assert.equal(agentMessageColumns.has("interruption_policy"), true);
+    assert.equal(agentMessageColumns.has("no_response_behavior"), true);
+    assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_message_events'").get() as { name: string } | undefined)?.name, "agent_message_events");
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -304,6 +308,10 @@ test("stores agent channel messages separately with export, actions, expiry, and
       affected_resources: ["repo:ForgeLink", "release:2.0.3"],
       timeout_behavior: "deny_on_timeout",
       deny_behavior: "do_not_publish",
+      expected_response_time: "15 minutes",
+      no_response_behavior: "deny_on_timeout",
+      can_batch: true,
+      can_wait_until: "2099-01-01T00:00:00.000Z",
       decision_options: [{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }],
       template_id: "github_release",
       evidence_pack: {
@@ -324,6 +332,9 @@ test("stores agent channel messages separately with export, actions, expiry, and
     assert.deepEqual(JSON.parse(stored.decision_options).map((option: { id: string }) => option.id), ["approve", "deny"]);
     assert.equal(stored.template_id, "github_release");
     assert.equal(JSON.parse(stored.evidence_pack).rollback_plan, "Delete the draft release and restore the previous tag.");
+    assert.equal(stored.interruption_policy, "");
+    assert.equal(stored.can_batch, 1);
+    assert.equal(stored.can_wait_until, "2099-01-01T00:00:00.000Z");
     assert.equal(database.agentMessages()[0].channel_id, "forgewire");
     assert.equal(database.updateAgentMessageStatus("agent-1", "acted", "approve").status, "acted");
     const exported = database.exportData() as { messages: Array<unknown>; agent_messages: Array<{ id: string }> };
@@ -331,6 +342,7 @@ test("stores agent channel messages separately with export, actions, expiry, and
     assert.deepEqual(exported.agent_messages.map((message) => message.id), ["agent-1"]);
     database.addAgentMessage({ id: "expired", channel_id: "forgewire", source: "forgewire", kind: "alert", urgency: "high", title: "Old alert", body: "Expired", expires_at: "2020-01-01T00:00:00.000Z" });
     assert.equal(database.agentMessage("expired")?.status, "expired");
+    assert.equal(database.agentMessageEvents("expired")[0].event_type, "expired");
     assert.equal(database.applyRetention(365).deletedAgentMessages, 1);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });

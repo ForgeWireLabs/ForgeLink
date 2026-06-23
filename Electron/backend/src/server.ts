@@ -17,6 +17,7 @@ const BACKUP_FORMAT = "forgelink-backup-v1";
 const LEGACY_BACKUP_FORMAT = "twilio-phone-backup-v1";
 const AGENT_URGENCIES = new Set(["low", "normal", "high", "urgent"]);
 const CHANNEL_LIMITS: Record<string, number> = { low: 60, normal: 30, high: 10, urgent: 3 };
+const OPERATOR_MODES = new Set(["available", "focus", "driving", "sleeping", "family", "work", "emergency_only", "offline"]);
 const APPROVAL_TEMPLATES = [
   { id: "file_write", label: "File write", required_fields: ["intent", "requested_action", "affected_resources"], minimum_evidence: ["summary", "proposed_operation", "checks", "rollback_plan"], default_risk: "normal", timeout_behavior: "deny_on_timeout", decision_options: ["approve", "deny", "defer"], rollback_required: true, audit_required: true },
   { id: "data_delete", label: "Delete data", required_fields: ["intent", "requested_action", "affected_resources"], minimum_evidence: ["summary", "proposed_operation", "rollback_plan", "limitations"], default_risk: "high", timeout_behavior: "deny_on_timeout", decision_options: ["approve", "deny"], rollback_required: true, audit_required: true },
@@ -94,6 +95,7 @@ function isMcpSafeRoute(method: string | undefined, pathname: string): boolean {
   if (method === "GET" && pathname === "/api/mcp/status") return true;
   if (method === "POST" && pathname === "/api/mcp/test-message") return true;
   if (method === "GET" && pathname === "/api/agent-messages") return true;
+  if (method === "GET" && /^\/api\/agent-messages\/[^/]+\/events$/.test(pathname)) return true;
   if (method === "POST" && /^\/api\/agent-messages\/[^/]+\/(read|dismiss)$/.test(pathname)) return true;
   if (method === "POST" && /^\/api\/agent-messages\/[^/]+\/actions\/[^/]+$/.test(pathname)) return true;
   // Agents resolve human authority by alias (AGH-001); resolution is redacted.
@@ -190,6 +192,10 @@ function structuredApprovalFields(payload: Record<string, unknown>, fallbackActi
   deny_behavior: string;
   decision_options: AgentAction[];
   template_id: string;
+  expected_response_time: string;
+  no_response_behavior: string;
+  can_batch: boolean;
+  can_wait_until?: string | null;
 } {
   const template = approvalTemplate(payload.template_id);
   const risk = boundedText(payload.risk, "risk", 40, /^[A-Za-z0-9_.:-]+$/);
@@ -199,6 +205,9 @@ function structuredApprovalFields(payload: Record<string, unknown>, fallbackActi
   optionalIso(payload.expires_at);
   const decisionOptions = agentActions(payload.decision_options === undefined ? fallbackActions : payload.decision_options);
   if (!decisionOptions.length) throw new Error("decision_options must include at least one option.");
+  const canBatch = Boolean(payload.can_batch);
+  const canWaitUntil = payload.can_wait_until === undefined || payload.can_wait_until === null || payload.can_wait_until === "" ? null : optionalIso(payload.can_wait_until);
+  if (canBatch && !canWaitUntil) throw new Error("can_wait_until is required when can_batch is true.");
   return {
     intent: boundedText(payload.intent, "intent", 500),
     requested_action: boundedText(payload.requested_action, "requested_action", 1000),
@@ -210,11 +219,24 @@ function structuredApprovalFields(payload: Record<string, unknown>, fallbackActi
     timeout_behavior: boundedText(payload.timeout_behavior, "timeout_behavior", 500),
     deny_behavior: boundedText(payload.deny_behavior, "deny_behavior", 500),
     decision_options: decisionOptions,
-    template_id: template.id
+    template_id: template.id,
+    expected_response_time: boundedText(payload.expected_response_time, "expected_response_time", 120),
+    no_response_behavior: boundedText(payload.no_response_behavior, "no_response_behavior", 500),
+    can_batch: canBatch,
+    can_wait_until: canWaitUntil
   };
 }
 
-function approvalValidation(payload: Record<string, unknown>): { errors: string[]; missingEvidence: string[]; template?: typeof APPROVAL_TEMPLATES[number]; risk: string; authority?: ReturnType<PhoneDatabase["checkAuthority"]> } {
+function routingPolicy(risk: string, urgency: string, operatorMode: string, trustState: string, authorityGranted: boolean, contactAllowed: boolean): { interruption_policy: string; escalation_behavior: string; approval_required: boolean; preferred_channel: string; batching_defer_recommendation: string } {
+  if (!contactAllowed || !authorityGranted || operatorMode === "offline") return { interruption_policy: "multi_party_cannot_proceed", escalation_behavior: "fail_closed_until_operator_available", approval_required: true, preferred_channel: "none", batching_defer_recommendation: "cannot_proceed" };
+  if (risk === "critical" || risk === "emergency") return { interruption_policy: "fail_closed_critical_approval", escalation_behavior: "escalate_operator_or_fail_closed", approval_required: true, preferred_channel: "desktop_interrupt", batching_defer_recommendation: "send_now" };
+  if (urgency === "urgent" || risk === "high" || operatorMode === "emergency_only") return { interruption_policy: "urgent_interrupt", escalation_behavior: "escalate_channel_if_unanswered", approval_required: true, preferred_channel: "desktop_interrupt", batching_defer_recommendation: "send_now" };
+  if (risk === "normal" || trustState !== "trusted") return { interruption_policy: "normal_approval", escalation_behavior: "deny_or_defer_on_timeout", approval_required: true, preferred_channel: operatorMode === "focus" ? "desktop_batched" : "desktop", batching_defer_recommendation: operatorMode === "focus" ? "batch_or_defer" : "send_now" };
+  if (risk === "low" && urgency === "low") return { interruption_policy: "passive_notification", escalation_behavior: "log_if_unanswered", approval_required: false, preferred_channel: "desktop_passive", batching_defer_recommendation: "batch_or_defer" };
+  return { interruption_policy: "log_only", escalation_behavior: "audit_only", approval_required: false, preferred_channel: "none", batching_defer_recommendation: "batch_or_defer" };
+}
+
+function approvalValidation(payload: Record<string, unknown>): { errors: string[]; missingEvidence: string[]; template?: typeof APPROVAL_TEMPLATES[number]; risk: string } {
   const errors: string[] = [];
   let template: typeof APPROVAL_TEMPLATES[number] | undefined;
   let evidence: EvidencePack | undefined;
@@ -445,15 +467,22 @@ export function createBackend(options: BackendOptions): { server: Server; databa
           authority = database.checkAuthority(payload.to_human ? String(payload.to_human) : "operator:primary", payload.required_authority);
         }
         const urgency = String(payload.urgency || "normal");
+        const source = typeof payload.source === "string" ? payload.source : "";
+        const identity = source ? database.agentIdentity(source) : undefined;
+        const operatorMode = OPERATOR_MODES.has(String(payload.operator_mode || "")) ? String(payload.operator_mode) : "available";
+        const contactPolicy = source ? database.agentContactPolicyDecision(source, String(payload.kind || "approval_request"), urgency) : { allowed: true };
+        const routing = routingPolicy(validation.risk, urgency, operatorMode, identity?.trust_state || "unknown", authority?.granted ?? true, contactPolicy.allowed);
         return sendJson(response, {
-          approval_required: payload.kind === "approval_request" || Boolean(payload.required_authority),
+          approval_required: routing.approval_required || payload.kind === "approval_request" || Boolean(payload.required_authority),
           estimated_risk: validation.risk,
           missing_evidence: validation.missingEvidence,
-          preferred_channel: urgency === "urgent" ? "desktop_interrupt" : "desktop",
-          batching_defer_recommendation: urgency === "urgent" || validation.risk === "high" ? "send_now" : "batch_or_defer",
+          preferred_channel: routing.preferred_channel,
+          batching_defer_recommendation: routing.batching_defer_recommendation,
           validation_errors: validation.errors,
           template: validation.template || null,
-          authority
+          authority,
+          interruption_policy: routing.interruption_policy,
+          escalation_behavior: routing.escalation_behavior
         });
       }
       if (request.method === "GET" && url.pathname === "/api/human-cards") {
@@ -548,6 +577,8 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         return sendJson(response, { ok: true, message, status: database.markMcpTest("passed") });
       }
       if (request.method === "GET" && url.pathname === "/api/agent-messages") return sendJson(response, database.agentMessages());
+      const agentEventsMatch = url.pathname.match(/^\/api\/agent-messages\/([^/]+)\/events$/);
+      if (request.method === "GET" && agentEventsMatch) return sendJson(response, database.agentMessageEvents(decodeURIComponent(agentEventsMatch[1])));
       if (request.method === "GET" && url.pathname === "/api/signals/subscriptions") {
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         return sendJson(response, database.signalSubscriptions());
@@ -611,6 +642,7 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const actions = agentActions(payload.actions);
         const approval = kind === "approval_request" ? structuredApprovalFields(payload, actions) : undefined;
         const evidencePack = kind === "approval_request" ? structuredEvidencePack(payload.evidence_pack) : undefined;
+        const operatorMode = OPERATOR_MODES.has(String(payload.operator_mode || "")) ? String(payload.operator_mode) : "available";
         // AGH-003: tie the request to a first-class agent identity, auto-registering
         // unknown agents with restricted defaults and recording last-seen.
         const agentIdentity = database.recordAgentIdentitySeen(source, String(payload.source_kind || "mcp"));
@@ -629,10 +661,12 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         // scope, the addressed human (default operator:primary) must hold it, else
         // the request is rejected with escalation targets. Optional and backward
         // compatible; requests without `required_authority` are unaffected.
+        let authorityGranted = true;
         if ((approval?.required_authority || payload.required_authority) !== undefined && (approval?.required_authority || payload.required_authority) !== "") {
           const requiredAuthority = String(approval?.required_authority || payload.required_authority);
           if (!isAuthorityScope(requiredAuthority)) throw new Error("required_authority is invalid.");
           const decision = database.checkAuthority(approval?.to_human || (payload.to_human ? String(payload.to_human) : "operator:primary"), requiredAuthority);
+          authorityGranted = decision.granted;
           if (!decision.granted) {
             database.markAgentChannelRejected(channelId, urgency, "insufficient_authority");
             return sendJson(response, { error: "Addressed human lacks the required authority.", reason: "insufficient_authority", required_authority: requiredAuthority, addressed: decision.addressed_alias, escalate_to: decision.escalate_to }, 403);
@@ -660,7 +694,8 @@ export function createBackend(options: BackendOptions): { server: Server; databa
           actions,
           expires_at: optionalIso(payload.expires_at),
           ...approval,
-          evidence_pack: evidencePack
+          evidence_pack: evidencePack,
+          ...(approval ? routingPolicy(approval.risk, urgency, operatorMode, agentIdentity.trust_state, authorityGranted, policyDecision.allowed) : {})
         });
         database.markAgentChannelUsed(channelId, urgency);
         return sendJson(response, { ok: true, message, agent: { id: agentIdentity.id, trust_state: agentIdentity.trust_state } }, 201);

@@ -103,20 +103,26 @@
     {
       "id": "AGH-010",
       "text": "Add risk-tiered interruption policy covering log-only, passive notification, normal approval, urgent interrupt, fail-closed critical approval, and multi-party/cannot-proceed states.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260623-agh010-012-phase3-risk-timeout-etiquette"
+      ]
     },
     {
       "id": "AGH-011",
       "text": "Add explicit timeout and escalation behavior for every approval class, including deny, defer, retry, channel escalation, operator escalation, and fail-closed handling.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260623-agh010-012-phase3-risk-timeout-etiquette"
+      ]
     },
     {
       "id": "AGH-012",
       "text": "Add agent etiquette protocol requiring urgency, reason for interrupt, expected response time, no-response behavior, batching, and can-wait-until fields.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260623-agh010-012-phase3-risk-timeout-etiquette"
+      ]
     },
     {
       "id": "AGH-013",

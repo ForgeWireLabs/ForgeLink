@@ -1,0 +1,47 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260623-agh010-012-phase3-risk-timeout-etiquette",
+  "timestamp": "2026-06-23T15:01:39Z",
+  "work_item": "016",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed with schema v16 routing, timeout/escalation, etiquette, and message event fields."
+    },
+    {
+      "command": "node --test backend-dist/database.test.js backend-dist/server.test.js backend-dist/migration.test.js backend-dist/twilio.test.js backend-dist/telnyx.test.js backend-dist/channels.test.js backend-dist/signals.test.js",
+      "exit_code": 0,
+      "summary": "85 backend tests passed, including v16 migration, dry-run routing output, etiquette persistence, and expired-message audit events."
+    },
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript build passed with the extended AgentMessage routing and etiquette fields."
+    },
+    {
+      "command": "python .local\\validate_system.py",
+      "exit_code": 0,
+      "summary": "Local audit passed after Phase 3 implementation and ledger updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/types.ts",
+    "docs/approval-requests.md",
+    "decisions/0011-schema-migration-coordination.md",
+    "CHANGELOG.md",
+    "work/active/016-agent-human-governance/README.md",
+    "work/active/016-agent-human-governance/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "Phase 3 (AGH-010 through AGH-012): risk-tiered routing, timeout/escalation behavior, expiry events, and agent etiquette fields."
+  }
+}

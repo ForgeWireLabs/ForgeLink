@@ -5,7 +5,7 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 15;
+export const CURRENT_SCHEMA_VERSION = 16;
 
 export interface ThreadRow {
   id: number;
@@ -78,6 +78,12 @@ export interface AgentMessageInput {
   decision_options?: AgentAction[];
   template_id?: string;
   evidence_pack?: EvidencePack;
+  interruption_policy?: string;
+  escalation_behavior?: string;
+  expected_response_time?: string;
+  no_response_behavior?: string;
+  can_batch?: boolean;
+  can_wait_until?: string | null;
 }
 
 export interface ContactPolicyDecision {
@@ -263,6 +269,20 @@ export interface AgentMessageRow {
   decision_options: string;
   template_id: string;
   evidence_pack: string;
+  interruption_policy: string;
+  escalation_behavior: string;
+  expected_response_time: string;
+  no_response_behavior: string;
+  can_batch: number;
+  can_wait_until: string | null;
+}
+
+export interface AgentMessageEventRow {
+  id: number;
+  message_id: string;
+  event_type: string;
+  detail: string;
+  created_at: string;
 }
 
 export interface McpTokenStatus {
@@ -772,6 +792,27 @@ export class PhoneDatabase {
         version = 15;
         this.connection.exec("PRAGMA user_version=15");
       }
+      if (version === 15) {
+        // Risk routing, timeout/escalation, and etiquette fields (work item 016, AGH-010/011/012; schema v16 per decision 0011).
+        this.connection.exec(`
+          ALTER TABLE agent_messages ADD COLUMN interruption_policy TEXT NOT NULL DEFAULT '';
+          ALTER TABLE agent_messages ADD COLUMN escalation_behavior TEXT NOT NULL DEFAULT '';
+          ALTER TABLE agent_messages ADD COLUMN expected_response_time TEXT NOT NULL DEFAULT '';
+          ALTER TABLE agent_messages ADD COLUMN no_response_behavior TEXT NOT NULL DEFAULT '';
+          ALTER TABLE agent_messages ADD COLUMN can_batch INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE agent_messages ADD COLUMN can_wait_until TEXT;
+          CREATE TABLE IF NOT EXISTS agent_message_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_agent_message_events_message ON agent_message_events(message_id, created_at DESC);
+        `);
+        version = 16;
+        this.connection.exec("PRAGMA user_version=16");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -1271,9 +1312,10 @@ export class PhoneDatabase {
       INSERT INTO agent_messages(
         id, channel_id, source, kind, urgency, title, body, actions, status, created_at, expires_at,
         intent, requested_action, reason_for_interrupt, risk, required_authority, to_human,
-        affected_resources, timeout_behavior, deny_behavior, decision_options, template_id, evidence_pack
+        affected_resources, timeout_behavior, deny_behavior, decision_options, template_id, evidence_pack,
+        interruption_policy, escalation_behavior, expected_response_time, no_response_behavior, can_batch, can_wait_until
       )
-      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       message.id,
       message.channel_id,
@@ -1297,9 +1339,24 @@ export class PhoneDatabase {
       message.deny_behavior || "",
       JSON.stringify(message.decision_options || message.actions || []),
       message.template_id || "",
-      JSON.stringify(message.evidence_pack || {})
+      JSON.stringify(message.evidence_pack || {}),
+      message.interruption_policy || "",
+      message.escalation_behavior || "",
+      message.expected_response_time || "",
+      message.no_response_behavior || "",
+      message.can_batch ? 1 : 0,
+      message.can_wait_until || null
     );
+    if (status === "expired") {
+      this.connection.prepare("INSERT INTO agent_message_events(message_id, event_type, detail, created_at) VALUES(?, 'expired', ?, ?)")
+        .run(message.id, JSON.stringify({ timeout_behavior: message.timeout_behavior || "", no_response_behavior: message.no_response_behavior || "", escalation_behavior: message.escalation_behavior || "" }), createdAt);
+    }
     return this.agentMessage(message.id)!;
+  }
+
+  agentMessageEvents(messageId?: string): AgentMessageEventRow[] {
+    if (messageId) return this.connection.prepare("SELECT * FROM agent_message_events WHERE message_id=? ORDER BY created_at DESC, id DESC").all(messageId) as unknown as AgentMessageEventRow[];
+    return this.connection.prepare("SELECT * FROM agent_message_events ORDER BY created_at DESC, id DESC LIMIT 500").all() as unknown as AgentMessageEventRow[];
   }
 
   agentMessages(): AgentMessageRow[] {
@@ -1324,7 +1381,13 @@ export class PhoneDatabase {
   }
 
   private expireAgentMessages(): void {
-    this.connection.prepare("UPDATE agent_messages SET status='expired' WHERE expires_at IS NOT NULL AND expires_at <= ? AND status IN ('unread', 'read')").run(utcNow());
+    const now = utcNow();
+    const expiring = this.connection.prepare("SELECT id, timeout_behavior, no_response_behavior, escalation_behavior FROM agent_messages WHERE expires_at IS NOT NULL AND expires_at <= ? AND status IN ('unread', 'read')").all(now) as Array<{ id: string; timeout_behavior: string; no_response_behavior: string; escalation_behavior: string }>;
+    this.connection.prepare("UPDATE agent_messages SET status='expired' WHERE expires_at IS NOT NULL AND expires_at <= ? AND status IN ('unread', 'read')").run(now);
+    for (const row of expiring) {
+      this.connection.prepare("INSERT INTO agent_message_events(message_id, event_type, detail, created_at) VALUES(?, 'expired', ?, ?)")
+        .run(row.id, JSON.stringify({ timeout_behavior: row.timeout_behavior, no_response_behavior: row.no_response_behavior, escalation_behavior: row.escalation_behavior }), now);
+    }
   }
 
   // --- Human Cards (work item 016, AGH-001) -----------------------------------
