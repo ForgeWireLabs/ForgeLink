@@ -32,13 +32,19 @@ versions tracked in `VERSION` and `Electron/package.json`.
   etiquette fields: approval requests now persist routing policy, escalation
   behavior, expected response time, no-response behavior, batching allowance, and
   expiry audit events (AGH-010 through AGH-012).
+- Decision Records: operator approvals and dismissals of approval requests are
+  persisted with the deciding operator/device, chosen options, comment, granted
+  authority, and request/evidence/decision hashes, audited as a `decision` event,
+  and replayable through operator-only endpoints. Records are written only from
+  the local operator surface, so an agent cannot forge an operator decision
+  (AGH-013).
 
 ### Changed
 - Completed work item 015 (Communication Channels and Voice); moved to the
   completed ledger.
 - Schema migrations now follow a single append-only ladder with per-version
   ownership recorded in decision 0011 (CLV-022). The local schema advanced from
-  v10 to v16. Upgrades back up the database and are tested from previously shipped
+  v10 to v17. Upgrades back up the database and are tested from previously shipped
   schemas.
 
 ## [2.0.3] - 2026-06-20 (local build, unsigned)

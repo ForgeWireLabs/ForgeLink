@@ -541,11 +541,26 @@ test("accepts authenticated agent channel messages and records human actions", a
     });
     assert.equal(incomplete.status, 400);
 
-    const acted = await fetch(`${localUrl}/api/agent-messages/agent-http-1/actions/approve`, { method: "POST", headers: authorized() });
+    const acted = await fetch(`${localUrl}/api/agent-messages/agent-http-1/actions/approve`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ comment: "Approved by operator", device_id: "desktop-1" }) });
     assert.equal(acted.status, 200);
-    const actedPayload = await acted.json() as { message: { status: string; action_result: string } };
+    const actedPayload = await acted.json() as { message: { status: string; action_result: string }; decision: { id: string; decision: string; authority_grant: string; operator_alias: string; decision_comment: string } };
     assert.equal(actedPayload.message.status, "acted");
     assert.match(actedPayload.message.action_result, /approve/);
+    // The operator action is persisted as a Decision Record (AGH-013): the chosen
+    // option, operator/device, comment, and the granted authority are recorded.
+    assert.equal(actedPayload.decision.decision, "approve");
+    assert.equal(actedPayload.decision.authority_grant, "general_approval");
+    assert.equal(actedPayload.decision.operator_alias, "operator:primary");
+    assert.equal(actedPayload.decision.decision_comment, "Approved by operator");
+    // The decision is replayable per request and visible in the operator-only list.
+    const replay = await fetch(`${localUrl}/api/agent-messages/agent-http-1/decision`, { headers: authorized() }).then((r) => r.json()) as { id: string; decision: string };
+    assert.equal(replay.id, actedPayload.decision.id);
+    assert.equal(replay.decision, "approve");
+    const records = await fetch(`${localUrl}/api/decision-records`, { headers: authorized() }).then((r) => r.json()) as Array<{ approval_request_id: string }>;
+    assert.deepEqual(records.map((record) => record.approval_request_id), ["agent-http-1"]);
+    // Decision Records are operator-only; an agent (MCP) token cannot read them.
+    const mcpToken = ((await (await fetch(`${localUrl}/api/mcp/token`, { method: "POST", headers: authorized() })).json()) as { token: string }).token;
+    assert.equal((await fetch(`${localUrl}/api/decision-records`, { headers: { Authorization: `Bearer ${mcpToken}` } })).status, 401);
 
     const contactId = database.upsertContact("Fabric", "+15550001111");
     database.addContactPoint(contactId, "handle", "fabric-agent", "agent", false);

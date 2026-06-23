@@ -1,0 +1,47 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260623-agh013-decision-records",
+  "timestamp": "2026-06-23T17:30:00Z",
+  "work_item": "016",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed with schema v17 decision_records and the recordDecision/decisionRecords/decisionForRequest API."
+    },
+    {
+      "command": "node --test backend-dist/channels.test.js backend-dist/telnyx.test.js backend-dist/database.test.js backend-dist/migration.test.js backend-dist/server.test.js backend-dist/signals.test.js backend-dist/twilio.test.js",
+      "exit_code": 0,
+      "summary": "86 backend tests passed, including the v17 migration, decision hashing/authority-grant, the decision audit event, the operator-only replay endpoints, and agent-token rejection."
+    },
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript build passed with the added DecisionRecord type."
+    },
+    {
+      "command": "python .local\\validate_system.py",
+      "exit_code": 0,
+      "summary": "Local audit passed after AGH-013 implementation and ledger updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/types.ts",
+    "docs/approval-requests.md",
+    "decisions/0011-schema-migration-coordination.md",
+    "CHANGELOG.md",
+    "work/active/016-agent-human-governance/README.md",
+    "work/active/016-agent-human-governance/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "AGH-013: durable operator Decision Records with request/evidence/decision hashes, authority grant, audit event, and operator-only replay endpoints."
+  }
+}

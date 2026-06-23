@@ -5,7 +5,7 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 16;
+export const CURRENT_SCHEMA_VERSION = 17;
 
 export interface ThreadRow {
   id: number;
@@ -284,6 +284,39 @@ export interface AgentMessageEventRow {
   detail: string;
   created_at: string;
 }
+
+// Decision Records (work item 016, AGH-013): persist what the operator saw and
+// decided so a completed decision can be replayed and integrity-checked later.
+// The request and evidence hashes bind the record to exactly what was approved;
+// the decision hash makes a record's own fields tamper-evident.
+export interface DecisionRecordInput {
+  approval_request_id: string;
+  decision: string;              // option id chosen, e.g. "approve" or "deny"
+  selected_options?: string[];
+  operator_alias?: string;       // Human Card alias; defaults to operator:primary
+  device_id?: string;
+  decision_comment?: string;
+}
+
+export interface DecisionRecordRow {
+  id: string;
+  approval_request_id: string;
+  operator_alias: string;
+  device_id: string;
+  decision: string;
+  selected_options: string;      // JSON array text
+  decision_comment: string;
+  authority_grant: string;       // authority the operator exercised, if any
+  request_hash: string;
+  evidence_hash: string;
+  decision_hash: string;
+  decided_at: string;
+}
+
+// Terminal operator decisions that grant no authority. Anything else (an explicit
+// approve, or a custom approval option) is treated as granting the request's
+// required authority.
+const DENIAL_DECISIONS = new Set(["deny", "dismiss", "reject", "decline", "cancel"]);
 
 export interface McpTokenStatus {
   configured: boolean;
@@ -813,6 +846,32 @@ export class PhoneDatabase {
         version = 16;
         this.connection.exec("PRAGMA user_version=16");
       }
+      if (version === 16) {
+        // Decision Records (work item 016, AGH-013; schema v17 per decision 0011).
+        // Persist what the operator saw and decided — request/evidence hashes,
+        // operator and device identity, decision, selected options, comment, and
+        // resulting authority grant — so a completed decision can be replayed and
+        // integrity-checked later.
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS decision_records (
+            id TEXT PRIMARY KEY,
+            approval_request_id TEXT NOT NULL,
+            operator_alias TEXT NOT NULL,
+            device_id TEXT NOT NULL DEFAULT '',
+            decision TEXT NOT NULL,
+            selected_options TEXT NOT NULL DEFAULT '[]',
+            decision_comment TEXT NOT NULL DEFAULT '',
+            authority_grant TEXT NOT NULL DEFAULT '',
+            request_hash TEXT NOT NULL,
+            evidence_hash TEXT NOT NULL,
+            decision_hash TEXT NOT NULL,
+            decided_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_decision_records_request ON decision_records(approval_request_id, decided_at DESC);
+        `);
+        version = 17;
+        this.connection.exec("PRAGMA user_version=17");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -865,6 +924,7 @@ export class PhoneDatabase {
       threads: this.connection.prepare("SELECT * FROM threads ORDER BY id").all(),
       messages: this.connection.prepare("SELECT * FROM messages ORDER BY ts, id").all(),
       agent_messages: this.connection.prepare("SELECT * FROM agent_messages ORDER BY created_at, id").all(),
+      decision_records: this.connection.prepare("SELECT * FROM decision_records ORDER BY decided_at, id").all(),
       signal_subscriptions: this.connection.prepare("SELECT * FROM signal_subscriptions ORDER BY title, id").all(),
       signal_items: this.connection.prepare("SELECT * FROM signal_items ORDER BY received_at, id").all(),
       mcp_tokens: this.connection.prepare("SELECT id, created_at, rotated_at, revoked_at, last_used_at, last_test_at, last_test_status FROM mcp_tokens ORDER BY id").all(),
@@ -1388,6 +1448,77 @@ export class PhoneDatabase {
       this.connection.prepare("INSERT INTO agent_message_events(message_id, event_type, detail, created_at) VALUES(?, 'expired', ?, ?)")
         .run(row.id, JSON.stringify({ timeout_behavior: row.timeout_behavior, no_response_behavior: row.no_response_behavior, escalation_behavior: row.escalation_behavior }), now);
     }
+  }
+
+  // --- Decision Records (work item 016, AGH-013) ------------------------------
+
+  // Stable hash over the governed request the operator decided on, so a stored
+  // decision can be replayed and checked against the request later. Built from a
+  // fixed field order joined by a NUL separator that cannot appear in the text.
+  private requestHash(message: AgentMessageRow): string {
+    const canonical = [
+      message.id, message.channel_id, message.source, message.kind, message.urgency,
+      message.title, message.body, message.intent, message.requested_action,
+      message.reason_for_interrupt, message.risk, message.required_authority,
+      message.to_human, message.affected_resources, message.timeout_behavior,
+      message.deny_behavior, message.decision_options, message.expected_response_time,
+      message.no_response_behavior, String(message.can_batch), message.can_wait_until || "",
+      message.expires_at || "", message.created_at
+    ];
+    return createHash("sha256").update(canonical.join(" ")).digest("hex");
+  }
+
+  recordDecision(input: DecisionRecordInput): DecisionRecordRow {
+    const message = this.agentMessage(input.approval_request_id);
+    if (!message) throw new Error("Agent message not found.");
+    const decision = String(input.decision || "").trim();
+    if (!decision) throw new Error("Decision is required.");
+    // Resolve the deciding operator against Human Cards (single-operator default).
+    const operatorAlias = this.humanCardByAlias(input.operator_alias || "operator:primary")?.alias || "operator:primary";
+    const deviceId = String(input.device_id || "").trim();
+    const comment = String(input.decision_comment || "").trim();
+    const selectedOptions = (input.selected_options && input.selected_options.length ? input.selected_options : [decision]).map((option) => String(option));
+    const denied = DENIAL_DECISIONS.has(decision.toLowerCase());
+    // Authority is granted only on a non-denial decision, and only the authority
+    // the request itself declared — a decision never invents new authority.
+    const authorityGrant = !denied && message.required_authority ? message.required_authority : "";
+    const requestHash = this.requestHash(message);
+    const evidenceHash = createHash("sha256").update(message.evidence_pack || "{}").digest("hex");
+    const decidedAt = utcNow();
+    const id = randomUUID();
+    const decisionHash = createHash("sha256")
+      .update([id, message.id, requestHash, evidenceHash, decision, JSON.stringify(selectedOptions), operatorAlias, deviceId, authorityGrant, decidedAt].join(" "))
+      .digest("hex");
+    this.connection.exec("BEGIN IMMEDIATE");
+    try {
+      this.connection.prepare(`
+        INSERT INTO decision_records(
+          id, approval_request_id, operator_alias, device_id, decision, selected_options,
+          decision_comment, authority_grant, request_hash, evidence_hash, decision_hash, decided_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, message.id, operatorAlias, deviceId, decision, JSON.stringify(selectedOptions), comment, authorityGrant, requestHash, evidenceHash, decisionHash, decidedAt);
+      this.connection.prepare("INSERT INTO agent_message_events(message_id, event_type, detail, created_at) VALUES(?, 'decision', ?, ?)")
+        .run(message.id, JSON.stringify({ decision, operator_alias: operatorAlias, decision_record_id: id, authority_grant: authorityGrant }), decidedAt);
+      this.connection.exec("COMMIT");
+    } catch (error) {
+      this.connection.exec("ROLLBACK");
+      throw error;
+    }
+    return this.decisionRecord(id)!;
+  }
+
+  decisionRecord(id: string): DecisionRecordRow | undefined {
+    return this.connection.prepare("SELECT * FROM decision_records WHERE id=?").get(id) as unknown as DecisionRecordRow | undefined;
+  }
+
+  decisionRecords(requestId?: string): DecisionRecordRow[] {
+    if (requestId) return this.connection.prepare("SELECT * FROM decision_records WHERE approval_request_id=? ORDER BY decided_at DESC, id DESC").all(requestId) as unknown as DecisionRecordRow[];
+    return this.connection.prepare("SELECT * FROM decision_records ORDER BY decided_at DESC, id DESC LIMIT 500").all() as unknown as DecisionRecordRow[];
+  }
+
+  // Latest decision for a request, used to replay what the operator decided.
+  decisionForRequest(requestId: string): DecisionRecordRow | undefined {
+    return this.connection.prepare("SELECT * FROM decision_records WHERE approval_request_id=? ORDER BY decided_at DESC, id DESC LIMIT 1").get(requestId) as unknown as DecisionRecordRow | undefined;
   }
 
   // --- Human Cards (work item 016, AGH-001) -----------------------------------

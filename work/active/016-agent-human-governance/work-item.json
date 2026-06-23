@@ -127,8 +127,10 @@
     {
       "id": "AGH-013",
       "text": "Add Decision Records that persist what the human saw and decided, including request/evidence hashes, operator identity, device identity, decision, timestamp, options, comments, and authority grant.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260623-agh013-decision-records"
+      ]
     },
     {
       "id": "AGH-014",
@@ -222,5 +224,5 @@
     }
   ],
   "created": "2026-06-18",
-  "updated": "2026-06-22"
+  "updated": "2026-06-23"
 }

@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:
 import { createServer, IncomingMessage, Server, ServerResponse } from "node:http";
 import { extname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
-import { AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, EvidencePack, isAuthorityScope, PhoneDatabase } from "./database";
+import { AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, DecisionRecordRow, EvidencePack, isAuthorityScope, PhoneDatabase } from "./database";
 import { utcNow } from "./phone";
 import { fetchTrustedSignalFeed } from "./signals";
 import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, loadTwilioConfig, sendTwilioMessage, startTwilioCall, validateTwilioSignature } from "./twilio";
@@ -149,6 +149,22 @@ function agentActions(value: unknown): AgentAction[] {
       label: boundedText(record.label, "action label", 80)
     };
   });
+}
+
+// Optional operator-supplied metadata accompanying a decision (AGH-013). The
+// operator alias and device come from the local operator surface; agent-supplied
+// authority is never read here.
+function decisionMetadata(payload: Record<string, unknown>): { operator_alias?: string; device_id?: string; decision_comment?: string } {
+  const text = (value: unknown, max: number): string | undefined => {
+    if (typeof value !== "string") return undefined;
+    const trimmed = value.trim();
+    return trimmed ? trimmed.slice(0, max) : undefined;
+  };
+  return {
+    operator_alias: text(payload.operator_alias, 80),
+    device_id: text(payload.device_id, 120),
+    decision_comment: text(payload.comment ?? payload.decision_comment, 2000)
+  };
 }
 
 function boundedStringList(value: unknown, label: string, maxItems: number, maxLength: number): string[] {
@@ -579,6 +595,17 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       if (request.method === "GET" && url.pathname === "/api/agent-messages") return sendJson(response, database.agentMessages());
       const agentEventsMatch = url.pathname.match(/^\/api\/agent-messages\/([^/]+)\/events$/);
       if (request.method === "GET" && agentEventsMatch) return sendJson(response, database.agentMessageEvents(decodeURIComponent(agentEventsMatch[1])));
+      // Decision Records (AGH-013): operator-only inspection so a completed decision
+      // can be replayed later. Not agent-reachable.
+      if (request.method === "GET" && url.pathname === "/api/decision-records") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.decisionRecords());
+      }
+      const decisionMatch = url.pathname.match(/^\/api\/agent-messages\/([^/]+)\/decision$/);
+      if (request.method === "GET" && decisionMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.decisionForRequest(decodeURIComponent(decisionMatch[1])) || null);
+      }
       if (request.method === "GET" && url.pathname === "/api/signals/subscriptions") {
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         return sendJson(response, database.signalSubscriptions());
@@ -702,8 +729,17 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       }
       const agentStatusMatch = url.pathname.match(/^\/api\/agent-messages\/([^/]+)\/(read|dismiss)$/);
       if (request.method === "POST" && agentStatusMatch) {
-        const message = database.updateAgentMessageStatus(decodeURIComponent(agentStatusMatch[1]), agentStatusMatch[2] === "read" ? "read" : "dismissed");
-        return sendJson(response, { ok: true, message });
+        const id = decodeURIComponent(agentStatusMatch[1]);
+        const isDismiss = agentStatusMatch[2] === "dismiss";
+        const message = database.updateAgentMessageStatus(id, isDismiss ? "dismissed" : "read");
+        // Dismissing an approval request is a deny decision. Record it (AGH-013)
+        // only when the operator surface acted, never on an agent-token action, so
+        // an agent cannot forge an operator decision.
+        let decision: DecisionRecordRow | undefined;
+        if (isDismiss && auth === "launch" && message.kind === "approval_request") {
+          decision = database.recordDecision({ approval_request_id: id, decision: "deny", ...decisionMetadata(await readJson(request)) });
+        }
+        return sendJson(response, { ok: true, message, decision });
       }
       const agentActionMatch = url.pathname.match(/^\/api\/agent-messages\/([^/]+)\/actions\/([^/]+)$/);
       if (request.method === "POST" && agentActionMatch) {
@@ -713,7 +749,13 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         if (!current) throw new Error("Agent message not found.");
         if (!actionExists(current.actions, actionId)) throw new Error("Agent action not found.");
         const message = database.updateAgentMessageStatus(id, "acted", actionId);
-        return sendJson(response, { ok: true, message });
+        // Record the operator's chosen option as a Decision Record (AGH-013),
+        // launch-surface only for the same anti-forgery reason as dismissal.
+        let decision: DecisionRecordRow | undefined;
+        if (auth === "launch" && current.kind === "approval_request") {
+          decision = database.recordDecision({ approval_request_id: id, decision: actionId, selected_options: [actionId], ...decisionMetadata(await readJson(request)) });
+        }
+        return sendJson(response, { ok: true, message, decision });
       }
       if (request.method === "POST" && url.pathname === "/api/data/backup") return sendJson(response, { ok: true, ...(await createBackup()) });
       if (request.method === "POST" && url.pathname === "/api/data/restore-latest") return sendJson(response, { ok: true, ...(await restoreLatest()) });

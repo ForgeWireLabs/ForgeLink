@@ -131,6 +131,8 @@ test("upgrades a version-seven (pre-015) database to the current schema without 
     assert.equal(agentMessageColumns.has("interruption_policy"), true);
     assert.equal(agentMessageColumns.has("no_response_behavior"), true);
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_message_events'").get() as { name: string } | undefined)?.name, "agent_message_events");
+    // v17 (016 AGH-013) adds durable operator decision records.
+    assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='decision_records'").get() as { name: string } | undefined)?.name, "decision_records");
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -344,6 +346,59 @@ test("stores agent channel messages separately with export, actions, expiry, and
     assert.equal(database.agentMessage("expired")?.status, "expired");
     assert.equal(database.agentMessageEvents("expired")[0].event_type, "expired");
     assert.equal(database.applyRetention(365).deletedAgentMessages, 1);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// Decision Records (work item 016, AGH-013): persist what the operator saw and
+// decided so a completed decision can be replayed and integrity-checked later.
+test("records operator decisions with bound request/evidence hashes and authority grant (AGH-013)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-decisions-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    database.addAgentMessage({
+      id: "agent-decide", channel_id: "forgewire", source: "fabric", kind: "approval_request", urgency: "normal",
+      title: "Release approval", body: "Publish the build.", intent: "Release", requested_action: "Publish",
+      reason_for_interrupt: "Needs operator authority.", risk: "normal", required_authority: "release_approval",
+      to_human: "operator:primary", affected_resources: ["repo:ForgeLink"], decision_options: [{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }],
+      evidence_pack: { summary: "Ready", affected_resources: ["repo:ForgeLink"], diff_summary: "metadata", proposed_operation: "publish", checks: ["tests"], rollback_plan: "delete draft", links: [], limitations: "synthetic", redaction_profile: "desktop_full" }
+    });
+
+    // An approval decision grants exactly the authority the request declared, with
+    // the chosen option and operator recorded and the request/evidence bound by hash.
+    const approved = database.recordDecision({ approval_request_id: "agent-decide", decision: "approve", decision_comment: "Looks good", device_id: "desktop-1" });
+    assert.equal(approved.decision, "approve");
+    assert.equal(approved.operator_alias, "operator:primary");
+    assert.equal(approved.device_id, "desktop-1");
+    assert.equal(approved.decision_comment, "Looks good");
+    assert.equal(approved.authority_grant, "release_approval");
+    assert.deepEqual(JSON.parse(approved.selected_options), ["approve"]);
+    assert.match(approved.request_hash, /^[a-f0-9]{64}$/);
+    assert.match(approved.evidence_hash, /^[a-f0-9]{64}$/);
+    assert.match(approved.decision_hash, /^[a-f0-9]{64}$/);
+
+    // The decision is audited as an agent message event and is replayable.
+    assert.equal(database.agentMessageEvents("agent-decide")[0].event_type, "decision");
+    assert.equal(database.decisionForRequest("agent-decide")?.id, approved.id);
+    assert.equal(database.decisionRecords("agent-decide").length, 1);
+
+    // The request hash is stable for the same stored request.
+    const replayed = database.recordDecision({ approval_request_id: "agent-decide", decision: "deny" });
+    assert.equal(replayed.request_hash, approved.request_hash);
+    // A denial grants no authority and becomes the latest decision.
+    assert.equal(replayed.authority_grant, "");
+    assert.equal(database.decisionForRequest("agent-decide")?.decision, "deny");
+
+    // Decisions are part of the durable export and survive as an audit artifact.
+    const exported = database.exportData() as { decision_records: Array<{ approval_request_id: string }> };
+    assert.equal(exported.decision_records.length, 2);
+
+    // A decision on a different request produces a different request hash.
+    database.addAgentMessage({ id: "agent-other", channel_id: "forgewire", source: "fabric", kind: "approval_request", urgency: "normal", title: "Other", body: "Different", required_authority: "general_approval", decision_options: [{ id: "approve", label: "Approve" }] });
+    const other = database.recordDecision({ approval_request_id: "agent-other", decision: "approve" });
+    assert.notEqual(other.request_hash, approved.request_hash);
+    assert.equal(other.authority_grant, "general_approval");
+
+    assert.throws(() => database.recordDecision({ approval_request_id: "missing", decision: "approve" }), /not found/);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 

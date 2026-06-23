@@ -199,7 +199,64 @@ The etiquette fields (`urgency`, `reason_for_interrupt`,
 `approval_request`. Badly formed or under-explained requests are rejected before
 they can interrupt the operator.
 
+## Decision Records
+
+When the operator acts on an approval request, ForgeLink persists a **Decision
+Record** (work item 016, AGH-013) capturing what the human saw and decided so the
+decision can be replayed and integrity-checked later.
+
+A record is written when the operator approves an option or dismisses an approval
+request from the local operator surface:
+
+```http
+POST /api/agent-messages/<id>/actions/<optionId>
+POST /api/agent-messages/<id>/dismiss
+```
+
+Both accept an optional JSON body so the operator can attach context:
+
+```jsonc
+{
+  "comment": "Approved after reviewing the rollback plan.",
+  "device_id": "desktop-1",
+  "operator_alias": "operator:primary"
+}
+```
+
+The response includes the stored `decision` record. Each record holds:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Stable decision record id. |
+| `approval_request_id` | The agent message that was decided. |
+| `operator_alias` | Human Card alias of the deciding operator (defaults to `operator:primary`). |
+| `device_id` | Operator device identifier when supplied. |
+| `decision` | The chosen option id, e.g. `approve` or `deny`. |
+| `selected_options` | The options the operator selected. |
+| `decision_comment` | Optional operator note. |
+| `authority_grant` | The authority the operator exercised — the request's `required_authority` on a non-denial decision, empty on a denial. A decision never invents authority the request did not declare. |
+| `request_hash` | SHA-256 over the governed request fields, binding the record to exactly what was decided. |
+| `evidence_hash` | SHA-256 over the stored evidence pack. |
+| `decision_hash` | SHA-256 over the record's own fields, making the record tamper-evident. |
+| `decided_at` | ISO timestamp of the decision. |
+
+Each decision also appends a `decision` event to the message's
+`agent_message_events` audit trail. Records are operator-only:
+
+```http
+GET /api/decision-records                       # all decisions (newest first)
+GET /api/agent-messages/<id>/decision           # latest decision for one request
+```
+
+Decision Records are only written from the local operator surface (launch token),
+never from an agent (MCP) token, so a well-formed agent action cannot forge an
+operator decision. The read endpoints reject agent tokens.
+
 ## Boundaries
 
-- Decision records, callbacks, audit chain, and replay are AGH-013 through
-  AGH-017.
+- Decision Records are persisted and replayable now (AGH-013). Decision **memory**
+  (AGH-014), outcome callbacks (AGH-015), the tamper-evident audit **chain** linking
+  records together (AGH-016), and the operator replay **view** (AGH-017) are later
+  criteria.
+- The `decision_hash` makes each record self-verifying, but records are not yet
+  hash-linked into a chain; cross-record tamper evidence is AGH-016.

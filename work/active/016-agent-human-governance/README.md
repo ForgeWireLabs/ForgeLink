@@ -1,7 +1,7 @@
 ---
 audience: maintainers and implementation agents
 status: active
-last_verified: 2026-06-22
+last_verified: 2026-06-23
 source_of_truth: work/active/016-agent-human-governance/README.md; work/active/016-agent-human-governance/work-item.json
 ---
 
@@ -188,7 +188,7 @@ This item owns the governance semantics that ride on top of that runtime:
 
 ### Phase 4: Decision records and learning
 
-- [ ] **AGH-013 Add Decision Records.** Persist what the human saw and decided.
+- [x] **AGH-013 Add Decision Records.** Persist what the human saw and decided.
   - Include: request ID, request hash, evidence hash, operator identity, device
     identity where available, decision, timestamp, selected options, comments,
     and resulting authority grant.
@@ -425,3 +425,4 @@ Add or update docs for:
 | 2026-06-22 | AGH-006 complete | Structured approval requests: schema v14 adds durable request fields on `agent_messages` (`intent`, `requested_action`, `reason_for_interrupt`, `risk`, `required_authority`, `to_human`, `affected_resources`, `timeout_behavior`, `deny_behavior`, `decision_options`); agent-channel ingestion now rejects incomplete `approval_request` payloads with 400, persists the structured fields, and keeps AGH-002 authority gating; `docs/approval-requests.md`; renderer type updated; DB + HTTP tests cover v14 migration, persistence, validation, and API round-trip (85 backend tests green). | AGH-006 satisfied (evidence 20260622-agh006-structured-approval-requests). Evidence Packs (AGH-007) are next. |
 | 2026-06-22 | AGH-007-009 complete | Evidence packs/templates/dry-run: schema v15 adds `template_id` and `evidence_pack` to `agent_messages`; `approval_request` submissions require bounded evidence packs with summary/resources/diff/proposed operation/checks/rollback/links/limitations/redaction profile; `GET /api/approval-templates` exposes file-write/data-delete/git-commit/GitHub-release/mirror-sync/external-message/credential-change/network-access/purchase/provider-setting playbooks; `POST /api/approval-requests/dry-run` returns approval-required, estimated risk, missing evidence, preferred channel, batching/defer recommendation, validation errors, template, and authority simulation without persisting or interrupting; `docs/approval-requests.md`; DB + HTTP tests cover v15 migration, persistence, templates, and dry-run (85 backend tests green). | AGH-007, AGH-008, and AGH-009 satisfied (evidence 20260622-agh007-009-evidence-templates-dry-run). Risk-tiered interruption policy (AGH-010) is next. |
 | 2026-06-23 | AGH-010-012 complete | Phase 3 risk/timeout/etiquette: schema v16 adds `interruption_policy`, `escalation_behavior`, `expected_response_time`, `no_response_behavior`, `can_batch`, `can_wait_until`, and `agent_message_events`; dry-run and submit paths classify requests across log-only/passive/normal/urgent/fail-closed/multi-party states using risk, urgency, authority, contact policy, operator mode, and trust; approval requests require etiquette fields; expired requests are visible and audit-recorded; `GET /api/agent-messages/:id/events`; `docs/approval-requests.md`; DB + HTTP tests cover v16 migration, routing, etiquette persistence, dry-run policy output, and expiry audit events (85 backend tests green). | AGH-010, AGH-011, and AGH-012 satisfied (evidence 20260623-agh010-012-phase3-risk-timeout-etiquette). Decision records (AGH-013) are next. |
+| 2026-06-23 | AGH-013 complete | Decision Records: schema v17 `decision_records` (per decision 0011) stores the deciding operator alias + device, decision, selected options, comment, granted authority, and `request_hash`/`evidence_hash`/`decision_hash`; `recordDecision` binds the record to the stored request and evidence, grants only the request's declared authority on a non-denial (none on deny), and audits a `decision` event; operator approve/dismiss on approval requests write a record from the launch surface only (an agent/MCP token cannot forge one); operator-only `GET /api/decision-records` and `GET /api/agent-messages/:id/decision` make a completed decision replayable; renderer `DecisionRecord` type; `docs/approval-requests.md`; decision records added to the durable export; DB + HTTP tests cover v17 migration, hashing/authority-grant, the decision event, replay endpoints, and agent-token rejection (86 backend tests green). | AGH-013 satisfied (evidence 20260623-agh013-decision-records). Phase 4 continues with Decision Memory (AGH-014). |
