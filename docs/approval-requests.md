@@ -252,6 +252,42 @@ Decision Records are only written from the local operator surface (launch token)
 never from an agent (MCP) token, so a well-formed agent action cannot forge an
 operator decision. The read endpoints reject agent tokens.
 
+## Outcomes
+
+After a decision, the agent reports what actually happened (work item 016,
+AGH-015) so the operator can see whether approved actions completed and whether
+they stayed within the approved scope. The agent reports over its own token:
+
+```http
+POST /api/agent-messages/<id>/outcome
+```
+
+```jsonc
+{
+  "outcome_state": "action_succeeded",
+  "outcome_summary": "Published the release.",
+  "reported_resources": ["repo:ForgeLink", "release:2.0.3"]
+}
+```
+
+`outcome_state` is one of `action_started`, `action_succeeded`, `action_failed`,
+`expired_before_use`, `used_modified_scope`, or `cancelled`. ForgeLink computes a
+`scope_match`: it is `0` when the agent declares `used_modified_scope`, or when a
+reported resource was not part of the approved `affected_resources`. Each outcome
+is audited as an `outcome` message event and committed to the audit chain.
+
+Operators review outcomes through operator-only endpoints:
+
+```http
+GET /api/agent-messages/<id>/outcomes      # outcomes for one request
+GET /api/approvals/dangling                # approved, no terminal outcome yet
+GET /api/approvals/scope-mismatches        # outcomes flagged scope_match = 0
+```
+
+An approval is **dangling** when it was granted authority but has not reported a
+terminal outcome (`action_succeeded`, `action_failed`, `cancelled`, or
+`expired_before_use`), so stalled or unreported actions stay visible.
+
 ## Audit Chain
 
 Governance records are committed to an append-only, hash-linked **audit chain**
@@ -261,7 +297,8 @@ blockchain or remote attestation.
 
 When an approval request is created, ForgeLink appends an `approval_request` entry
 (and an `evidence_pack` entry when a pack is present). When the operator decides,
-it appends a `decision` entry. Each entry stores:
+it appends a `decision` entry, and when the agent reports an outcome it appends an
+`outcome` entry. Each entry stores:
 
 | Field | Purpose |
 | --- | --- |
@@ -292,8 +329,7 @@ chain endpoints are operator-only.
 
 ## Boundaries
 
-- The chain covers approval requests, evidence packs, and decisions today. Outcome
-  entries are added when outcome callbacks land (AGH-015).
+- The chain covers approval requests, evidence packs, decisions, and outcomes.
 - Decision **memory** (AGH-014) and the operator replay **view** (AGH-017) are later
-  criteria; the data the replay view needs (per-request decision and chain) is
-  already exposed by the endpoints above.
+  criteria; the data the replay view needs (per-request decision, outcomes, and
+  chain) is already exposed by the endpoints above.

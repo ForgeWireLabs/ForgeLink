@@ -74,6 +74,7 @@ the table is the single place that says who owns what.
 | v16 | 016 AGH-010/011/012 | risk routing, timeout/escalation, etiquette fields, and agent message events | shipped |
 | v17 | 016 AGH-013 | `decision_records` (operator decisions with request/evidence/decision hashes, authority grant) | shipped |
 | v18 | 016 AGH-016 | `audit_chain` (append-only hash-linked log of approval requests, evidence packs, and decisions) | shipped |
+| v19 | 016 AGH-015 | `approval_outcomes` (agent-reported post-decision outcomes with scope-match flag) | shipped |
 
 Future allocations are appended to this table as they land. 015's dependent
 channel-adapter items (018–024) and the governance/cockpit items (016/017) all

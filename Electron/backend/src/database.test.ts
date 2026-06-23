@@ -135,6 +135,8 @@ test("upgrades a version-seven (pre-015) database to the current schema without 
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='decision_records'").get() as { name: string } | undefined)?.name, "decision_records");
     // v18 (016 AGH-016) adds the tamper-evident audit chain.
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='audit_chain'").get() as { name: string } | undefined)?.name, "audit_chain");
+    // v19 (016 AGH-015) adds approval outcome callbacks.
+    assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='approval_outcomes'").get() as { name: string } | undefined)?.name, "approval_outcomes");
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -458,6 +460,61 @@ test("hash-links governance records into a tamper-evident chain (AGH-016)", () =
     // The chain is part of the durable export.
     const exported = database.exportData() as { audit_chain: Array<unknown> };
     assert.equal(exported.audit_chain.length, 3);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// Approval outcome callbacks (work item 016, AGH-015): agents report what happened
+// after approval; dangling approvals are visible and scope mismatches are flagged.
+test("records approval outcomes, flags scope mismatch, and surfaces dangling approvals (AGH-015)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-outcomes-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const approval = (id: string) => database.addAgentMessage({
+      id, channel_id: "forgewire", source: "fabric", kind: "approval_request", urgency: "normal",
+      title: "Release approval", body: "Publish the build.", required_authority: "release_approval",
+      affected_resources: ["repo:ForgeLink", "release:2.0.3"], decision_options: [{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }],
+      evidence_pack: { summary: "Ready", affected_resources: ["repo:ForgeLink"], diff_summary: "d", proposed_operation: "p", checks: [], rollback_plan: "r", links: [], limitations: "l", redaction_profile: "desktop_full" }
+    });
+
+    // Approve two requests; both become dangling until a terminal outcome arrives.
+    approval("appr-1");
+    approval("appr-2");
+    database.recordDecision({ approval_request_id: "appr-1", decision: "approve" });
+    database.recordDecision({ approval_request_id: "appr-2", decision: "approve" });
+    assert.deepEqual(database.danglingApprovals().map((m) => m.id).sort(), ["appr-1", "appr-2"]);
+
+    // Only allowed states are accepted; unknown record is rejected.
+    assert.throws(() => database.recordOutcome({ approval_request_id: "appr-1", outcome_state: "vibes" }), /outcome state/);
+    assert.throws(() => database.recordOutcome({ approval_request_id: "missing", outcome_state: "action_started" }), /not found/);
+
+    // A within-scope success closes appr-1 out and is not a scope mismatch.
+    const started = database.recordOutcome({ approval_request_id: "appr-1", outcome_state: "action_started", reported_resources: ["repo:ForgeLink"] });
+    assert.equal(started.scope_match, 1);
+    const ok = database.recordOutcome({ approval_request_id: "appr-1", outcome_state: "action_succeeded", reported_resources: ["repo:ForgeLink", "release:2.0.3"] });
+    assert.equal(ok.scope_match, 1);
+    assert.equal(database.approvalOutcomes("appr-1").length, 2);
+    // appr-1 is no longer dangling; appr-2 still is.
+    assert.deepEqual(database.danglingApprovals().map((m) => m.id), ["appr-2"]);
+
+    // Acting outside the approved resources is flagged as a scope mismatch.
+    const drift = database.recordOutcome({ approval_request_id: "appr-2", outcome_state: "action_succeeded", reported_resources: ["repo:OtherRepo"] });
+    assert.equal(drift.scope_match, 0);
+    // Declaring modified scope is a mismatch even with no extra resources.
+    const modified = database.recordOutcome({ approval_request_id: "appr-2", outcome_state: "used_modified_scope" });
+    assert.equal(modified.scope_match, 0);
+    assert.deepEqual(database.scopeMismatchOutcomes().map((o) => o.outcome_state).sort(), ["action_succeeded", "used_modified_scope"]);
+
+    // Outcomes are audited as message events, committed to the audit chain, and the
+    // chain still verifies; outcomes are part of the durable export.
+    assert.equal(database.agentMessageEvents("appr-1").some((e) => e.event_type === "outcome"), true);
+    assert.equal(database.auditChain("appr-1").some((e) => e.entry_type === "outcome"), true);
+    assert.equal(database.verifyAuditChain().ok, true);
+    const exported = database.exportData() as { approval_outcomes: Array<unknown> };
+    assert.equal(exported.approval_outcomes.length, 4);
+
+    // A tampered outcome is caught by chain verification.
+    database.connection.prepare("UPDATE approval_outcomes SET outcome_state='action_failed' WHERE id=?").run(ok.id);
+    assert.equal(database.verifyAuditChain().reason, "tampered_payload");
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 

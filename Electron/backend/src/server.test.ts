@@ -573,6 +573,25 @@ test("accepts authenticated agent channel messages and records human actions", a
     assert.equal((await fetch(`${localUrl}/api/audit-chain`, { headers: { Authorization: `Bearer ${mcpToken}` } })).status, 401);
     assert.equal((await fetch(`${localUrl}/api/audit-chain/verify`, { headers: { Authorization: `Bearer ${mcpToken}` } })).status, 401);
 
+    // After approval the request is dangling until the agent reports an outcome (AGH-015).
+    const danglingBefore = await fetch(`${localUrl}/api/approvals/dangling`, { headers: authorized() }).then((r) => r.json()) as Array<{ id: string }>;
+    assert.deepEqual(danglingBefore.map((m) => m.id), ["agent-http-1"]);
+    // The agent reports the outcome over its MCP token; acting outside the approved
+    // resources is flagged as a scope mismatch.
+    const reported = await fetch(`${localUrl}/api/agent-messages/agent-http-1/outcome`, {
+      method: "POST", headers: { Authorization: `Bearer ${mcpToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome_state: "action_succeeded", outcome_summary: "Published", reported_resources: ["repo:OtherRepo"] })
+    });
+    assert.equal(reported.status, 201);
+    assert.equal((await reported.json() as { outcome: { scope_match: number } }).outcome.scope_match, 0);
+    // The terminal outcome clears the dangling list; the mismatch is surfaced to the operator.
+    assert.deepEqual(await fetch(`${localUrl}/api/approvals/dangling`, { headers: authorized() }).then((r) => r.json()), []);
+    const mismatches = await fetch(`${localUrl}/api/approvals/scope-mismatches`, { headers: authorized() }).then((r) => r.json()) as Array<{ approval_request_id: string }>;
+    assert.deepEqual(mismatches.map((o) => o.approval_request_id), ["agent-http-1"]);
+    assert.equal((await fetch(`${localUrl}/api/agent-messages/agent-http-1/outcomes`, { headers: authorized() }).then((r) => r.json()) as Array<unknown>).length, 1);
+    // Outcome views are operator-only; the agent cannot read them.
+    assert.equal((await fetch(`${localUrl}/api/approvals/dangling`, { headers: { Authorization: `Bearer ${mcpToken}` } })).status, 401);
+
     const contactId = database.upsertContact("Fabric", "+15550001111");
     database.addContactPoint(contactId, "handle", "fabric-agent", "agent", false);
     let policyRejected = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {

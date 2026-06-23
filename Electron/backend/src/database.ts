@@ -5,7 +5,7 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 18;
+export const CURRENT_SCHEMA_VERSION = 19;
 
 export interface ThreadRow {
   id: number;
@@ -340,6 +340,33 @@ export interface AuditChainVerification {
   broken_at: number | null;    // seq of the first broken entry, if any
   reason: string;              // "" | broken_link | tampered_entry | tampered_payload
 }
+
+// Approval outcomes (work item 016, AGH-015): after a decision, the agent reports
+// what actually happened so dangling approvals are visible and scope mismatches are
+// flagged. Outcomes are committed to the audit chain (AGH-016).
+export interface ApprovalOutcomeInput {
+  approval_request_id: string;
+  outcome_state: string;
+  outcome_summary?: string;
+  reported_resources?: string[];
+  source?: string;
+}
+
+export interface ApprovalOutcomeRow {
+  id: string;
+  approval_request_id: string;
+  source: string;
+  outcome_state: string;
+  outcome_summary: string;
+  scope_match: number;          // 0 when the agent acted outside the approved scope
+  reported_resources: string;   // JSON array text of resources actually touched
+  reported_at: string;
+}
+
+// Lifecycle states an agent may report after approval.
+const OUTCOME_STATES = new Set(["action_started", "action_succeeded", "action_failed", "expired_before_use", "used_modified_scope", "cancelled"]);
+// Terminal states close out an approval; their absence means it is still dangling.
+const TERMINAL_OUTCOME_STATES = ["action_succeeded", "action_failed", "cancelled", "expired_before_use"];
 
 export interface McpTokenStatus {
   configured: boolean;
@@ -915,6 +942,26 @@ export class PhoneDatabase {
         version = 18;
         this.connection.exec("PRAGMA user_version=18");
       }
+      if (version === 18) {
+        // Approval outcomes (work item 016, AGH-015; schema v19 per decision 0011).
+        // Agents report what happened after a decision so dangling approvals are
+        // visible and scope mismatches are flagged.
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS approval_outcomes (
+            id TEXT PRIMARY KEY,
+            approval_request_id TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT '',
+            outcome_state TEXT NOT NULL,
+            outcome_summary TEXT NOT NULL DEFAULT '',
+            scope_match INTEGER NOT NULL DEFAULT 1,
+            reported_resources TEXT NOT NULL DEFAULT '[]',
+            reported_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_approval_outcomes_request ON approval_outcomes(approval_request_id, reported_at DESC);
+        `);
+        version = 19;
+        this.connection.exec("PRAGMA user_version=19");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -969,6 +1016,7 @@ export class PhoneDatabase {
       agent_messages: this.connection.prepare("SELECT * FROM agent_messages ORDER BY created_at, id").all(),
       decision_records: this.connection.prepare("SELECT * FROM decision_records ORDER BY decided_at, id").all(),
       audit_chain: this.connection.prepare("SELECT * FROM audit_chain ORDER BY seq").all(),
+      approval_outcomes: this.connection.prepare("SELECT * FROM approval_outcomes ORDER BY reported_at, id").all(),
       signal_subscriptions: this.connection.prepare("SELECT * FROM signal_subscriptions ORDER BY title, id").all(),
       signal_items: this.connection.prepare("SELECT * FROM signal_items ORDER BY received_at, id").all(),
       mcp_tokens: this.connection.prepare("SELECT id, created_at, rotated_at, revoked_at, last_used_at, last_test_at, last_test_status FROM mcp_tokens ORDER BY id").all(),
@@ -1627,7 +1675,20 @@ export class PhoneDatabase {
       if (!record) return null;
       return this.decisionHashOf(record);
     }
+    if (entry.entry_type === "outcome") {
+      const outcome = this.connection.prepare("SELECT * FROM approval_outcomes WHERE id=?").get(entry.ref_id) as unknown as ApprovalOutcomeRow | undefined;
+      if (!outcome) return null;
+      return this.outcomeHashOf(outcome);
+    }
     return null;
+  }
+
+  // Hash over the reported outcome, used as its audit-chain payload so a later edit
+  // to a reported outcome is detected.
+  private outcomeHashOf(outcome: ApprovalOutcomeRow): string {
+    return createHash("sha256")
+      .update([outcome.id, outcome.approval_request_id, outcome.source, outcome.outcome_state, String(outcome.scope_match), outcome.reported_resources, outcome.outcome_summary, outcome.reported_at].join(" "))
+      .digest("hex");
   }
 
   // Walk the chain in order and confirm each entry links to the previous, each
@@ -1646,6 +1707,67 @@ export class PhoneDatabase {
       prev = entry.entry_hash;
     }
     return { ok: true, length: entries.length, broken_at: null, reason: "" };
+  }
+
+  // --- Approval outcomes (work item 016, AGH-015) -----------------------------
+
+  recordOutcome(input: ApprovalOutcomeInput): ApprovalOutcomeRow {
+    const message = this.agentMessage(input.approval_request_id);
+    if (!message) throw new Error("Agent message not found.");
+    const state = String(input.outcome_state || "").trim();
+    if (!OUTCOME_STATES.has(state)) throw new Error("Unsupported outcome state.");
+    const reportedResources = (input.reported_resources || []).map((resource) => String(resource));
+    const approvedResources = JSON.parse(message.affected_resources || "[]") as string[];
+    // Scope match fails when the agent declares modified scope, or when a reported
+    // resource was not part of what the operator approved.
+    const withinApproved = reportedResources.every((resource) => approvedResources.includes(resource));
+    const scopeMatch = state === "used_modified_scope" || !withinApproved ? 0 : 1;
+    const id = randomUUID();
+    const reportedAt = utcNow();
+    const source = String(input.source || message.source || "").trim();
+    const summary = String(input.outcome_summary || "").slice(0, 2000);
+    const reportedResourcesJson = JSON.stringify(reportedResources);
+    const outcomeHash = this.outcomeHashOf({ id, approval_request_id: message.id, source, outcome_state: state, outcome_summary: summary, scope_match: scopeMatch, reported_resources: reportedResourcesJson, reported_at: reportedAt });
+    this.connection.exec("BEGIN IMMEDIATE");
+    try {
+      this.connection.prepare("INSERT INTO approval_outcomes(id, approval_request_id, source, outcome_state, outcome_summary, scope_match, reported_resources, reported_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(id, message.id, source, state, summary, scopeMatch, reportedResourcesJson, reportedAt);
+      this.connection.prepare("INSERT INTO agent_message_events(message_id, event_type, detail, created_at) VALUES(?, 'outcome', ?, ?)")
+        .run(message.id, JSON.stringify({ outcome_state: state, scope_match: scopeMatch, outcome_id: id }), reportedAt);
+      // Commit the outcome to the tamper-evident audit chain (AGH-016).
+      this.appendAuditChainEntry("outcome", id, message.id, outcomeHash, reportedAt);
+      this.connection.exec("COMMIT");
+    } catch (error) {
+      this.connection.exec("ROLLBACK");
+      throw error;
+    }
+    return this.connection.prepare("SELECT * FROM approval_outcomes WHERE id=?").get(id) as unknown as ApprovalOutcomeRow;
+  }
+
+  approvalOutcomes(requestId?: string): ApprovalOutcomeRow[] {
+    if (requestId) return this.connection.prepare("SELECT * FROM approval_outcomes WHERE approval_request_id=? ORDER BY reported_at DESC, id DESC").all(requestId) as unknown as ApprovalOutcomeRow[];
+    return this.connection.prepare("SELECT * FROM approval_outcomes ORDER BY reported_at DESC, id DESC LIMIT 500").all() as unknown as ApprovalOutcomeRow[];
+  }
+
+  // Approvals that were granted authority but have not reported a terminal outcome,
+  // so the operator can see actions that may have stalled or gone unreported.
+  danglingApprovals(): AgentMessageRow[] {
+    const placeholders = TERMINAL_OUTCOME_STATES.map(() => "?").join(", ");
+    return this.connection.prepare(`
+      SELECT DISTINCT m.* FROM agent_messages m
+      JOIN decision_records d ON d.approval_request_id = m.id AND d.authority_grant != ''
+      WHERE NOT EXISTS (
+        SELECT 1 FROM approval_outcomes o
+        WHERE o.approval_request_id = m.id AND o.outcome_state IN (${placeholders})
+      )
+      ORDER BY m.created_at DESC, m.id DESC
+    `).all(...TERMINAL_OUTCOME_STATES) as unknown as AgentMessageRow[];
+  }
+
+  // Outcomes where the agent acted outside the approved scope; surfaced as audit
+  // issues for the operator.
+  scopeMismatchOutcomes(): ApprovalOutcomeRow[] {
+    return this.connection.prepare("SELECT * FROM approval_outcomes WHERE scope_match=0 ORDER BY reported_at DESC, id DESC LIMIT 500").all() as unknown as ApprovalOutcomeRow[];
   }
 
   // --- Human Cards (work item 016, AGH-001) -----------------------------------

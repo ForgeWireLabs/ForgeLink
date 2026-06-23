@@ -98,6 +98,8 @@ function isMcpSafeRoute(method: string | undefined, pathname: string): boolean {
   if (method === "GET" && /^\/api\/agent-messages\/[^/]+\/events$/.test(pathname)) return true;
   if (method === "POST" && /^\/api\/agent-messages\/[^/]+\/(read|dismiss)$/.test(pathname)) return true;
   if (method === "POST" && /^\/api\/agent-messages\/[^/]+\/actions\/[^/]+$/.test(pathname)) return true;
+  // Agents report what happened after a decision (AGH-015).
+  if (method === "POST" && /^\/api\/agent-messages\/[^/]+\/outcome$/.test(pathname)) return true;
   // Agents resolve human authority by alias (AGH-001); resolution is redacted.
   if (method === "GET" && pathname === "/api/human-cards/resolve") return true;
   // Agents check whether an addressed human holds a required authority (AGH-002).
@@ -617,6 +619,22 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const requestId = url.searchParams.get("approval_request_id");
         return sendJson(response, database.auditChain(requestId ? requestId : undefined));
       }
+      // Outcome views (AGH-015): operator-only. Dangling approvals were granted
+      // authority but never reported a terminal outcome; scope mismatches flag
+      // agents that acted outside what was approved.
+      if (request.method === "GET" && url.pathname === "/api/approvals/dangling") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.danglingApprovals());
+      }
+      if (request.method === "GET" && url.pathname === "/api/approvals/scope-mismatches") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.scopeMismatchOutcomes());
+      }
+      const outcomesMatch = url.pathname.match(/^\/api\/agent-messages\/([^/]+)\/outcomes$/);
+      if (request.method === "GET" && outcomesMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.approvalOutcomes(decodeURIComponent(outcomesMatch[1])));
+      }
       if (request.method === "GET" && url.pathname === "/api/signals/subscriptions") {
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         return sendJson(response, database.signalSubscriptions());
@@ -767,6 +785,21 @@ export function createBackend(options: BackendOptions): { server: Server; databa
           decision = database.recordDecision({ approval_request_id: id, decision: actionId, selected_options: [actionId], ...decisionMetadata(await readJson(request)) });
         }
         return sendJson(response, { ok: true, message, decision });
+      }
+      // Agents report what happened after approval (AGH-015): action started,
+      // succeeded, failed, expired, used with modified scope, or cancelled.
+      const agentOutcomeMatch = url.pathname.match(/^\/api\/agent-messages\/([^/]+)\/outcome$/);
+      if (request.method === "POST" && agentOutcomeMatch) {
+        const id = decodeURIComponent(agentOutcomeMatch[1]);
+        const payload = await readJson(request);
+        const outcome = database.recordOutcome({
+          approval_request_id: id,
+          outcome_state: boundedText(payload.outcome_state, "outcome_state", 40, /^[a-z_]+$/),
+          outcome_summary: typeof payload.outcome_summary === "string" ? payload.outcome_summary : undefined,
+          reported_resources: boundedStringList(payload.reported_resources, "reported_resources", 20, 240),
+          source: typeof payload.source === "string" ? payload.source : undefined
+        });
+        return sendJson(response, { ok: true, outcome }, 201);
       }
       if (request.method === "POST" && url.pathname === "/api/data/backup") return sendJson(response, { ok: true, ...(await createBackup()) });
       if (request.method === "POST" && url.pathname === "/api/data/restore-latest") return sendJson(response, { ok: true, ...(await restoreLatest()) });

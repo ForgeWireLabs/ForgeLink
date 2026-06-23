@@ -141,8 +141,10 @@
     {
       "id": "AGH-015",
       "text": "Add outcome callbacks so agents report action started/succeeded/failed/expired/cancelled/modified-scope outcomes after approval.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260623-agh015-outcome-callbacks"
+      ]
     },
     {
       "id": "AGH-016",
