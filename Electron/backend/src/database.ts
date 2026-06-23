@@ -5,7 +5,7 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 14;
+export const CURRENT_SCHEMA_VERSION = 15;
 
 export interface ThreadRow {
   id: number;
@@ -43,6 +43,18 @@ export interface AgentAction {
   label: string;
 }
 
+export interface EvidencePack {
+  summary: string;
+  affected_resources: string[];
+  diff_summary: string;
+  proposed_operation: string;
+  checks: string[];
+  rollback_plan: string;
+  links: string[];
+  limitations: string;
+  redaction_profile: string;
+}
+
 export interface AgentMessageInput {
   id: string;
   channel_id: string;
@@ -64,6 +76,8 @@ export interface AgentMessageInput {
   timeout_behavior?: string;
   deny_behavior?: string;
   decision_options?: AgentAction[];
+  template_id?: string;
+  evidence_pack?: EvidencePack;
 }
 
 export interface ContactPolicyDecision {
@@ -247,6 +261,8 @@ export interface AgentMessageRow {
   timeout_behavior: string;
   deny_behavior: string;
   decision_options: string;
+  template_id: string;
+  evidence_pack: string;
 }
 
 export interface McpTokenStatus {
@@ -747,6 +763,15 @@ export class PhoneDatabase {
         version = 14;
         this.connection.exec("PRAGMA user_version=14");
       }
+      if (version === 14) {
+        // Evidence packs for approval requests (work item 016, AGH-007; schema v15 per decision 0011).
+        this.connection.exec(`
+          ALTER TABLE agent_messages ADD COLUMN template_id TEXT NOT NULL DEFAULT '';
+          ALTER TABLE agent_messages ADD COLUMN evidence_pack TEXT NOT NULL DEFAULT '{}';
+        `);
+        version = 15;
+        this.connection.exec("PRAGMA user_version=15");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -1246,9 +1271,9 @@ export class PhoneDatabase {
       INSERT INTO agent_messages(
         id, channel_id, source, kind, urgency, title, body, actions, status, created_at, expires_at,
         intent, requested_action, reason_for_interrupt, risk, required_authority, to_human,
-        affected_resources, timeout_behavior, deny_behavior, decision_options
+        affected_resources, timeout_behavior, deny_behavior, decision_options, template_id, evidence_pack
       )
-      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       message.id,
       message.channel_id,
@@ -1270,7 +1295,9 @@ export class PhoneDatabase {
       JSON.stringify(message.affected_resources || []),
       message.timeout_behavior || "",
       message.deny_behavior || "",
-      JSON.stringify(message.decision_options || message.actions || [])
+      JSON.stringify(message.decision_options || message.actions || []),
+      message.template_id || "",
+      JSON.stringify(message.evidence_pack || {})
     );
     return this.agentMessage(message.id)!;
   }

@@ -24,13 +24,17 @@ versions tracked in `VERSION` and `Electron/package.json`.
   persist intent, requested action, interruption reason, risk, authority,
   affected resources, expiration behavior, denial behavior, and decision options
   (AGH-006).
+- Evidence packs, approval templates, and approval dry-run simulation: governed
+  requests now carry reviewable evidence, agents can inspect reusable playbooks,
+  and agents can validate missing evidence/risk/channel guidance before
+  interrupting the operator (AGH-007 through AGH-009).
 
 ### Changed
 - Completed work item 015 (Communication Channels and Voice); moved to the
   completed ledger.
 - Schema migrations now follow a single append-only ladder with per-version
   ownership recorded in decision 0011 (CLV-022). The local schema advanced from
-  v10 to v14. Upgrades back up the database and are tested from previously shipped
+  v10 to v15. Upgrades back up the database and are tested from previously shipped
   schemas.
 
 ## [2.0.3] - 2026-06-20 (local build, unsigned)

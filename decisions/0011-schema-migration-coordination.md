@@ -70,6 +70,7 @@ the table is the single place that says who owns what.
 | v12 | 016 AGH-003 | `agent_identities` (agent identity registry; trust state, owner, allow-lists) | shipped |
 | v13 | 016 AGH-004 | `agent_trust_events` (audited agent trust-state transitions) | shipped |
 | v14 | 016 AGH-006 | structured approval request fields on `agent_messages` | shipped |
+| v15 | 016 AGH-007 | evidence pack fields on `agent_messages` | shipped |
 
 Future allocations are appended to this table as they land. 015's dependent
 channel-adapter items (018–024) and the governance/cockpit items (016/017) all

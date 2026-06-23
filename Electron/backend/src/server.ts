@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:
 import { createServer, IncomingMessage, Server, ServerResponse } from "node:http";
 import { extname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
-import { AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, isAuthorityScope, PhoneDatabase } from "./database";
+import { AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, EvidencePack, isAuthorityScope, PhoneDatabase } from "./database";
 import { utcNow } from "./phone";
 import { fetchTrustedSignalFeed } from "./signals";
 import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, loadTwilioConfig, sendTwilioMessage, startTwilioCall, validateTwilioSignature } from "./twilio";
@@ -17,6 +17,18 @@ const BACKUP_FORMAT = "forgelink-backup-v1";
 const LEGACY_BACKUP_FORMAT = "twilio-phone-backup-v1";
 const AGENT_URGENCIES = new Set(["low", "normal", "high", "urgent"]);
 const CHANNEL_LIMITS: Record<string, number> = { low: 60, normal: 30, high: 10, urgent: 3 };
+const APPROVAL_TEMPLATES = [
+  { id: "file_write", label: "File write", required_fields: ["intent", "requested_action", "affected_resources"], minimum_evidence: ["summary", "proposed_operation", "checks", "rollback_plan"], default_risk: "normal", timeout_behavior: "deny_on_timeout", decision_options: ["approve", "deny", "defer"], rollback_required: true, audit_required: true },
+  { id: "data_delete", label: "Delete data", required_fields: ["intent", "requested_action", "affected_resources"], minimum_evidence: ["summary", "proposed_operation", "rollback_plan", "limitations"], default_risk: "high", timeout_behavior: "deny_on_timeout", decision_options: ["approve", "deny"], rollback_required: true, audit_required: true },
+  { id: "git_commit", label: "Git commit", required_fields: ["intent", "requested_action", "affected_resources"], minimum_evidence: ["summary", "diff_summary", "checks", "rollback_plan"], default_risk: "normal", timeout_behavior: "deny_on_timeout", decision_options: ["approve", "deny", "request_changes"], rollback_required: true, audit_required: true },
+  { id: "github_release", label: "GitHub release", required_fields: ["intent", "requested_action", "affected_resources"], minimum_evidence: ["summary", "diff_summary", "checks", "rollback_plan", "links"], default_risk: "high", timeout_behavior: "deny_on_timeout", decision_options: ["approve", "deny", "defer"], rollback_required: true, audit_required: true },
+  { id: "mirror_sync", label: "Public mirror sync", required_fields: ["intent", "requested_action", "affected_resources"], minimum_evidence: ["summary", "diff_summary", "checks", "limitations"], default_risk: "high", timeout_behavior: "deny_on_timeout", decision_options: ["approve", "deny"], rollback_required: true, audit_required: true },
+  { id: "external_message", label: "External message send", required_fields: ["intent", "requested_action", "affected_resources"], minimum_evidence: ["summary", "proposed_operation", "limitations"], default_risk: "high", timeout_behavior: "draft_only_on_timeout", decision_options: ["approve", "deny", "edit"], rollback_required: false, audit_required: true },
+  { id: "credential_change", label: "Credential change", required_fields: ["intent", "requested_action", "affected_resources"], minimum_evidence: ["summary", "proposed_operation", "rollback_plan"], default_risk: "high", timeout_behavior: "deny_on_timeout", decision_options: ["approve", "deny"], rollback_required: true, audit_required: true },
+  { id: "network_access", label: "Network access", required_fields: ["intent", "requested_action", "affected_resources"], minimum_evidence: ["summary", "proposed_operation", "limitations"], default_risk: "normal", timeout_behavior: "deny_on_timeout", decision_options: ["approve", "deny", "defer"], rollback_required: false, audit_required: true },
+  { id: "purchase", label: "Payment or purchase", required_fields: ["intent", "requested_action", "affected_resources"], minimum_evidence: ["summary", "proposed_operation", "limitations"], default_risk: "high", timeout_behavior: "deny_on_timeout", decision_options: ["approve", "deny"], rollback_required: false, audit_required: true },
+  { id: "provider_setting_change", label: "Provider setting change", required_fields: ["intent", "requested_action", "affected_resources"], minimum_evidence: ["summary", "proposed_operation", "rollback_plan"], default_risk: "high", timeout_behavior: "deny_on_timeout", decision_options: ["approve", "deny"], rollback_required: true, audit_required: true }
+] as const;
 
 function sendJson(response: ServerResponse, payload: unknown, status = 200): void {
   const data = Buffer.from(JSON.stringify(payload));
@@ -88,6 +100,8 @@ function isMcpSafeRoute(method: string | undefined, pathname: string): boolean {
   if (method === "GET" && pathname === "/api/human-cards/resolve") return true;
   // Agents check whether an addressed human holds a required authority (AGH-002).
   if (method === "GET" && pathname === "/api/authority/check") return true;
+  if (method === "GET" && pathname === "/api/approval-templates") return true;
+  if (method === "POST" && pathname === "/api/approval-requests/dry-run") return true;
   return false;
 }
 
@@ -141,6 +155,29 @@ function boundedStringList(value: unknown, label: string, maxItems: number, maxL
   return value.map((item) => boundedText(item, label, maxLength));
 }
 
+function approvalTemplate(id: unknown): typeof APPROVAL_TEMPLATES[number] {
+  const templateId = boundedText(id || "file_write", "template_id", 80, /^[A-Za-z0-9_.:-]+$/);
+  const template = APPROVAL_TEMPLATES.find((candidate) => candidate.id === templateId);
+  if (!template) throw new Error("template_id is invalid.");
+  return template;
+}
+
+function structuredEvidencePack(value: unknown): EvidencePack {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("evidence_pack is required.");
+  const record = value as Record<string, unknown>;
+  return {
+    summary: boundedText(record.summary, "evidence summary", 1200),
+    affected_resources: boundedStringList(record.affected_resources, "evidence affected_resources", 20, 240),
+    diff_summary: boundedText(record.diff_summary, "diff_summary", 2000),
+    proposed_operation: boundedText(record.proposed_operation, "proposed_operation", 1200),
+    checks: boundedStringList(record.checks, "checks", 20, 240),
+    rollback_plan: boundedText(record.rollback_plan, "rollback_plan", 1200),
+    links: boundedStringList(record.links, "links", 20, 500),
+    limitations: boundedText(record.limitations, "limitations", 1200),
+    redaction_profile: boundedText(record.redaction_profile, "redaction_profile", 80, /^[A-Za-z0-9_.:-]+$/)
+  };
+}
+
 function structuredApprovalFields(payload: Record<string, unknown>, fallbackActions: AgentAction[]): {
   intent: string;
   requested_action: string;
@@ -152,7 +189,9 @@ function structuredApprovalFields(payload: Record<string, unknown>, fallbackActi
   timeout_behavior: string;
   deny_behavior: string;
   decision_options: AgentAction[];
+  template_id: string;
 } {
+  const template = approvalTemplate(payload.template_id);
   const risk = boundedText(payload.risk, "risk", 40, /^[A-Za-z0-9_.:-]+$/);
   const requiredAuthority = boundedText(payload.required_authority, "required_authority", 80, /^[A-Za-z0-9_.:-]+$/);
   if (!isAuthorityScope(requiredAuthority)) throw new Error("required_authority is invalid.");
@@ -170,8 +209,30 @@ function structuredApprovalFields(payload: Record<string, unknown>, fallbackActi
     affected_resources: boundedStringList(payload.affected_resources, "affected_resources", 20, 240),
     timeout_behavior: boundedText(payload.timeout_behavior, "timeout_behavior", 500),
     deny_behavior: boundedText(payload.deny_behavior, "deny_behavior", 500),
-    decision_options: decisionOptions
+    decision_options: decisionOptions,
+    template_id: template.id
   };
+}
+
+function approvalValidation(payload: Record<string, unknown>): { errors: string[]; missingEvidence: string[]; template?: typeof APPROVAL_TEMPLATES[number]; risk: string; authority?: ReturnType<PhoneDatabase["checkAuthority"]> } {
+  const errors: string[] = [];
+  let template: typeof APPROVAL_TEMPLATES[number] | undefined;
+  let evidence: EvidencePack | undefined;
+  let risk = "normal";
+  for (const step of [
+    () => { template = approvalTemplate(payload.template_id); },
+    () => { risk = boundedText(payload.risk || template?.default_risk || "normal", "risk", 40, /^[A-Za-z0-9_.:-]+$/); },
+    () => structuredApprovalFields({ ...payload, risk }, agentActions(payload.actions)),
+    () => { evidence = structuredEvidencePack(payload.evidence_pack); }
+  ]) {
+    try { step(); } catch (error) { errors.push(error instanceof Error ? error.message : String(error)); }
+  }
+  const missingEvidence = template?.minimum_evidence.filter((field) => {
+    if (!evidence) return true;
+    const value = evidence[field as keyof EvidencePack];
+    return Array.isArray(value) ? value.length === 0 : !value;
+  }) || [];
+  return { errors, missingEvidence, template, risk };
 }
 
 function boundedOptionalNumber(value: unknown, fallback: number, min: number, max: number, label: string): number {
@@ -373,6 +434,28 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         if (!isAuthorityScope(scope)) return sendJson(response, { error: "Unknown authority scope.", scopes: AUTHORITY_SCOPES }, 400);
         return sendJson(response, database.checkAuthority(url.searchParams.get("alias") || "operator:primary", scope));
       }
+      if (request.method === "GET" && url.pathname === "/api/approval-templates") {
+        return sendJson(response, APPROVAL_TEMPLATES);
+      }
+      if (request.method === "POST" && url.pathname === "/api/approval-requests/dry-run") {
+        const payload = await readJson(request);
+        const validation = approvalValidation(payload);
+        let authority: ReturnType<PhoneDatabase["checkAuthority"]> | null = null;
+        if (typeof payload.required_authority === "string" && isAuthorityScope(payload.required_authority)) {
+          authority = database.checkAuthority(payload.to_human ? String(payload.to_human) : "operator:primary", payload.required_authority);
+        }
+        const urgency = String(payload.urgency || "normal");
+        return sendJson(response, {
+          approval_required: payload.kind === "approval_request" || Boolean(payload.required_authority),
+          estimated_risk: validation.risk,
+          missing_evidence: validation.missingEvidence,
+          preferred_channel: urgency === "urgent" ? "desktop_interrupt" : "desktop",
+          batching_defer_recommendation: urgency === "urgent" || validation.risk === "high" ? "send_now" : "batch_or_defer",
+          validation_errors: validation.errors,
+          template: validation.template || null,
+          authority
+        });
+      }
       if (request.method === "GET" && url.pathname === "/api/human-cards") {
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         return sendJson(response, database.humanCards());
@@ -527,6 +610,7 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const kind = boundedText(payload.kind, "kind", 80, /^[A-Za-z0-9_.:-]+$/);
         const actions = agentActions(payload.actions);
         const approval = kind === "approval_request" ? structuredApprovalFields(payload, actions) : undefined;
+        const evidencePack = kind === "approval_request" ? structuredEvidencePack(payload.evidence_pack) : undefined;
         // AGH-003: tie the request to a first-class agent identity, auto-registering
         // unknown agents with restricted defaults and recording last-seen.
         const agentIdentity = database.recordAgentIdentitySeen(source, String(payload.source_kind || "mcp"));
@@ -575,7 +659,8 @@ export function createBackend(options: BackendOptions): { server: Server; databa
           body: boundedText(payload.body, "body", 4000),
           actions,
           expires_at: optionalIso(payload.expires_at),
-          ...approval
+          ...approval,
+          evidence_pack: evidencePack
         });
         database.markAgentChannelUsed(channelId, urgency);
         return sendJson(response, { ok: true, message, agent: { id: agentIdentity.id, trust_state: agentIdentity.trust_state } }, 201);

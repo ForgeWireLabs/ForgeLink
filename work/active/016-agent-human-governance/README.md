@@ -141,7 +141,7 @@ This item owns the governance semantics that ride on top of that runtime:
   - Acceptance: Badly formed requests are rejected with actionable validation
     errors.
 
-- [ ] **AGH-007 Add Evidence Packs.** Add evidence-bearing approval requests.
+- [x] **AGH-007 Add Evidence Packs.** Add evidence-bearing approval requests.
   - Include: summary, affected resources, diff summary, proposed operation,
     commands/API calls where relevant, tests/checks, rollback plan, source links,
     and limitations.
@@ -149,7 +149,7 @@ This item owns the governance semantics that ride on top of that runtime:
     requiring the human to inspect raw agent logs.
   - Acceptance: Evidence packs are redacted per channel/profile.
 
-- [ ] **AGH-008 Add approval templates/playbooks.** Define reusable templates for
+- [x] **AGH-008 Add approval templates/playbooks.** Define reusable templates for
   common approval classes.
   - Initial templates: file write, delete data, git commit, GitHub release,
     public mirror sync, external message send, credential change, network access,
@@ -158,7 +158,7 @@ This item owns the governance semantics that ride on top of that runtime:
     timeout behavior, allowed decision options, rollback requirement, and audit
     requirement.
 
-- [ ] **AGH-009 Add approval dry-run/simulation.** Let agents ask ForgeLink how a
+- [x] **AGH-009 Add approval dry-run/simulation.** Let agents ask ForgeLink how a
   request would be classified before interrupting the human.
   - Acceptance: Dry-run returns whether approval is required, estimated risk,
     missing evidence, preferred channel, batching/defer recommendation, and
@@ -423,3 +423,4 @@ Add or update docs for:
 | 2026-06-22 | AGH-004 complete | Agent trust states + probation: schema v13 `agent_trust_events` (per decision 0011) auditing every transition (from/to/reason); `setAgentTrustState` (explicit, audited; no-op + not-found guarded) and `agentTrustEvents`, with `upsertAgentIdentity` trust changes also audited; ingestion enforces muted/blocked agents cannot interrupt (403 `agent_muted`/`agent_blocked`) and only trusted agents may urgent-interrupt (403 `insufficient_trust_for_urgent`, new agents stay conservative); launch-only `POST /api/agent-identities/:id/trust` + `GET .../trust-events`; `docs/agent-identity.md` trust section; DB + HTTP tests + two pre-existing agent tests updated for the trust gate + v13 upgrade assertion (85 backend tests green) | AGH-004 satisfied (evidence 20260622-agh004-agent-trust-states). Phase 1 continues with AGH-005 (agent background-check checklist). |
 | 2026-06-22 | AGH-005 complete | Agent background-check checklist: `docs/agent-identity.md` now gives operators a reproducible trust-promotion review covering source/repo/app, owner, allowed scopes/channels/tools, recent behavior, failed and denied requests, tool permissions, last validation, and promotion/restriction/mute/block guidance. | AGH-005 satisfied (evidence 20260622-agh005-agent-background-check). This is docs-only; AGH-006 is next for the structured approval request schema. |
 | 2026-06-22 | AGH-006 complete | Structured approval requests: schema v14 adds durable request fields on `agent_messages` (`intent`, `requested_action`, `reason_for_interrupt`, `risk`, `required_authority`, `to_human`, `affected_resources`, `timeout_behavior`, `deny_behavior`, `decision_options`); agent-channel ingestion now rejects incomplete `approval_request` payloads with 400, persists the structured fields, and keeps AGH-002 authority gating; `docs/approval-requests.md`; renderer type updated; DB + HTTP tests cover v14 migration, persistence, validation, and API round-trip (85 backend tests green). | AGH-006 satisfied (evidence 20260622-agh006-structured-approval-requests). Evidence Packs (AGH-007) are next. |
+| 2026-06-22 | AGH-007-009 complete | Evidence packs/templates/dry-run: schema v15 adds `template_id` and `evidence_pack` to `agent_messages`; `approval_request` submissions require bounded evidence packs with summary/resources/diff/proposed operation/checks/rollback/links/limitations/redaction profile; `GET /api/approval-templates` exposes file-write/data-delete/git-commit/GitHub-release/mirror-sync/external-message/credential-change/network-access/purchase/provider-setting playbooks; `POST /api/approval-requests/dry-run` returns approval-required, estimated risk, missing evidence, preferred channel, batching/defer recommendation, validation errors, template, and authority simulation without persisting or interrupting; `docs/approval-requests.md`; DB + HTTP tests cover v15 migration, persistence, templates, and dry-run (85 backend tests green). | AGH-007, AGH-008, and AGH-009 satisfied (evidence 20260622-agh007-009-evidence-templates-dry-run). Risk-tiered interruption policy (AGH-010) is next. |

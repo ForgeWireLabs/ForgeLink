@@ -79,20 +79,26 @@
     {
       "id": "AGH-007",
       "text": "Add Evidence Packs for approval requests, including summary, affected resources, diff summary, proposed operation, checks, rollback plan, links, limitations, and channel-specific redaction.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260622-agh007-009-evidence-templates-dry-run"
+      ]
     },
     {
       "id": "AGH-008",
       "text": "Add approval templates/playbooks for file writes, data deletion, git commits, GitHub releases, mirror syncs, external messages, credential changes, network access, purchases, and provider setting changes.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260622-agh007-009-evidence-templates-dry-run"
+      ]
     },
     {
       "id": "AGH-009",
       "text": "Add approval dry-run/simulation so agents can learn whether approval is required, risk level, missing evidence, preferred channel, batching/defer recommendation, and validation errors before interrupting.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260622-agh007-009-evidence-templates-dry-run"
+      ]
     },
     {
       "id": "AGH-010",

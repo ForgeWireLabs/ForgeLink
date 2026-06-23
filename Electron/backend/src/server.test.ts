@@ -42,6 +42,18 @@ function approvalRequest(overrides: Record<string, unknown> = {}): Record<string
     timeout_behavior: String(overrides.timeout_behavior || "deny_on_timeout"),
     deny_behavior: String(overrides.deny_behavior || "do_not_run"),
     decision_options: overrides.decision_options || actions,
+    template_id: String(overrides.template_id || "file_write"),
+    evidence_pack: overrides.evidence_pack || {
+      summary: "Synthetic approval evidence.",
+      affected_resources: overrides.affected_resources || [`agent:${source}`],
+      diff_summary: "No private diff included in test evidence.",
+      proposed_operation: String(overrides.requested_action || "Run the requested governed action."),
+      checks: ["synthetic fixture"],
+      rollback_plan: "Do not run the action.",
+      links: ["local://synthetic-evidence"],
+      limitations: "Synthetic test evidence only.",
+      redaction_profile: "desktop_full"
+    },
     actions,
     ...overrides
   };
@@ -470,6 +482,24 @@ test("accepts authenticated agent channel messages and records human actions", a
     assert.equal(unauthorized.status, 401);
     const token = await createChannel(localUrl);
 
+    const templates = await fetch(`${localUrl}/api/approval-templates`, { headers: authorized() }).then((response) => response.json()) as Array<{ id: string; minimum_evidence: string[]; audit_required: boolean }>;
+    assert.ok(templates.find((template) => template.id === "github_release")?.minimum_evidence.includes("rollback_plan"));
+    assert.equal(templates.find((template) => template.id === "external_message")?.audit_required, true);
+
+    const dryRun = await fetch(`${localUrl}/api/approval-requests/dry-run`, {
+      method: "POST",
+      headers: authorized({ "Content-Type": "application/json" }),
+      body: JSON.stringify(approvalRequest({ template_id: "github_release", risk: "high", urgency: "normal", evidence_pack: { summary: "Too thin" } }))
+    });
+    assert.equal(dryRun.status, 200);
+    const dryRunPayload = await dryRun.json() as { approval_required: boolean; estimated_risk: string; missing_evidence: string[]; batching_defer_recommendation: string; validation_errors: string[]; template: { id: string } };
+    assert.equal(dryRunPayload.approval_required, true);
+    assert.equal(dryRunPayload.estimated_risk, "high");
+    assert.equal(dryRunPayload.template.id, "github_release");
+    assert.equal(dryRunPayload.batching_defer_recommendation, "send_now");
+    assert.ok(dryRunPayload.missing_evidence.includes("rollback_plan"));
+    assert.ok(dryRunPayload.validation_errors.length >= 1);
+
     const created = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": token },
@@ -482,13 +512,15 @@ test("accepts authenticated agent channel messages and records human actions", a
       }))
     });
     assert.equal(created.status, 201);
-    const listed = await fetch(`${localUrl}/api/agent-messages`, { headers: authorized() }).then((response) => response.json()) as Array<{ id: string; status: string; requested_action: string; affected_resources: string; required_authority: string; decision_options: string }>;
+    const listed = await fetch(`${localUrl}/api/agent-messages`, { headers: authorized() }).then((response) => response.json()) as Array<{ id: string; status: string; requested_action: string; affected_resources: string; required_authority: string; decision_options: string; template_id: string; evidence_pack: string }>;
     assert.deepEqual(listed.map((message) => message.id), ["agent-http-1"]);
     assert.equal(listed[0].status, "unread");
     assert.equal(listed[0].requested_action, "Run the release workflow.");
     assert.deepEqual(JSON.parse(listed[0].affected_resources), ["repo:ForgeLink", "workflow:release"]);
     assert.equal(listed[0].required_authority, "general_approval");
     assert.deepEqual(JSON.parse(listed[0].decision_options).map((option: { id: string }) => option.id), ["approve", "deny"]);
+    assert.equal(listed[0].template_id, "file_write");
+    assert.equal(JSON.parse(listed[0].evidence_pack).redaction_profile, "desktop_full");
 
     const incomplete = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {
       method: "POST",

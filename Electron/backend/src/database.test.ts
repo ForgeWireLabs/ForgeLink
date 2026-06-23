@@ -124,6 +124,9 @@ test("upgrades a version-seven (pre-015) database to the current schema without 
     const agentMessageColumns = new Set((database.connection.prepare("PRAGMA table_info(agent_messages)").all() as Array<{ name: string }>).map((column) => column.name));
     assert.equal(agentMessageColumns.has("requested_action"), true);
     assert.equal(agentMessageColumns.has("decision_options"), true);
+    // v15 (016 AGH-007) adds durable evidence pack fields.
+    assert.equal(agentMessageColumns.has("template_id"), true);
+    assert.equal(agentMessageColumns.has("evidence_pack"), true);
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -301,12 +304,26 @@ test("stores agent channel messages separately with export, actions, expiry, and
       affected_resources: ["repo:ForgeLink", "release:2.0.3"],
       timeout_behavior: "deny_on_timeout",
       deny_behavior: "do_not_publish",
-      decision_options: [{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }]
+      decision_options: [{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }],
+      template_id: "github_release",
+      evidence_pack: {
+        summary: "Release candidate evidence.",
+        affected_resources: ["repo:ForgeLink", "release:2.0.3"],
+        diff_summary: "Release metadata only.",
+        proposed_operation: "Publish the release build.",
+        checks: ["backend tests", "renderer build"],
+        rollback_plan: "Delete the draft release and restore the previous tag.",
+        links: ["local://evidence/release"],
+        limitations: "Synthetic test evidence.",
+        redaction_profile: "desktop_full"
+      }
     });
     assert.equal(stored.status, "unread");
     assert.equal(stored.requested_action, "Publish the release build.");
     assert.deepEqual(JSON.parse(stored.affected_resources), ["repo:ForgeLink", "release:2.0.3"]);
     assert.deepEqual(JSON.parse(stored.decision_options).map((option: { id: string }) => option.id), ["approve", "deny"]);
+    assert.equal(stored.template_id, "github_release");
+    assert.equal(JSON.parse(stored.evidence_pack).rollback_plan, "Delete the draft release and restore the previous tag.");
     assert.equal(database.agentMessages()[0].channel_id, "forgewire");
     assert.equal(database.updateAgentMessageStatus("agent-1", "acted", "approve").status, "acted");
     const exported = database.exportData() as { messages: Array<unknown>; agent_messages: Array<{ id: string }> };
