@@ -1,0 +1,32 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260622-027-repopact-1-6-0-revendor",
+  "timestamp": "2026-06-22T22:35:00Z",
+  "work_item": "027",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "python scripts/validate_repo.py",
+      "exit_code": 0,
+      "summary": "Vendored RepoPact 1.6.0 validator (now with checkbox parity) passes on the ForgeLink tree."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Unified ForgeLink audit passes: RepoPact authoritative pass plus schema-ladder and link/last_verified; the local parity duplicate is removed."
+    }
+  ],
+  "artifacts": [
+    "scripts/validate_repo.py",
+    "scripts/REPOPACT_VERSION",
+    "requirements-repopact.txt",
+    "audits/registry.json",
+    ".local/validate_system.py"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "Re-vendored RepoPact 1.6.0: added the upstreamed checkbox-parity check to scripts/validate_repo.py (keeping the preflight extension), bumped pins to 1.6.0, and removed the now-redundant local parity check from .local/validate_system.py. Checkbox parity is now authoritative upstream (RepoPact decision 0014)."
+  }
+}

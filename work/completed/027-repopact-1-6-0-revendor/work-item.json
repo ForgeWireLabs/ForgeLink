@@ -1,0 +1,46 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "027",
+  "title": "Re-vendor RepoPact 1.6.0 (checkbox parity upstreamed)",
+  "status": "completed",
+  "owner_scope": "work",
+  "affected_scopes": [
+    "work",
+    "tooling",
+    "docs"
+  ],
+  "depends_on": [],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-22T22:30:00Z",
+    "note": "Created before implementation work starts. Re-vendors RepoPact 1.6.0 after contributing ForgeLink's checkbox-parity check upstream, and removes the now-redundant local copy."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "RVN-001",
+      "text": "Add the RepoPact 1.6.0 README<->manifest checkbox-parity check to the vendored scripts/validate_repo.py (preserving ForgeLink's preflight extension) and bump the pins (scripts/REPOPACT_VERSION, requirements-repopact.txt, audits/registry.json) to 1.6.0.",
+      "state": "satisfied",
+      "evidence": [
+        "20260622-027-repopact-1-6-0-revendor"
+      ]
+    },
+    {
+      "id": "RVN-002",
+      "text": "Remove the now-redundant local checkbox-parity check (former LIE-001) from .local/validate_system.py, since parity is authoritative in the vendored validator; .local retains the schema-ladder (LIE-003) and link/last_verified checks.",
+      "state": "satisfied",
+      "evidence": [
+        "20260622-027-repopact-1-6-0-revendor"
+      ]
+    },
+    {
+      "id": "RVN-003",
+      "text": "Both python scripts/validate_repo.py and python .local/validate_system.py pass on the tree.",
+      "state": "satisfied",
+      "evidence": [
+        "20260622-027-repopact-1-6-0-revendor"
+      ]
+    }
+  ],
+  "created": "2026-06-22",
+  "updated": "2026-06-22"
+}

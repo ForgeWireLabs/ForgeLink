@@ -2,22 +2,23 @@
 
 RepoPact's vendored validator (``scripts/validate_repo.py``) is authoritative for
 governance records: contracts, owners, work items, formal evidence runs, the audit
-registry, decisions, and policies. This script runs it first and fails if it
-fails, then layers the ForgeLink-only structural checks RepoPact does not cover:
+registry, decisions, policies, and (since RepoPact 1.6.0) README<->manifest
+checkbox parity. This script runs it first and fails if it fails, then layers the
+ForgeLink-only structural checks RepoPact still does not cover:
 
-- LIE-001 README <-> work-item.json checkbox parity (satisfied -> [x], pending -> [ ]);
 - LIE-003 the decision 0011 schema-migration ladder invariants;
 - markdown link resolution and a non-future ``last_verified`` date.
 
-The previous lightweight evidence-log check (LIE-002) is retired: RepoPact's formal
-``evidence/runs/*.json`` requirement supersedes it. Keeping both validators in one
-entry point is deliberate so a single ``python .local/validate_system.py`` (and the
-git hooks that call it) cannot pass while the authoritative validator fails.
+The README checkbox-parity check (formerly local LIE-001) graduated upstream into
+RepoPact 1.6.0 (decision 0014), so it is no longer duplicated here. The lightweight
+evidence-log check (LIE-002) was retired earlier in favor of RepoPact's formal
+``evidence/runs/*.json`` requirement. Keeping both validators in one entry point is
+deliberate so a single ``python .local/validate_system.py`` (and the git hooks that
+call it) cannot pass while the authoritative validator fails.
 """
 
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 import sys
@@ -26,7 +27,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-CHECKBOX = re.compile(r"-\s*\[([ xX])\]\s*\*\*([A-Z]+-\d+)\b")
 LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 LAST_VERIFIED = re.compile(r"^last_verified:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
 
@@ -49,45 +49,6 @@ def run_repopact(errors: list[str]) -> None:
     if not surfaced:
         detail = (result.stdout or result.stderr or "").strip()[:400]
         errors.append(f"repopact validation failed: {detail}")
-
-
-def iter_work_items():
-    for lifecycle in ("active", "completed", "deferred"):
-        directory = ROOT / "work" / lifecycle
-        if not directory.is_dir():
-            continue
-        for item in sorted(directory.iterdir()):
-            if item.is_dir() and (item / "work-item.json").is_file():
-                yield item
-
-
-def check_checkbox_parity(item: Path, errors: list[str]) -> None:
-    """LIE-001: where a README uses the checklist convention, its checkboxes must
-    match the manifest criterion states."""
-    readme = item / "README.md"
-    if not readme.is_file():
-        return
-    try:
-        data = json.loads((item / "work-item.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return  # RepoPact reports manifest parse errors authoritatively.
-    text = readme.read_text(encoding="utf-8")
-    boxes = {match.group(2): match.group(1).strip().lower() for match in CHECKBOX.finditer(text)}
-    if not boxes:
-        return
-    rel = readme.relative_to(ROOT)
-    for criterion in data.get("acceptance_criteria", []):
-        if not isinstance(criterion, dict):
-            continue
-        criterion_id = str(criterion.get("id"))
-        state = criterion.get("state")
-        box = boxes.get(criterion_id)
-        if box is None:
-            errors.append(f"criterion {criterion_id} has no README checkbox: {rel}")
-        elif state == "satisfied" and box != "x":
-            errors.append(f"criterion {criterion_id} is satisfied but its README checkbox is unchecked: {rel}")
-        elif state == "pending" and box == "x":
-            errors.append(f"criterion {criterion_id} is pending but its README checkbox is checked: {rel}")
 
 
 def check_schema_ladder(errors: list[str]) -> None:
@@ -143,8 +104,6 @@ def main() -> int:
 
     run_repopact(errors)
 
-    for item in iter_work_items():
-        check_checkbox_parity(item, errors)
     check_schema_ladder(errors)
 
     markdown_files: list[Path] = []
@@ -161,7 +120,6 @@ def main() -> int:
 
     print("ForgeLink audit passed.")
     print("- RepoPact governance validation (scripts/validate_repo.py): passed")
-    print("- README/manifest checkbox parity (LIE-001): passed")
     print("- Schema-ladder invariants (LIE-003): passed")
     print("- Markdown link/last_verified checks: passed")
     return 0
