@@ -1,0 +1,41 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260624-028-repopact-1-8-0-revendor",
+  "timestamp": "2026-06-24T15:20:00Z",
+  "work_item": "028",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "python scripts/validate_repo.py",
+      "exit_code": 0,
+      "summary": "Vendored RepoPact 1.8.0 validator passes; native deferred+rejected decision statuses, preflight extension preserved."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Full ForgeLink audit passes (RepoPact validation + LIE-003 schema ladder + link/last_verified); decision 0013 validates against native 'deferred'."
+    },
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Electron renderer + backend + node --check suite passes; re-vendor touches only vendored governance tooling, not application code."
+    }
+  ],
+  "artifacts": [
+    "scripts/validate_repo.py",
+    "scripts/track_import.py",
+    "scripts/plan_import.py",
+    "scripts/takeover.py",
+    "schemas/record-frontmatter.schema.json",
+    "scripts/REPOPACT_VERSION",
+    "requirements-repopact.txt",
+    "scripts/LOCAL_EXTENSIONS.md",
+    "audits/registry.json"
+  ],
+  "environment": {
+    "os": "Windows",
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "process_note": "Re-vendored RepoPact 1.8.0 from the canonical C:/Projects/repopact tree; dropped the interim deferred carry now that deferred+rejected are native (RepoPact decision 0017)."
+  }
+}

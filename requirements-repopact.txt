@@ -2,10 +2,12 @@
 # Records are validated against schemas/*.json with jsonschema.
 #
 # RepoPact is vendored (schemas/ + scripts/), not pip-installed.
-# Vendored base: RepoPact 1.6.0 (PyPI: repopact==1.6.0).
+# Vendored base: RepoPact 1.8.0 (PyPI: repopact==1.8.0).
 # Former ForgeLink extensions now upstream: orphan-work-dir check and dead
 # source_of_truth warning (1.5.0); README<->manifest checkbox parity (1.6.0,
-# decision 0014 upstream). Remaining local extensions (see decisions/0002, 0012):
+# RepoPact decision 0014); deferred + rejected decision statuses (1.8.0, RepoPact
+# decision 0017, ForgeLink decision 0014). Remaining local extensions (see
+# decisions/0002, 0012):
 #   - preflight marker: scripts/validate_repo.py, schemas/work-item.schema.json
 #   - schema-ladder invariants (LIE-003): .local/validate_system.py
 jsonschema>=4.20

@@ -1,0 +1,46 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "028",
+  "title": "Re-vendor RepoPact 1.8.0 (deferred + rejected statuses upstreamed)",
+  "status": "completed",
+  "owner_scope": "work",
+  "affected_scopes": [
+    "work",
+    "tooling",
+    "docs"
+  ],
+  "depends_on": [],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-24T15:00:00Z",
+    "note": "Created before implementation work starts. Re-vendors RepoPact 1.8.0 after contributing ForgeLink's deferred/rejected decision statuses upstream, and drops the now-redundant local carry."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "RVN-001",
+      "text": "Re-vendor RepoPact 1.8.0 into the vendored tree: take upstream 1.8.0 for plan_import.py, takeover.py, track_import.py, and record-frontmatter.schema.json; adopt the native deferred+rejected DECISION_STATUSES in validate_repo.py while preserving the preflight extension; bump the pins (scripts/REPOPACT_VERSION, requirements-repopact.txt, audits/registry.json) to 1.8.0.",
+      "state": "satisfied",
+      "evidence": [
+        "20260624-028-repopact-1-8-0-revendor"
+      ]
+    },
+    {
+      "id": "RVN-002",
+      "text": "Drop the interim 'deferred' decision-status carry (ForgeLink decision 0014) now that deferred and rejected ship natively in RepoPact 1.8.0; update scripts/LOCAL_EXTENSIONS.md so the only remaining carried patch is the preflight marker.",
+      "state": "satisfied",
+      "evidence": [
+        "20260624-028-repopact-1-8-0-revendor"
+      ]
+    },
+    {
+      "id": "RVN-003",
+      "text": "Both python scripts/validate_repo.py and python .local/validate_system.py pass on the tree, with decision 0013 validating against the native 'deferred' status (no local carry).",
+      "state": "satisfied",
+      "evidence": [
+        "20260624-028-repopact-1-8-0-revendor"
+      ]
+    }
+  ],
+  "created": "2026-06-24",
+  "updated": "2026-06-24"
+}

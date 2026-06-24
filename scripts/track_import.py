@@ -24,9 +24,7 @@ from pathlib import Path
 import adopt_repo
 
 TRACKING_DIR_NAMES = ("tracking", "track")
-# ForgeLink local extension: the "deferred" decision status (ForgeLink decision
-# 0014; see scripts/LOCAL_EXTENSIONS.md). Re-apply on every RepoPact re-vendor.
-DECISION_STATUSES = ("proposed", "accepted", "superseded", "deprecated", "deferred")
+DECISION_STATUSES = ("proposed", "accepted", "rejected", "deferred", "superseded", "deprecated")
 _SEVERITY = {"p1": "high", "p2": "medium", "p3": "low", "high": "high", "medium": "medium", "low": "low"}
 _FINDING_STATE = {"open": "open", "accepted": "accepted", "reconciled": "reconciled",
                   "closed": "reconciled", "resolved": "reconciled", "mitigated": "reconciled"}
