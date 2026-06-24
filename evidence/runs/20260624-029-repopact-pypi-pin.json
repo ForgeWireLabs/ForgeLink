@@ -1,0 +1,49 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260624-029-repopact-pypi-pin",
+  "timestamp": "2026-06-24T18:20:00Z",
+  "work_item": "029",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "pip install -r requirements-repopact.txt  (repopact==1.9.0)",
+      "exit_code": 0,
+      "summary": "[RPP-001] Installed RepoPact 1.9.0 from PyPI; provides the repopact CLI consumed by .local/validate_system.py."
+    },
+    {
+      "command": "git rm scripts/{validate_repo,repo_model,frontmatter,track_import,plan_import,takeover,doctor,generate_dashboard,generate_spec,init_repo,adopt_repo,new,check_frozen_surface,repopact_cli}.py",
+      "exit_code": 0,
+      "summary": "[RPP-001] Removed all vendored RepoPact modules; ForgeLink's own scripts (install/, smoke/, REPOPACT_VERSION, LOCAL_EXTENSIONS.md) remain."
+    },
+    {
+      "command": "python -m repopact_cli validate  (marker-less probe id 999)",
+      "exit_code": 1,
+      "summary": "[RPP-002] Negative test: with preflight enabled via owners.json, a marker-less id>=010 item fails with 'work item requires a preflight marker' — proving the config-driven guard enforces parity with the former vendored patch. Probe removed after."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "[RPP-002][RPP-003] Full audit passes: pip repopact 1.9.0 validation (preflight enforced for 010+ via config) + LIE-003 schema ladder + link/last_verified. One stale doc link to the removed scripts/repo_model.py was fixed."
+    },
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "[RPP-003] Electron renderer + backend + node --check suite passes; the migration touches only governance tooling, not application code."
+    }
+  ],
+  "artifacts": [
+    "requirements-repopact.txt",
+    "governance/owners.json",
+    ".local/validate_system.py",
+    "scripts/LOCAL_EXTENSIONS.md",
+    "scripts/REPOPACT_VERSION",
+    "decisions/0015-consume-repopact-from-pypi.md",
+    "work/completed/029-repopact-pypi-pin"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "Migrated RepoPact from vendored to a pinned PyPI dependency (repopact==1.9.0). Preflight is now an upstream opt-in (RepoPact decision 0018) enabled via governance/owners.json instead of a vendored validator patch. schemas/ stay in-repo. Vendored tree backed up out-of-repo before removal."
+  }
+}

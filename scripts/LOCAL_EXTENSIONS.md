@@ -1,38 +1,39 @@
-# ForgeLink local extensions to vendored RepoPact
+# ForgeLink + RepoPact: local extensions (historical) and current model
 
-ForgeLink **vendors** RepoPact under `scripts/` and `schemas/` (see decision
-[0002](../decisions/0002-vendored-repopact-1-4-0-and-local-extensions.md)). It does
-not `pip install repopact`, so the governance layer travels with the repo. There is
-**no plugin/extension point**: ForgeLink's local additions are patches applied
-directly inside the vendored files. A RepoPact re-vendor copies upstream over those
-files and therefore **clobbers every carried patch** unless it is re-applied.
+> **Current model (decision [0015](../decisions/0015-consume-repopact-from-pypi.md)):**
+> ForgeLink **no longer vendors** the RepoPact validator. It is consumed from PyPI
+> (`repopact==1.9.0`, pinned in [`requirements-repopact.txt`](../requirements-repopact.txt))
+> and invoked through `.local/validate_system.py`. **There are zero carried code
+> patches** — every former local extension has graduated upstream (see the table
+> below). Two things still live in-repo by design:
+>
+> - **`schemas/`** — RepoPact validates against this repository's own contracts
+>   (`root/schemas/*.json`), so the schemas always travel in-repo.
+> - **`.local/validate_system.py`** — ForgeLink-only checks layered on top of the
+>   upstream validator (LIE-003 schema-ladder; markdown link / `last_verified`).
+>
+> The "carried patches" section below is retained as history; it is **empty going
+> forward**. There is nothing to re-apply on upgrade — bump the pin instead.
 
-This file is the single authoritative registry of those patches. It exists so that:
+ForgeLink originally **vendored** RepoPact under `scripts/` and `schemas/` (decision
+[0002](../decisions/0002-vendored-repopact-1-4-0-and-local-extensions.md)), carrying
+local patches inside the vendored files. That model ended with decision 0015; the
+notes below document what was carried and where it went.
 
-- a **re-vendor** (the next `repopact` upgrade) is a three-way merge — take
-  upstream, then re-apply every "carried" row below;
-- an **agent or human modifying the repo** does not silently delete a carried patch
-  (if you touch a vendored file, check this table first);
-- a **fresh adoption** of RepoPact in another repo knows which behaviors are local
-  and which are upstream candidates to request from RepoPact directly.
+Pinned RepoPact version: [`REPOPACT_VERSION`](REPOPACT_VERSION) / `requirements-repopact.txt` (currently 1.9.0).
 
-Pinned RepoPact version: see [`REPOPACT_VERSION`](REPOPACT_VERSION) (currently 1.8.0).
+## Carried local patches
 
-## Carried local patches (must be re-applied on every re-vendor)
+**None.** ForgeLink consumes RepoPact from PyPI; there is no vendored validator to
+patch. The last carried patch — the `preflight` marker — graduated upstream in
+RepoPact 1.9.0 (see below) and is now enabled via `governance/owners.json` config,
+not code.
 
-| Patch | Where | Why | Upstream candidate |
-| --- | --- | --- | --- |
-| **`preflight` marker** | `scripts/validate_repo.py` (`PREFLIGHT_REQUIRED_FROM_ID`, `validate_work_preflight`) + `schemas/work-item.schema.json` (`preflight` property) | Work items `010+` must declare they were created before implementation started (decision [0002](../decisions/0002-vendored-repopact-1-4-0-and-local-extensions.md), work item 010). | **Yes** |
+## Local-only checks (ForgeLink-owned, layered on the upstream validator)
 
-When you add a carried patch, mark it in-code with a comment of the form
-`# ForgeLink local extension: <name> (decision NNNN; see scripts/LOCAL_EXTENSIONS.md)`
-and add a row above. JSON schemas use a sibling `"$comment"` field for the same.
-
-## Local-only checks (not at risk on re-vendor)
-
-These live in `.local/validate_system.py`, a ForgeLink-owned wrapper that runs
-`scripts/validate_repo.py` first and then layers extra checks. They are **not**
-vendored files, so a re-vendor does not touch them.
+These live in `.local/validate_system.py`, which runs `repopact validate` (PyPI)
+first and then layers extra checks. They are ForgeLink's own code, never affected by
+a RepoPact upgrade.
 
 | Check | Why | Upstream candidate |
 | --- | --- | --- |
@@ -50,6 +51,10 @@ Recorded so they are not mistaken for missing local patches during a re-vendor:
 | README ↔ manifest checkbox parity (formerly LIE-001) | RepoPact 1.6.0 | decision [0012](../decisions/0012-repopact-1-5-0-upgrade-and-validator-unification.md), work item 027 |
 | `deferred` **and** `rejected` decision statuses | RepoPact 1.8.0 (RepoPact decision 0017) | ForgeLink decision [0014](../decisions/0014-deferred-decision-status.md); re-vendored in work item 028 |
 | Dashboard version decoupling (`generate_dashboard._spec_version` prefers `REPOPACT_VERSION`) | Present in upstream; vendored copy matches, no local carry | decision [0002](../decisions/0002-vendored-repopact-1-4-0-and-local-extensions.md) |
+| Opt-in `preflight` marker (config-driven, id/date threshold) | RepoPact 1.9.0 (RepoPact decision 0018) | ForgeLink decision [0015](../decisions/0015-consume-repopact-from-pypi.md); enabled via `governance/owners.json` |
+
+The remaining ForgeLink-local LIE-003 schema-ladder invariant (in `.local/`) is the
+last upstream candidate worth contributing.
 
 ## Upstream backlog (to send to ForgeWireLabs/repopact)
 

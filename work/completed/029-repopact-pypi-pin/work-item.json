@@ -1,0 +1,46 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "029",
+  "title": "Consume RepoPact from PyPI (drop vendoring)",
+  "status": "completed",
+  "owner_scope": "work",
+  "affected_scopes": [
+    "work",
+    "tooling",
+    "docs"
+  ],
+  "depends_on": [],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-24T18:00:00Z",
+    "note": "Created before implementation. Pip-pins RepoPact after the preflight guard was generalized upstream in 1.9.0 (RepoPact decision 0018), removing the last reason to vendor."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "RPP-001",
+      "text": "Pin repopact==1.9.0 in requirements-repopact.txt and remove the vendored RepoPact modules from scripts/; .local/validate_system.py invokes `python -m repopact_cli validate`.",
+      "state": "satisfied",
+      "evidence": [
+        "20260624-029-repopact-pypi-pin"
+      ]
+    },
+    {
+      "id": "RPP-002",
+      "text": "Enable the upstream opt-in preflight via governance/owners.json (enabled, required_from_id 10); verify it enforces markers for items 010+ identically to the former vendored patch (a marker-less item fails; the tree passes).",
+      "state": "satisfied",
+      "evidence": [
+        "20260624-029-repopact-pypi-pin"
+      ]
+    },
+    {
+      "id": "RPP-003",
+      "text": "schemas/ remain in-repo; scripts/LOCAL_EXTENSIONS.md records zero carried patches; python .local/validate_system.py and the Electron suite pass.",
+      "state": "satisfied",
+      "evidence": [
+        "20260624-029-repopact-pypi-pin"
+      ]
+    }
+  ],
+  "created": "2026-06-24",
+  "updated": "2026-06-24"
+}

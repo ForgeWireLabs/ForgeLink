@@ -1,13 +1,14 @@
-# RepoPact runtime dependencies.
-# Records are validated against schemas/*.json with jsonschema.
+# RepoPact governance tooling, consumed from PyPI instead of vendored (decision 0015).
+# Validate via:  python .local/validate_system.py   (which runs `repopact validate`
+# plus ForgeLink's local LIE-003 / link checks). A fresh clone or CI must
+# `pip install -r requirements-repopact.txt` before validating.
 #
-# RepoPact is vendored (schemas/ + scripts/), not pip-installed.
-# Vendored base: RepoPact 1.8.0 (PyPI: repopact==1.8.0).
-# Former ForgeLink extensions now upstream: orphan-work-dir check and dead
-# source_of_truth warning (1.5.0); README<->manifest checkbox parity (1.6.0,
-# RepoPact decision 0014); deferred + rejected decision statuses (1.8.0, RepoPact
-# decision 0017, ForgeLink decision 0014). Remaining local extensions (see
-# decisions/0002, 0012):
-#   - preflight marker: scripts/validate_repo.py, schemas/work-item.schema.json
-#   - schema-ladder invariants (LIE-003): .local/validate_system.py
-jsonschema>=4.20
+# schemas/ stay in-repo — RepoPact validates against this repository's own contracts
+# (root/schemas/*.json), not the package copy. The preflight guard is now an upstream
+# opt-in (RepoPact 1.9.0, decision 0018) enabled via governance/owners.json instead of
+# a vendored validator patch. repopact pulls in jsonschema.
+#
+# Former ForgeLink extensions now upstream: orphan-work-dir check + dead
+# source_of_truth warning (1.5.0); checkbox parity (1.6.0); deferred + rejected
+# decision statuses (1.8.0); opt-in preflight marker (1.9.0).
+repopact==1.9.0

@@ -262,5 +262,10 @@
   "concurrency": {
     "enforce_disjoint_active_scopes": false,
     "note": "ForgeLink currently has one active RepoPact item; enable this when concurrent agent work begins."
+  },
+  "preflight": {
+    "enabled": true,
+    "required_from_id": 10,
+    "note": "Work items 010+ must declare they were created before implementation started (was a vendored validator patch; generalized upstream in RepoPact 1.9.0 / decision 0018)."
   }
 }

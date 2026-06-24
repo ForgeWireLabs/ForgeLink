@@ -1,16 +1,19 @@
 """ForgeLink local extension to RepoPact validation (work item 026).
 
-RepoPact's vendored validator (``scripts/validate_repo.py``) is authoritative for
-governance records: contracts, owners, work items, formal evidence runs, the audit
-registry, decisions, policies, and (since RepoPact 1.6.0) README<->manifest
-checkbox parity. This script runs it first and fails if it fails, then layers the
+RepoPact's validator is authoritative for governance records: contracts, owners,
+work items, formal evidence runs, the audit registry, decisions, policies,
+README<->manifest checkbox parity (1.6.0), and the opt-in preflight marker (1.9.0,
+enabled via governance/owners.json). As of decision 0015 RepoPact is consumed from
+PyPI (repopact==1.9.0) rather than vendored, so this invokes the installed
+``repopact`` CLI. This script runs it first and fails if it fails, then layers the
 ForgeLink-only structural checks RepoPact still does not cover:
 
 - LIE-003 the decision 0011 schema-migration ladder invariants;
 - markdown link resolution and a non-future ``last_verified`` date.
 
 The README checkbox-parity check (formerly local LIE-001) graduated upstream into
-RepoPact 1.6.0 (decision 0014), so it is no longer duplicated here. The lightweight
+RepoPact 1.6.0 (RepoPact decision 0014, distinct from ForgeLink decision 0014), so
+it is no longer duplicated here. The lightweight
 evidence-log check (LIE-002) was retired earlier in favor of RepoPact's formal
 ``evidence/runs/*.json`` requirement. Keeping both validators in one entry point is
 deliberate so a single ``python .local/validate_system.py`` (and the git hooks that
@@ -32,9 +35,13 @@ LAST_VERIFIED = re.compile(r"^last_verified:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULT
 
 
 def run_repopact(errors: list[str]) -> None:
-    """Run the authoritative RepoPact validator and fold its failures in."""
+    """Run the authoritative RepoPact validator and fold its failures in.
+
+    RepoPact is consumed from PyPI (repopact==1.9.0; see requirements-repopact.txt
+    and decision 0015), so this invokes the installed CLI rather than a vendored
+    script. Run `pip install -r requirements-repopact.txt` if the import fails."""
     result = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "validate_repo.py"), "--root", str(ROOT)],
+        [sys.executable, "-m", "repopact_cli", "validate", "--root", str(ROOT)],
         capture_output=True,
         text=True,
     )
@@ -119,7 +126,7 @@ def main() -> int:
         return 1
 
     print("ForgeLink audit passed.")
-    print("- RepoPact governance validation (scripts/validate_repo.py): passed")
+    print("- RepoPact governance validation (repopact==1.9.0, PyPI): passed")
     print("- Schema-ladder invariants (LIE-003): passed")
     print("- Markdown link/last_verified checks: passed")
     return 0

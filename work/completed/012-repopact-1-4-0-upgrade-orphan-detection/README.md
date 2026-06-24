@@ -18,7 +18,7 @@ failure that hid `work/001-production-readiness` from the validator and dashboar
 While reconciling stale trackers (work item 011) we found that the
 production-readiness plan lived under `work/` with a `README.md` and `_audit/`
 companion but **no `work-item.json`**. RepoPact discovers work only at
-`work/<status>/<name>/work-item.json` ([repo_model.py](../../../scripts/repo_model.py)),
+`work/<status>/<name>/work-item.json` (RepoPact's `repo_model.py`),
 so the validator passed and the dashboard reported `active: 0` while real,
 load-bearing planning sat invisible. The published 1.4.0 `doctor` catches stale
 registry paths, unregistered contracts, and incomplete `_audit` companions, but

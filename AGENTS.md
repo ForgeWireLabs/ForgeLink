@@ -14,13 +14,15 @@ contracts (e.g. under `work/`) refine this root contract but cannot weaken it.
 
 ## Governed with RepoPact
 
-ForgeLink is governed with [RepoPact](https://github.com/ForgeWireLabs/repopact)
-(schemas and tooling vendored under `schemas/` and `scripts/`). Validate with
-`python scripts/validate_repo.py` (or `repopact validate`). Derived artifacts
-(`audits/reports/dashboard.md`) are generated, never hand-edited.
+ForgeLink is governed with [RepoPact](https://github.com/ForgeWireLabs/repopact),
+consumed from PyPI (`repopact==1.9.0`, pinned in `requirements-repopact.txt`; decision
+0015). Validate with `python .local/validate_system.py` (it runs `repopact validate`
+plus ForgeLink's local checks). Run `pip install -r requirements-repopact.txt` on a
+fresh clone first. Derived artifacts (`audits/reports/dashboard.md`) are generated,
+never hand-edited.
 
-The vendored `scripts/` and `schemas/` carry ForgeLink-local patches on top of
-upstream RepoPact. Before editing or re-vendoring any vendored file, read
-[`scripts/LOCAL_EXTENSIONS.md`](scripts/LOCAL_EXTENSIONS.md) — it is the
-authoritative list of carried patches (which a re-vendor will clobber unless
-re-applied) and the upstream backlog. Do not silently drop a carried patch.
+`schemas/` stay in-repo — RepoPact validates against this repository's own contracts.
+There are no vendored validator patches; the preflight guard is an upstream opt-in
+enabled via `governance/owners.json` (RepoPact 1.9.0). See
+[`scripts/LOCAL_EXTENSIONS.md`](scripts/LOCAL_EXTENSIONS.md) for the history and the
+current model.
