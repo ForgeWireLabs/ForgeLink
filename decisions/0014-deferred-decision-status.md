@@ -88,8 +88,10 @@ decision is semantically identical to a `work/deferred/` item.
 - One more carried patch exists. It is registered in `LOCAL_EXTENSIONS.md`, which
   consolidates what was previously scattered across decisions 0002 and 0012, so a
   re-vendor or an agent editing vendored files has a single place to consult.
-- Until `deferred` is upstreamed, `repopact doctor` may report the schema as
-  `schema-differs`; it must not auto-overwrite the local additions (same posture as
-  `preflight`, decision 0002).
-- The upstream and other consuming repositories are out of scope until the upstream
-  backlog items are filed and shipped.
+- While the local carry differs from vendored 1.6.0, `repopact doctor` may report the
+  schema as `schema-differs`; it must not auto-overwrite the local additions (same
+  posture as `preflight`, decision 0002).
+- **Upstreamed.** `deferred` (with `rejected`) shipped upstream in RepoPact 1.8.0
+  (RepoPact decision 0017), so this is no longer a divergence to defend indefinitely:
+  the carry is interim and is dropped when ForgeLink re-vendors 1.8.0. Until that
+  re-vendor, the carried patch keeps `deferred` working on the vendored 1.6.0 tree.
