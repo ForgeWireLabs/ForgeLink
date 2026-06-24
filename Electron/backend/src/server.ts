@@ -635,6 +635,17 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         return sendJson(response, database.approvalOutcomes(decodeURIComponent(outcomesMatch[1])));
       }
+      // Approval replay (AGH-017): operator-only lifecycle view of a single
+      // approval — request, risk, evidence, decision, outcomes, final state — with
+      // the chain segment and verification. `redaction_profile` previews a redacted
+      // surface; the default follows the operator's policy.
+      const replayMatch = url.pathname.match(/^\/api\/agent-messages\/([^/]+)\/replay$/);
+      if (request.method === "GET" && replayMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const replay = database.approvalReplay(decodeURIComponent(replayMatch[1]), url.searchParams.get("redaction_profile") || undefined);
+        if (!replay) return sendJson(response, { error: "Agent message not found." }, 404);
+        return sendJson(response, replay);
+      }
       // Decision memory (AGH-014): operator-only. Suggestions surface repeated
       // patterns; confirm/dismiss require an explicit operator action and are
       // advisory only — they never auto-decide or expand agent authority.
@@ -833,6 +844,20 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const name = datedName("export", ".json");
         await writeFile(join(exportsDir, name), JSON.stringify(database.exportData(), null, 2), { mode: 0o600 });
         return sendJson(response, { ok: true, name });
+      }
+      // Governance export (AGH-018): redacted approval/audit history for review.
+      // Launch-only. A full export includes private bodies/evidence/comments and so
+      // requires explicit operator confirmation (`confirm_full: true`).
+      if (request.method === "POST" && url.pathname === "/api/governance/export") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request).catch((): Record<string, unknown> => ({}));
+        const full = payload.full === true || payload.full === "true";
+        if (full && payload.confirm_full !== true) return sendJson(response, { error: "A full governance export includes private detail and requires confirm_full=true." }, 400);
+        await mkdir(exportsDir, { recursive: true });
+        const name = datedName("governance-export", ".json");
+        const data = database.governanceExport(full);
+        await writeFile(join(exportsDir, name), JSON.stringify(data, null, 2), { mode: 0o600 });
+        return sendJson(response, { ok: true, name, mode: data.mode, audit_verification: data.audit_verification });
       }
       if (request.method === "POST" && url.pathname === "/api/data/retention") {
         const payload = await readJson(request);

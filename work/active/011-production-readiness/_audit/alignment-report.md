@@ -1,7 +1,7 @@
 ---
 audience: planning agents and reviewers
 status: active
-last_verified: 2026-06-17
+last_verified: 2026-06-24
 source_of_truth: work/active/011-production-readiness/README.md; work/active/011-production-readiness/work-item.json
 ---
 
@@ -10,18 +10,25 @@ source_of_truth: work/active/011-production-readiness/README.md; work/active/011
 ## Baseline findings
 
 - The modern renderer and dependency-light backend are functional development foundations.
-- The current packaged architecture is not clean-machine installable because Python remains external. The approved remediation is TypeScript on Electron's bundled Node runtime, not PyInstaller.
+- The packaged architecture is now clean-machine installable: the backend is TypeScript on Electron's bundled Node runtime (`node:sqlite`), and Python has been removed (PR-001/001A/001B).
 - Secure onboarding, credential validation, removal, and explicit environment migration are complete.
 - Local storage has versioned migrations, backup/restore, retention, export, and corruption recovery contracts.
 - Messaging reliability is covered with deterministic provider failure and callback contracts; live Twilio failure testing remains opt-in.
-- Release signing, updates, checksums, and support diagnostics are not established.
+- Backend lifecycle (PR-006), single-instance (PR-010), security verification (PR-011), the test pyramid (PR-013), and support diagnostics (PR-015) are complete. Release signing and a published auto-update feed (PR-014) are the only baseline items still open.
+
+## Current criterion state (2026-06-24)
+
+Authoritative state is in [`work-item.json`](../work-item.json). Summary:
+
+- **Satisfied:** PR-001/001A/001B, PR-002, PR-003, PR-004, PR-005, PR-006, PR-010, PR-011, PR-013, PR-015.
+- **Waived into the 015/017 roadmap (decision 0005):** PR-007 (contacts), PR-008 (media), PR-009 (notifications/deep links), PR-012 (accessibility), PR-016 (voice; voice accepted, legacy iframe rejected).
+- **Pending:** PR-014 (releases) — partially landed (icon, installer, checksums, version metadata, CHANGELOG, reproducible checklist, auto-update wiring with electron-updater bundled). Blocked on an operator-provided code-signing certificate and a published `latest.yml` feed (held until signing so the channel is not unauthenticated). A manual-download release is fine now.
 
 ## Sequencing risks
 
-- PR-001 through PR-005 are complete; proceed to backend lifecycle work.
-- Do not build an updater before release signing and rollback policy are decided.
-- Do not claim webhook security complete without public URL/proxy canonicalization tests.
-- Do not revive Voice from legacy code; PR-016 requires a fresh product decision.
+- PR-014 is the only remaining baseline; it is blocked on the operator, not on more engineering. Do not publish an auto-update feed before code-signing is in place.
+- Do not claim webhook security incomplete: proxy-aware signature tests landed with PR-011.
+- Do not revive Voice from legacy code; PR-016 was waived to 015 (CLV-012/013) as a fresh product surface.
 
 ## PR-001 migration evidence (2026-06-14)
 

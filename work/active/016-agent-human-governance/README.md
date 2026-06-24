@@ -1,7 +1,7 @@
 ---
 audience: maintainers and implementation agents
 status: active
-last_verified: 2026-06-23
+last_verified: 2026-06-24
 source_of_truth: work/active/016-agent-human-governance/README.md; work/active/016-agent-human-governance/work-item.json
 ---
 
@@ -207,7 +207,7 @@ This item owns the governance semantics that ride on top of that runtime:
   - Acceptance: Dangling approvals are visible.
   - Acceptance: Scope mismatch is flagged as an audit issue.
 
-### Phase 5: Audit, replay, and integrity
+### Phase 5: Audit, replay, and integrity (complete 2026-06-24)
 
 - [x] **AGH-016 Add tamper-evident local audit chain.** Add lightweight
   hash-linked records for approval requests, evidence packs, decisions, and
@@ -216,13 +216,13 @@ This item owns the governance semantics that ride on top of that runtime:
   - Acceptance: Implementation is local and practical; do not introduce
     blockchain or remote attestation claims.
 
-- [ ] **AGH-017 Add approval replay.** Add a way to inspect the full lifecycle of
+- [x] **AGH-017 Add approval replay.** Add a way to inspect the full lifecycle of
   a completed approval.
   - Replay steps: request received, risk classified, evidence shown, decision
     made, action started, outcome reported, final state.
   - Acceptance: Replay view redacts according to operator policy.
 
-- [ ] **AGH-018 Add governance export.** Export approval/audit history in a
+- [x] **AGH-018 Add governance export.** Export approval/audit history in a
   redacted portable format for review.
   - Acceptance: Export excludes credentials and private message bodies by
     default.
@@ -429,3 +429,5 @@ Add or update docs for:
 | 2026-06-23 | AGH-016 complete | Tamper-evident audit chain: schema v18 `audit_chain` (per decision 0011) is an append-only, hash-linked log; creating an approval request appends `approval_request` (+ `evidence_pack` when present) entries and recording a decision appends a linked `decision` entry, each committing to the previous entry's hash; `verifyAuditChain` walks the chain and reports the first `broken_link`/`tampered_entry`/`tampered_payload`, recomputing payloads from live records (a retention-deleted record is not flagged); the v17 decision-hash formula was factored into one `decisionHashOf` helper shared by the write path and verifier (raw NUL separators replaced with the `\u0000` escape, byte-identical); operator-only `GET /api/audit-chain[?approval_request_id=]` and `GET /api/audit-chain/verify`; renderer `AuditChainEntry`/`AuditChainVerification` types; chain added to the durable export; `docs/approval-requests.md`; DB + HTTP tests cover v18 migration, chain growth/linking, decision/entry tamper detection, and agent-token rejection (87 backend tests green). | AGH-016 satisfied (evidence 20260623-agh016-audit-chain). Chain covers requests/evidence/decisions now; outcome entries land with AGH-015. Returning to Phase 4: Decision Memory (AGH-014) and outcome callbacks (AGH-015). |
 | 2026-06-23 | AGH-015 complete | Outcome callbacks: schema v19 `approval_outcomes` (per decision 0011) stores agent-reported post-decision outcomes (`action_started`/`action_succeeded`/`action_failed`/`expired_before_use`/`used_modified_scope`/`cancelled`) with a computed `scope_match` (0 when the agent declares modified scope or reports a resource outside the approved `affected_resources`); `recordOutcome` audits an `outcome` message event and commits an `outcome` entry to the audit chain (verifier extended to recompute outcome payloads); `danglingApprovals` lists authority-granted approvals with no terminal outcome and `scopeMismatchOutcomes` surfaces flagged drift; agents report via MCP-safe `POST /api/agent-messages/:id/outcome`, operators read via launch-only `GET /api/agent-messages/:id/outcomes`, `GET /api/approvals/dangling`, and `GET /api/approvals/scope-mismatches`; renderer `ApprovalOutcome` type; outcomes added to the durable export; DB + HTTP tests cover v19 migration, state validation, scope-mismatch detection, dangling visibility, the outcome chain entry + tamper detection, and operator/agent route scoping (88 backend tests green). | AGH-015 satisfied (evidence 20260623-agh015-outcome-callbacks). Phase 4's remaining criterion is Decision Memory (AGH-014). |
 | 2026-06-23 | AGH-014 complete | Decision Memory: schema v20 `decision_memory_rules` (per decision 0011) records operator-confirmed/dismissed acknowledgements of repeated decision patterns; `decisionMemorySuggestions` groups `decision_records` joined to `agent_messages` by (source, template_id, required_authority, approve/deny direction) and surfaces patterns decided the same way >= 3 times that are not already confirmed/dismissed; `confirmDecisionMemory`/`dismissDecisionMemory` upsert advisory rules on the unique pattern; the rule is never read by the ingestion/approval path, so a new matching request is not auto-decided and authority is never silently expanded; operator-only `GET /api/decision-memory/suggestions`, `GET /api/decision-memory`, and `POST /api/decision-memory/confirm|dismiss`; renderer `DecisionMemorySuggestion`/`DecisionMemoryRule` types; rules added to the durable export; DB + HTTP tests cover threshold detection, suggestion suppression after confirm, decision validation, the no-auto-decide invariant, dismissal, and operator/agent route scoping (90 backend tests green). | AGH-014 satisfied (evidence 20260623-agh014-decision-memory). Phase 4 (decision records, decision memory, outcome callbacks) is complete; Phase 5's audit chain (AGH-016) was completed early, leaving approval replay (AGH-017) and governance export (AGH-018). |
+| 2026-06-24 | AGH-017 complete | Approval replay: `approvalReplay(requestId, redactionProfile?)` assembles a read-only lifecycle into ordered steps (request received, risk classified from the values persisted at submission, evidence shown, decision made, action reported in forward order, final state) plus the per-request audit-chain segment and a chain verification; redaction follows operator policy — only the `desktop_full` profile shows private detail (body, evidence-pack contents, decision/outcome comments), every other profile preview withholds them while keeping the lifecycle shape and the request/evidence/decision hashes; operator-only `GET /api/agent-messages/:id/replay[?redaction_profile=]` (404 unknown, 401 agent token); renderer `ApprovalReplay`/`ReplayStep` types; `docs/approval-requests.md`; DB + HTTP tests cover ordered steps, full vs redacted detail, undecided-request replay, chain verification, and route scoping (46 db/server tests green). | AGH-017 satisfied (evidence 20260624-agh017-approval-replay). Phase 5 continues with governance export (AGH-018). |
+| 2026-06-24 | AGH-018 complete | Governance export: `governanceExport(includePrivate)` produces a portable `forgelink-governance-export-v1` of approval requests, decision records, approval outcomes, the audit chain (hashes only), its verification, and decision-memory rules; redacted by default (credentials never included; message bodies, evidence packs, decision comments, and outcome summaries excluded and listed under `excludes`); a full export including private detail requires explicit operator confirmation; operator-only `POST /api/governance/export` writes a `0o600` file to the exports directory and requires `confirm_full=true` when `full=true` (400 otherwise, 401 agent token); `docs/approval-requests.md`; DB + HTTP tests cover the redacted/full field sets, credential exclusion, the confirmation gate, and route scoping. | AGH-018 satisfied (evidence 20260624-agh018-governance-export). Phase 5 (audit, replay, integrity) is complete; remaining open work is Phase 6 (communication firewall and consent, AGH-019..022) and Phase 7 (boundary hardening, key management, agent contract, AGH-023..028). |

@@ -368,9 +368,64 @@ live source record (`tampered_payload` otherwise). It returns
 removed by retention is not treated as tampering. Like Decision Records, the audit
 chain endpoints are operator-only.
 
+## Approval replay (AGH-017)
+
+Replay is a read-only, operator-only view that assembles the full lifecycle of one
+approval into ordered steps so the operator can inspect exactly what happened:
+
+```http
+GET /api/agent-messages/<id>/replay                              # operator policy
+GET /api/agent-messages/<id>/replay?redaction_profile=<profile>  # preview a surface
+```
+
+The response is `{ approval_request_id, redaction_profile, redacted, decided,
+final_state, steps[], audit[], audit_verification }`. The `steps` array is ordered:
+
+| Step | Source |
+| --- | --- |
+| `request_received` | The stored approval request (intent, action, authority, resources). |
+| `risk_classified` | The risk and routing **persisted at submission** (`risk`, `interruption_policy`, `escalation_behavior`, timeout/etiquette), so the replay reflects what was actually shown rather than a recomputed guess. |
+| `evidence_shown` | The evidence pack, bound to the same `request_hash`/`evidence_hash` the audit chain committed to. |
+| `decision_made` | The latest Decision Record (decision, operator, authority grant, `decision_hash`). |
+| `action_reported` | Each reported outcome, in forward order. |
+| `final_state` | The latest outcome, else the decision (`approved`/`denied`), else the message status. |
+
+`audit` is the request's chain segment and `audit_verification` is the chain
+integrity result, so a tampered record is visible against the replay.
+
+**Redaction follows operator policy.** When `redaction_profile` is omitted, the
+primary operator card's profile is used. Only the `desktop_full` profile shows
+private detail (message body, evidence-pack contents, decision/outcome comments);
+any other profile (e.g. `mobile_lock_screen`) returns a redacted view that keeps the
+lifecycle shape and the integrity hashes but withholds private content. Replay is
+launch-only; an agent (MCP) token cannot read it, and an unknown id returns `404`.
+
+## Governance export (AGH-018)
+
+Operators export approval/audit history in a portable, redacted format for offline
+review:
+
+```http
+POST /api/governance/export                               # redacted (default)
+POST /api/governance/export  { "full": true, "confirm_full": true }  # full detail
+```
+
+The export is written as a `0o600` JSON file in the exports directory and the
+response returns `{ ok, name, mode, audit_verification }`. The file is
+`forgelink-governance-export-v1` and contains approval requests, decision records,
+approval outcomes, the audit chain (hashes only), its verification, and
+decision-memory rules.
+
+**Redacted by default.** Credentials (MCP tokens, channel credentials) are never
+included. Message bodies, evidence packs, decision comments, and outcome summaries
+are excluded and listed under `excludes`. A **full** export includes that private
+detail and therefore requires explicit operator confirmation: `full: true` without
+`confirm_full: true` is rejected with `400`. Governance export is launch-only.
+
 ## Boundaries
 
 - The chain covers approval requests, evidence packs, decisions, and outcomes.
-- The operator replay **view** (AGH-017) is a later criterion; the data it needs
-  (per-request decision, outcomes, and chain) is already exposed by the endpoints
-  above.
+- Replay and governance export are derived, read-only views over already-stored
+  governance records; neither changes state or grants authority.
+- Replay redaction is the first use of redaction profiles; full per-surface
+  redaction profiles (AGH-022) build on it.

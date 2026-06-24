@@ -408,6 +408,38 @@ const MEMORY_DECISIONS = new Set(["approve", "deny"]);
 // A pattern must repeat at least this many times before it is suggested as policy.
 const DECISION_MEMORY_MIN_OCCURRENCES = 3;
 
+// Approval replay (work item 016, AGH-017): a derived, read-only view that
+// assembles the full lifecycle of an approval into ordered steps — request
+// received, risk classified, evidence shown, decision made, action reported, and
+// final state — so the operator can inspect exactly what happened. The replay
+// redacts according to operator policy: only the `desktop_full` redaction profile
+// shows private detail (message body, evidence-pack contents, decision/outcome
+// comments); every other surface (mobile lock screen, SMS fallback, etc.) gets a
+// redacted view.
+export type ReplayStepKind = "request_received" | "risk_classified" | "evidence_shown" | "decision_made" | "action_reported" | "final_state";
+
+export interface ReplayStep {
+  step: ReplayStepKind;
+  at: string;
+  summary: string;
+  detail: Record<string, unknown>;
+}
+
+export interface ApprovalReplay {
+  approval_request_id: string;
+  redaction_profile: string;
+  redacted: boolean;            // true when private detail was withheld
+  decided: boolean;
+  final_state: string;
+  steps: ReplayStep[];
+  audit: AuditChainRow[];
+  audit_verification: AuditChainVerification;
+}
+
+// The one redaction profile that shows full private detail. Any other profile is
+// treated as redacted. Full profile semantics (AGH-022) build on this later.
+const FULL_REDACTION_PROFILE = "desktop_full";
+
 export interface McpTokenStatus {
   configured: boolean;
   created_at: string | null;
@@ -1831,6 +1863,218 @@ export class PhoneDatabase {
   // issues for the operator.
   scopeMismatchOutcomes(): ApprovalOutcomeRow[] {
     return this.connection.prepare("SELECT * FROM approval_outcomes WHERE scope_match=0 ORDER BY reported_at DESC, id DESC LIMIT 500").all() as unknown as ApprovalOutcomeRow[];
+  }
+
+  // --- Approval replay (work item 016, AGH-017) -------------------------------
+
+  // Assemble the lifecycle of one approval into ordered steps. Risk classification
+  // is read from the values persisted at submission (AGH-010/011/012), so the
+  // replay reflects what the operator was actually shown rather than a recomputed
+  // guess. When `redactionProfile` is omitted, the primary operator card's profile
+  // is used; passing a non-`desktop_full` profile previews a redacted surface.
+  approvalReplay(requestId: string, redactionProfile?: string): ApprovalReplay | undefined {
+    const message = this.agentMessage(requestId);
+    if (!message) return undefined;
+    const profile = (redactionProfile && redactionProfile.trim())
+      || this.humanCardByAlias("operator:primary")?.redaction_profile
+      || FULL_REDACTION_PROFILE;
+    const full = profile === FULL_REDACTION_PROFILE;
+    const parseArray = (value: string): string[] => { try { const parsed = JSON.parse(value || "[]"); return Array.isArray(parsed) ? parsed.map(String) : []; } catch { return []; } };
+    const steps: ReplayStep[] = [];
+
+    // 1. Request received.
+    steps.push({
+      step: "request_received",
+      at: message.created_at,
+      summary: `${message.kind.replace(/_/g, " ")} from ${message.source}`,
+      detail: {
+        id: message.id,
+        channel_id: message.channel_id,
+        source: message.source,
+        kind: message.kind,
+        urgency: message.urgency,
+        title: message.title,
+        intent: message.intent,
+        requested_action: message.requested_action,
+        required_authority: message.required_authority,
+        to_human: message.to_human,
+        affected_resources: parseArray(message.affected_resources),
+        ...(full ? { body: message.body, reason_for_interrupt: message.reason_for_interrupt } : {})
+      }
+    });
+
+    // 2. Risk classified (persisted at submission).
+    steps.push({
+      step: "risk_classified",
+      at: message.created_at,
+      summary: message.interruption_policy ? `${message.risk || "unclassified"} -> ${message.interruption_policy}` : (message.risk || "unclassified"),
+      detail: {
+        risk: message.risk,
+        interruption_policy: message.interruption_policy,
+        escalation_behavior: message.escalation_behavior,
+        expected_response_time: message.expected_response_time,
+        no_response_behavior: message.no_response_behavior,
+        timeout_behavior: message.timeout_behavior,
+        deny_behavior: message.deny_behavior
+      }
+    });
+
+    // 3. Evidence shown (if any). Bind the step to the same hashes the audit chain
+    // committed to so a tampered evidence pack is visible against the replay.
+    if (message.evidence_pack && message.evidence_pack !== "{}") {
+      let evidence: Record<string, unknown> = {};
+      try { evidence = JSON.parse(message.evidence_pack) as Record<string, unknown>; } catch { evidence = {}; }
+      steps.push({
+        step: "evidence_shown",
+        at: message.created_at,
+        summary: full ? String(evidence.summary || "Evidence pack provided") : "Evidence pack provided (redacted)",
+        detail: full
+          ? { evidence_pack: evidence, request_hash: this.requestHash(message), evidence_hash: this.evidenceHashOf(message) }
+          : { redacted: true, evidence_redaction_profile: String(evidence.redaction_profile || ""), request_hash: this.requestHash(message), evidence_hash: this.evidenceHashOf(message) }
+      });
+    }
+
+    // 4. Decision made (latest decision for the request).
+    const decision = this.decisionForRequest(message.id);
+    if (decision) {
+      steps.push({
+        step: "decision_made",
+        at: decision.decided_at,
+        summary: `${decision.decision} by ${decision.operator_alias}`,
+        detail: {
+          decision: decision.decision,
+          operator_alias: decision.operator_alias,
+          selected_options: parseArray(decision.selected_options),
+          authority_grant: decision.authority_grant,
+          decision_hash: decision.decision_hash,
+          ...(full ? { decision_comment: decision.decision_comment, device_id: decision.device_id } : {})
+        }
+      });
+    }
+
+    // 5. Action/outcome reports, in forward (ascending) order.
+    const outcomes = [...this.approvalOutcomes(message.id)].reverse();
+    for (const outcome of outcomes) {
+      steps.push({
+        step: "action_reported",
+        at: outcome.reported_at,
+        summary: `${outcome.outcome_state}${outcome.scope_match === 0 ? " (scope mismatch)" : ""}`,
+        detail: {
+          outcome_state: outcome.outcome_state,
+          scope_match: outcome.scope_match,
+          reported_resources: parseArray(outcome.reported_resources),
+          source: outcome.source,
+          ...(full ? { outcome_summary: outcome.outcome_summary } : {})
+        }
+      });
+    }
+
+    // 6. Final state: the latest reported outcome, else the operator's decision,
+    // else the message's current status.
+    const latestOutcome = outcomes.length ? outcomes[outcomes.length - 1] : undefined;
+    const denied = decision ? DENIAL_DECISIONS.has(decision.decision.toLowerCase()) : false;
+    const finalState = latestOutcome ? latestOutcome.outcome_state : decision ? (denied ? "denied" : "approved") : message.status;
+    const finalAt = latestOutcome ? latestOutcome.reported_at : decision ? decision.decided_at : message.created_at;
+    steps.push({
+      step: "final_state",
+      at: finalAt,
+      summary: finalState,
+      detail: { final_state: finalState, message_status: message.status, decided: Boolean(decision), authority_granted: Boolean(decision && decision.authority_grant) }
+    });
+
+    return {
+      approval_request_id: message.id,
+      redaction_profile: profile,
+      redacted: !full,
+      decided: Boolean(decision),
+      final_state: finalState,
+      steps,
+      audit: this.auditChain(message.id),
+      audit_verification: this.verifyAuditChain()
+    };
+  }
+
+  // --- Governance export (work item 016, AGH-018) -----------------------------
+
+  // Portable export of approval/audit history for offline review. Redacted by
+  // default: credentials are never included, and private message bodies, evidence
+  // packs, decision comments, and outcome summaries are excluded. A full export
+  // (private detail included) requires `includePrivate`, gated at the route by
+  // explicit operator confirmation. The audit chain (hashes only) and its
+  // verification are always included so a reviewer can confirm integrity.
+  governanceExport(includePrivate = false): Record<string, unknown> {
+    const parse = (value: string): unknown => { try { return JSON.parse(value || "[]"); } catch { return []; } };
+    const approvals = (this.connection.prepare("SELECT * FROM agent_messages WHERE kind='approval_request' ORDER BY created_at, id").all() as unknown as AgentMessageRow[]).map((row) => ({
+      id: row.id,
+      channel_id: row.channel_id,
+      source: row.source,
+      kind: row.kind,
+      urgency: row.urgency,
+      title: row.title,
+      risk: row.risk,
+      required_authority: row.required_authority,
+      to_human: row.to_human,
+      template_id: row.template_id,
+      status: row.status,
+      interruption_policy: row.interruption_policy,
+      escalation_behavior: row.escalation_behavior,
+      created_at: row.created_at,
+      expires_at: row.expires_at || null,
+      ...(includePrivate ? {
+        body: row.body,
+        intent: row.intent,
+        requested_action: row.requested_action,
+        reason_for_interrupt: row.reason_for_interrupt,
+        affected_resources: parse(row.affected_resources),
+        evidence_pack: parse(row.evidence_pack)
+      } : {})
+    }));
+    const decisions = (this.connection.prepare("SELECT * FROM decision_records ORDER BY decided_at, id").all() as unknown as DecisionRecordRow[]).map((row) => ({
+      id: row.id,
+      approval_request_id: row.approval_request_id,
+      operator_alias: row.operator_alias,
+      decision: row.decision,
+      selected_options: parse(row.selected_options),
+      authority_grant: row.authority_grant,
+      request_hash: row.request_hash,
+      evidence_hash: row.evidence_hash,
+      decision_hash: row.decision_hash,
+      decided_at: row.decided_at,
+      ...(includePrivate ? { decision_comment: row.decision_comment, device_id: row.device_id } : {})
+    }));
+    const outcomes = (this.connection.prepare("SELECT * FROM approval_outcomes ORDER BY reported_at, id").all() as unknown as ApprovalOutcomeRow[]).map((row) => ({
+      id: row.id,
+      approval_request_id: row.approval_request_id,
+      source: row.source,
+      outcome_state: row.outcome_state,
+      scope_match: row.scope_match,
+      reported_resources: parse(row.reported_resources),
+      reported_at: row.reported_at,
+      ...(includePrivate ? { outcome_summary: row.outcome_summary } : {})
+    }));
+    const memoryRules = (this.connection.prepare("SELECT * FROM decision_memory_rules ORDER BY updated_at, id").all() as unknown as DecisionMemoryRuleRow[]).map((row) => ({
+      source: row.source,
+      template_id: row.template_id,
+      required_authority: row.required_authority,
+      suggested_decision: row.suggested_decision,
+      occurrences: row.occurrences,
+      status: row.status,
+      updated_at: row.updated_at,
+      ...(includePrivate ? { note: row.note } : {})
+    }));
+    return {
+      format: "forgelink-governance-export-v1",
+      exported_at: utcNow(),
+      schema_version: this.state.schemaVersion,
+      mode: includePrivate ? "full" : "redacted",
+      excludes: includePrivate ? [] : ["message_bodies", "evidence_packs", "decision_comments", "outcome_summaries", "credentials"],
+      approval_requests: approvals,
+      decision_records: decisions,
+      approval_outcomes: outcomes,
+      audit_chain: this.auditChain(),
+      audit_verification: this.verifyAuditChain(),
+      decision_memory_rules: memoryRules
+    };
   }
 
   // --- Decision memory (work item 016, AGH-014) -------------------------------

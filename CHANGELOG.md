@@ -56,6 +56,19 @@ versions tracked in `VERSION` and `Electron/package.json`.
   confirmation (or dismissal); a confirmed rule is advisory only — it is never read
   by the approval path, so it never auto-decides or expands agent authority. The
   suggestion, confirm, dismiss, and rule-list endpoints are operator-only (AGH-014).
+- Approval replay: operators can inspect the full lifecycle of an approval —
+  request received, risk classified, evidence shown, decision made, actions
+  reported, and final state — as an ordered, read-only view with the per-request
+  audit-chain segment and a chain verification. Replay redacts according to
+  operator policy: only the desktop_full profile shows private detail; previewing
+  another profile (for example mobile_lock_screen) withholds it while keeping the
+  lifecycle and integrity hashes. The replay endpoint is operator-only (AGH-017).
+- Governance export: operators can export approval/audit history in a portable
+  format for review. The export is redacted by default — credentials are never
+  included, and message bodies, evidence packs, decision comments, and outcome
+  summaries are excluded — and a full export with private detail requires explicit
+  operator confirmation. The export endpoint is operator-only (AGH-018). This
+  completes work item 016 Phase 5 (audit, replay, and integrity).
 
 ### Changed
 - Completed work item 015 (Communication Channels and Voice); moved to the

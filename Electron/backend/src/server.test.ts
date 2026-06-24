@@ -592,6 +592,36 @@ test("accepts authenticated agent channel messages and records human actions", a
     // Outcome views are operator-only; the agent cannot read them.
     assert.equal((await fetch(`${localUrl}/api/approvals/dangling`, { headers: { Authorization: `Bearer ${mcpToken}` } })).status, 401);
 
+    // Approval replay (AGH-017): the operator can inspect the full lifecycle of the
+    // request. The default surface shows full detail; a redacted profile preview
+    // withholds private bodies while keeping the lifecycle and integrity hashes.
+    const replayed = await fetch(`${localUrl}/api/agent-messages/agent-http-1/replay`, { headers: authorized() }).then((r) => r.json()) as { redacted: boolean; final_state: string; decided: boolean; steps: Array<{ step: string; detail: Record<string, unknown> }>; audit_verification: { ok: boolean } };
+    assert.equal(replayed.decided, true);
+    assert.equal(replayed.redacted, false);
+    assert.equal(replayed.final_state, "action_succeeded");
+    assert.deepEqual(replayed.steps.map((s) => s.step), ["request_received", "risk_classified", "evidence_shown", "decision_made", "action_reported", "final_state"]);
+    assert.equal(replayed.audit_verification.ok, true);
+    const redactedReplay = await fetch(`${localUrl}/api/agent-messages/agent-http-1/replay?redaction_profile=mobile_lock_screen`, { headers: authorized() }).then((r) => r.json()) as { redacted: boolean; steps: Array<{ step: string; detail: Record<string, unknown> }> };
+    assert.equal(redactedReplay.redacted, true);
+    assert.equal(redactedReplay.steps[0].detail.body, undefined);
+    // Replay is operator-only and 404s for an unknown request.
+    assert.equal((await fetch(`${localUrl}/api/agent-messages/agent-http-1/replay`, { headers: { Authorization: `Bearer ${mcpToken}` } })).status, 401);
+    assert.equal((await fetch(`${localUrl}/api/agent-messages/does-not-exist/replay`, { headers: authorized() })).status, 404);
+
+    // Governance export (AGH-018): redacted by default; a full export needs explicit
+    // confirmation; operator-only.
+    const govExport = await fetch(`${localUrl}/api/governance/export`, { method: "POST", headers: authorized() }).then((r) => r.json()) as { ok: boolean; name: string; mode: string; audit_verification: { ok: boolean } };
+    assert.equal(govExport.ok, true);
+    assert.match(govExport.name, /^governance-export-/);
+    assert.equal(govExport.mode, "redacted");
+    assert.equal(govExport.audit_verification.ok, true);
+    // Asking for a full export without confirmation is rejected.
+    assert.equal((await fetch(`${localUrl}/api/governance/export`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ full: true }) })).status, 400);
+    const fullExport = await fetch(`${localUrl}/api/governance/export`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ full: true, confirm_full: true }) }).then((r) => r.json()) as { mode: string };
+    assert.equal(fullExport.mode, "full");
+    // Governance export is operator-only; the agent (MCP) token cannot trigger it.
+    assert.equal((await fetch(`${localUrl}/api/governance/export`, { method: "POST", headers: { Authorization: `Bearer ${mcpToken}` } })).status, 401);
+
     const contactId = database.upsertContact("Fabric", "+15550001111");
     database.addContactPoint(contactId, "handle", "fabric-agent", "agent", false);
     let policyRejected = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, {

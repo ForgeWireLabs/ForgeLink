@@ -159,14 +159,18 @@
     {
       "id": "AGH-017",
       "text": "Add approval replay showing request received, risk classified, evidence shown, decision made, action started, outcome reported, and final state.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260624-agh017-approval-replay"
+      ]
     },
     {
       "id": "AGH-018",
       "text": "Add redacted governance export for approval/audit history, excluding credentials and private message bodies by default.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260624-agh018-governance-export"
+      ]
     },
     {
       "id": "AGH-019",
@@ -230,5 +234,5 @@
     }
   ],
   "created": "2026-06-18",
-  "updated": "2026-06-23"
+  "updated": "2026-06-24"
 }

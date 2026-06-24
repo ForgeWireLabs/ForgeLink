@@ -578,6 +578,114 @@ test("suggests repeated decision patterns and requires explicit confirmation (AG
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
+// Approval replay (work item 016, AGH-017): the full lifecycle of a completed
+// approval is replayable and redacts according to operator policy.
+test("replays an approval lifecycle and redacts according to operator policy (AGH-017)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-replay-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    // Unknown request has no replay.
+    assert.equal(database.approvalReplay("missing"), undefined);
+
+    database.addAgentMessage({
+      id: "rp-1", channel_id: "forgewire", source: "codex", kind: "approval_request", urgency: "normal",
+      title: "Release approval", body: "Private approval body", required_authority: "release_approval",
+      affected_resources: ["repo:ForgeLink"], decision_options: [{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }],
+      risk: "normal", interruption_policy: "normal_approval", escalation_behavior: "deny_or_defer_on_timeout",
+      evidence_pack: { summary: "Build is green", affected_resources: ["repo:ForgeLink"], diff_summary: "d", proposed_operation: "publish", checks: ["tests"], rollback_plan: "revert tag", links: [], limitations: "none", redaction_profile: "desktop_full" }
+    });
+    database.recordDecision({ approval_request_id: "rp-1", decision: "approve", decision_comment: "Looks good" });
+    database.recordOutcome({ approval_request_id: "rp-1", outcome_state: "action_started", reported_resources: ["repo:ForgeLink"] });
+    database.recordOutcome({ approval_request_id: "rp-1", outcome_state: "action_succeeded", reported_resources: ["repo:ForgeLink"] });
+
+    // Default replay follows the operator card (desktop_full): full detail, ordered
+    // steps, and a verified per-request chain segment.
+    const full = database.approvalReplay("rp-1")!;
+    assert.equal(full.redacted, false);
+    assert.equal(full.redaction_profile, "desktop_full");
+    assert.equal(full.decided, true);
+    assert.equal(full.final_state, "action_succeeded");
+    assert.deepEqual(full.steps.map((s) => s.step), ["request_received", "risk_classified", "evidence_shown", "decision_made", "action_reported", "action_reported", "final_state"]);
+    // Outcomes are forward-ordered in the replay.
+    const reported = full.steps.filter((s) => s.step === "action_reported");
+    assert.deepEqual(reported.map((s) => s.detail.outcome_state), ["action_started", "action_succeeded"]);
+    // Full detail includes the private body, evidence pack, and decision comment.
+    assert.equal(full.steps[0].detail.body, "Private approval body");
+    assert.ok((full.steps.find((s) => s.step === "evidence_shown")!.detail.evidence_pack as Record<string, unknown>).summary);
+    assert.equal(full.steps.find((s) => s.step === "decision_made")!.detail.decision_comment, "Looks good");
+    assert.equal(full.audit_verification.ok, true);
+    assert.equal(full.audit.every((entry) => entry.approval_request_id === "rp-1"), true);
+
+    // A redacted surface withholds private detail but keeps the lifecycle shape and
+    // the integrity hashes.
+    const redacted = database.approvalReplay("rp-1", "mobile_lock_screen")!;
+    assert.equal(redacted.redacted, true);
+    assert.equal(redacted.redaction_profile, "mobile_lock_screen");
+    assert.equal(redacted.final_state, "action_succeeded");
+    assert.equal(redacted.steps[0].detail.body, undefined);
+    const redactedEvidence = redacted.steps.find((s) => s.step === "evidence_shown")!;
+    assert.equal(redactedEvidence.detail.evidence_pack, undefined);
+    assert.equal(redactedEvidence.detail.redacted, true);
+    assert.ok(redactedEvidence.detail.evidence_hash);
+    assert.equal(redacted.steps.find((s) => s.step === "decision_made")!.detail.decision_comment, undefined);
+
+    // An undecided request still replays: it ends at its current status.
+    database.addAgentMessage({ id: "rp-2", channel_id: "forgewire", source: "codex", kind: "approval_request", urgency: "low", title: "Pending", body: "b", risk: "low", interruption_policy: "passive_notification" });
+    const pending = database.approvalReplay("rp-2")!;
+    assert.equal(pending.decided, false);
+    assert.equal(pending.final_state, "unread");
+    assert.equal(pending.steps.some((s) => s.step === "decision_made"), false);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// Governance export (work item 016, AGH-018): redacted approval/audit history by
+// default; a full export including private detail is explicit.
+test("exports redacted governance history by default and full detail on request (AGH-018)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-gov-export-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    database.addAgentMessage({
+      id: "gx-1", channel_id: "forgewire", source: "codex", kind: "approval_request", urgency: "normal",
+      title: "Release approval", body: "Secret build notes", template_id: "github_release", required_authority: "release_approval",
+      affected_resources: ["repo:ForgeLink"], decision_options: [{ id: "approve", label: "Approve" }],
+      evidence_pack: { summary: "Green", affected_resources: ["repo:ForgeLink"], diff_summary: "d", proposed_operation: "p", checks: [], rollback_plan: "r", links: [], limitations: "l", redaction_profile: "desktop_full" }
+    });
+    database.recordDecision({ approval_request_id: "gx-1", decision: "approve", decision_comment: "private comment" });
+    database.recordOutcome({ approval_request_id: "gx-1", outcome_state: "action_succeeded", outcome_summary: "private outcome detail", reported_resources: ["repo:ForgeLink"] });
+    // A non-approval agent message must not appear in the governance export.
+    database.addAgentMessage({ id: "gx-alert", channel_id: "forgewire", source: "fabric", kind: "alert", urgency: "low", title: "FYI", body: "noise" });
+
+    const redacted = database.governanceExport() as Record<string, any>;
+    assert.equal(redacted.format, "forgelink-governance-export-v1");
+    assert.equal(redacted.mode, "redacted");
+    assert.ok(redacted.excludes.includes("message_bodies"));
+    assert.equal(redacted.approval_requests.length, 1);
+    // Redacted: structural/governance fields present, private bodies/evidence absent.
+    assert.equal(redacted.approval_requests[0].title, "Release approval");
+    assert.equal(redacted.approval_requests[0].risk !== undefined, true);
+    assert.equal(redacted.approval_requests[0].body, undefined);
+    assert.equal(redacted.approval_requests[0].evidence_pack, undefined);
+    assert.equal(redacted.decision_records[0].decision, "approve");
+    assert.equal(redacted.decision_records[0].decision_comment, undefined);
+    assert.equal(redacted.approval_outcomes[0].outcome_state, "action_succeeded");
+    assert.equal(redacted.approval_outcomes[0].outcome_summary, undefined);
+    // The audit chain (hashes only) and its verification are always included.
+    assert.ok(Array.isArray(redacted.audit_chain));
+    assert.equal(redacted.audit_verification.ok, true);
+    // No credential material is ever included.
+    assert.equal(redacted.mcp_tokens, undefined);
+    assert.equal(redacted.agent_channels, undefined);
+
+    const full = database.governanceExport(true) as Record<string, any>;
+    assert.equal(full.mode, "full");
+    assert.deepEqual(full.excludes, []);
+    assert.equal(full.approval_requests[0].body, "Secret build notes");
+    assert.ok(full.approval_requests[0].evidence_pack.summary);
+    assert.equal(full.decision_records[0].decision_comment, "private comment");
+    assert.equal(full.approval_outcomes[0].outcome_summary, "private outcome detail");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("stores trusted signals separately with duplicate handling, export, archive, and retention", () => {
   const directory = mkdtempSync(join(tmpdir(), "twilio-phone-signals-"));
   const path = join(directory, "phone.sqlite3");

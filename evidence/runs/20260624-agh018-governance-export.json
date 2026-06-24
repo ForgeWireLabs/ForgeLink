@@ -1,0 +1,44 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260624-agh018-governance-export",
+  "timestamp": "2026-06-24T18:30:00Z",
+  "work_item": "016",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed with governanceExport producing the redacted-by-default portable approval/audit history and an explicit full mode."
+    },
+    {
+      "command": "node --test backend-dist/channels.test.js backend-dist/telnyx.test.js backend-dist/database.test.js backend-dist/migration.test.js backend-dist/server.test.js backend-dist/signals.test.js backend-dist/twilio.test.js",
+      "exit_code": 0,
+      "summary": "92 backend tests passed, including AGH-018 redacted/full field sets, credential exclusion, the confirm_full gate (400 without confirmation), and operator-only route scoping."
+    },
+    {
+      "command": "npx tsc -p renderer/tsconfig.json",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript typecheck passed."
+    },
+    {
+      "command": "python .local\\validate_system.py",
+      "exit_code": 0,
+      "summary": "Local audit passed after AGH-018 implementation and ledger updates; Phase 5 (audit, replay, integrity) complete."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.test.ts",
+    "docs/approval-requests.md",
+    "work/active/016-agent-human-governance/README.md",
+    "work/active/016-agent-human-governance/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "AGH-018: operator-only governance export (forgelink-governance-export-v1) of approval requests, decision records, outcomes, audit chain hashes, chain verification, and decision-memory rules; redacted by default (credentials never included; bodies/evidence/comments/summaries excluded), full export gated behind explicit operator confirmation."
+  }
+}
