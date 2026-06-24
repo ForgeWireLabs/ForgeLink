@@ -1,0 +1,47 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260623-agh014-decision-memory",
+  "timestamp": "2026-06-23T21:30:00Z",
+  "work_item": "016",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed with schema v20 decision_memory_rules and the decisionMemorySuggestions/confirm/dismiss API."
+    },
+    {
+      "command": "node --test backend-dist/channels.test.js backend-dist/telnyx.test.js backend-dist/database.test.js backend-dist/migration.test.js backend-dist/server.test.js backend-dist/signals.test.js backend-dist/twilio.test.js",
+      "exit_code": 0,
+      "summary": "90 backend tests passed, including v20 migration, repeated-pattern threshold detection, suggestion suppression after confirm, decision validation, the advisory no-auto-decide invariant, dismissal, and operator/agent route scoping."
+    },
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript build passed with the added DecisionMemorySuggestion and DecisionMemoryRule types."
+    },
+    {
+      "command": "python .local\\validate_system.py",
+      "exit_code": 0,
+      "summary": "Local audit passed after AGH-014 implementation and ledger updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/types.ts",
+    "docs/approval-requests.md",
+    "decisions/0011-schema-migration-coordination.md",
+    "CHANGELOG.md",
+    "work/active/016-agent-human-governance/README.md",
+    "work/active/016-agent-human-governance/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "AGH-014: repeated-decision-pattern detection surfaced as operator-confirmable suggestions; confirmed rules are advisory only and never auto-decide or expand agent authority."
+  }
+}

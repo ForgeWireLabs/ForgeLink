@@ -50,13 +50,19 @@ versions tracked in `VERSION` and `Electron/package.json`.
   approved resources, keeps approvals that never reported a terminal outcome
   visible as "dangling," audits each outcome, and commits it to the audit chain.
   Agents report over their own token; outcome views are operator-only (AGH-015).
+- Decision memory: ForgeLink detects when the same agent source, approval
+  template, and required authority were decided the same way at least three times
+  and offers it as a suggested policy. Suggestions require explicit operator
+  confirmation (or dismissal); a confirmed rule is advisory only — it is never read
+  by the approval path, so it never auto-decides or expands agent authority. The
+  suggestion, confirm, dismiss, and rule-list endpoints are operator-only (AGH-014).
 
 ### Changed
 - Completed work item 015 (Communication Channels and Voice); moved to the
   completed ledger.
 - Schema migrations now follow a single append-only ladder with per-version
   ownership recorded in decision 0011 (CLV-022). The local schema advanced from
-  v10 to v19. Upgrades back up the database and are tested from previously shipped
+  v10 to v20. Upgrades back up the database and are tested from previously shipped
   schemas.
 
 ## [2.0.3] - 2026-06-20 (local build, unsigned)

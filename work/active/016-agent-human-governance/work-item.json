@@ -135,8 +135,10 @@
     {
       "id": "AGH-014",
       "text": "Add Decision Memory that detects repeated approval patterns and suggests future policy only with explicit operator confirmation.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260623-agh014-decision-memory"
+      ]
     },
     {
       "id": "AGH-015",

@@ -5,7 +5,7 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 19;
+export const CURRENT_SCHEMA_VERSION = 20;
 
 export interface ThreadRow {
   id: number;
@@ -367,6 +367,46 @@ export interface ApprovalOutcomeRow {
 const OUTCOME_STATES = new Set(["action_started", "action_succeeded", "action_failed", "expired_before_use", "used_modified_scope", "cancelled"]);
 // Terminal states close out an approval; their absence means it is still dangling.
 const TERMINAL_OUTCOME_STATES = ["action_succeeded", "action_failed", "cancelled", "expired_before_use"];
+
+// Decision memory (work item 016, AGH-014): repeated operator decisions become
+// *suggested* policy the operator must explicitly confirm. A confirmed rule is
+// advisory only — it is never read by the approval path and never auto-decides or
+// expands agent authority.
+export interface DecisionMemorySuggestion {
+  source: string;
+  template_id: string;
+  required_authority: string;
+  suggested_decision: string;    // approve | deny
+  occurrences: number;
+  last_decided_at: string;
+  requires_confirmation: true;
+}
+
+export interface DecisionMemoryRuleInput {
+  source: string;
+  template_id: string;
+  required_authority: string;
+  suggested_decision: string;
+  note?: string;
+  occurrences?: number;
+}
+
+export interface DecisionMemoryRuleRow {
+  id: string;
+  source: string;
+  template_id: string;
+  required_authority: string;
+  suggested_decision: string;
+  occurrences: number;
+  status: string;                // confirmed | dismissed
+  note: string;
+  created_at: string;
+  updated_at: string;
+}
+
+const MEMORY_DECISIONS = new Set(["approve", "deny"]);
+// A pattern must repeat at least this many times before it is suggested as policy.
+const DECISION_MEMORY_MIN_OCCURRENCES = 3;
 
 export interface McpTokenStatus {
   configured: boolean;
@@ -962,6 +1002,28 @@ export class PhoneDatabase {
         version = 19;
         this.connection.exec("PRAGMA user_version=19");
       }
+      if (version === 19) {
+        // Decision memory rules (work item 016, AGH-014; schema v20 per decision 0011).
+        // Operator-confirmed (or dismissed) acknowledgements of repeated decision
+        // patterns. Advisory only; never read by the approval path.
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS decision_memory_rules (
+            id TEXT PRIMARY KEY,
+            source TEXT NOT NULL DEFAULT '',
+            template_id TEXT NOT NULL DEFAULT '',
+            required_authority TEXT NOT NULL DEFAULT '',
+            suggested_decision TEXT NOT NULL,
+            occurrences INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_decision_memory_pattern ON decision_memory_rules(source, template_id, required_authority, suggested_decision);
+        `);
+        version = 20;
+        this.connection.exec("PRAGMA user_version=20");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -1017,6 +1079,7 @@ export class PhoneDatabase {
       decision_records: this.connection.prepare("SELECT * FROM decision_records ORDER BY decided_at, id").all(),
       audit_chain: this.connection.prepare("SELECT * FROM audit_chain ORDER BY seq").all(),
       approval_outcomes: this.connection.prepare("SELECT * FROM approval_outcomes ORDER BY reported_at, id").all(),
+      decision_memory_rules: this.connection.prepare("SELECT * FROM decision_memory_rules ORDER BY updated_at, id").all(),
       signal_subscriptions: this.connection.prepare("SELECT * FROM signal_subscriptions ORDER BY title, id").all(),
       signal_items: this.connection.prepare("SELECT * FROM signal_items ORDER BY received_at, id").all(),
       mcp_tokens: this.connection.prepare("SELECT id, created_at, rotated_at, revoked_at, last_used_at, last_test_at, last_test_status FROM mcp_tokens ORDER BY id").all(),
@@ -1768,6 +1831,68 @@ export class PhoneDatabase {
   // issues for the operator.
   scopeMismatchOutcomes(): ApprovalOutcomeRow[] {
     return this.connection.prepare("SELECT * FROM approval_outcomes WHERE scope_match=0 ORDER BY reported_at DESC, id DESC LIMIT 500").all() as unknown as ApprovalOutcomeRow[];
+  }
+
+  // --- Decision memory (work item 016, AGH-014) -------------------------------
+
+  // Detect repeated decision patterns: the same agent source + template + required
+  // authority decided the same way at least DECISION_MEMORY_MIN_OCCURRENCES times.
+  // Patterns the operator already confirmed or dismissed are not re-suggested.
+  // These are suggestions only; confirming one never auto-decides future requests.
+  decisionMemorySuggestions(minOccurrences = DECISION_MEMORY_MIN_OCCURRENCES): DecisionMemorySuggestion[] {
+    const rows = this.connection.prepare(`
+      SELECT m.source AS source, m.template_id AS template_id, m.required_authority AS required_authority,
+             CASE WHEN d.authority_grant != '' THEN 'approve' ELSE 'deny' END AS suggested_decision,
+             COUNT(*) AS occurrences, MAX(d.decided_at) AS last_decided_at
+      FROM decision_records d
+      JOIN agent_messages m ON m.id = d.approval_request_id
+      GROUP BY m.source, m.template_id, m.required_authority, suggested_decision
+      HAVING occurrences >= ?
+        AND NOT EXISTS (
+          SELECT 1 FROM decision_memory_rules r
+          WHERE r.source = m.source AND r.template_id = m.template_id
+            AND r.required_authority = m.required_authority
+            AND r.suggested_decision = (CASE WHEN d.authority_grant != '' THEN 'approve' ELSE 'deny' END)
+        )
+      ORDER BY occurrences DESC, last_decided_at DESC
+    `).all(minOccurrences) as Array<Omit<DecisionMemorySuggestion, "requires_confirmation">>;
+    return rows.map((row) => ({ ...row, occurrences: Number(row.occurrences), requires_confirmation: true }));
+  }
+
+  decisionMemoryRules(): DecisionMemoryRuleRow[] {
+    return this.connection.prepare("SELECT * FROM decision_memory_rules ORDER BY updated_at DESC, id DESC").all() as unknown as DecisionMemoryRuleRow[];
+  }
+
+  // Explicit operator confirmation (or dismissal) of a suggested pattern. Recording
+  // a rule is an operator decision and is advisory only — it does not change how the
+  // approval path handles future requests and never expands agent authority.
+  private upsertDecisionMemoryRule(input: DecisionMemoryRuleInput, status: "confirmed" | "dismissed"): DecisionMemoryRuleRow {
+    const decision = String(input.suggested_decision || "").trim().toLowerCase();
+    if (!MEMORY_DECISIONS.has(decision)) throw new Error("suggested_decision must be approve or deny.");
+    const source = String(input.source || "").trim();
+    const templateId = String(input.template_id || "").trim();
+    const requiredAuthority = String(input.required_authority || "").trim();
+    const note = String(input.note || "").slice(0, 2000);
+    const occurrences = Number.isInteger(input.occurrences) ? Number(input.occurrences) : 0;
+    const now = utcNow();
+    const existing = this.connection.prepare("SELECT id, created_at FROM decision_memory_rules WHERE source=? AND template_id=? AND required_authority=? AND suggested_decision=?")
+      .get(source, templateId, requiredAuthority, decision) as { id: string; created_at: string } | undefined;
+    const id = existing?.id || randomUUID();
+    this.connection.prepare(`
+      INSERT INTO decision_memory_rules(id, source, template_id, required_authority, suggested_decision, occurrences, status, note, created_at, updated_at)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(source, template_id, required_authority, suggested_decision)
+      DO UPDATE SET occurrences=excluded.occurrences, status=excluded.status, note=excluded.note, updated_at=excluded.updated_at
+    `).run(id, source, templateId, requiredAuthority, decision, occurrences, status, note, existing?.created_at || now, now);
+    return this.connection.prepare("SELECT * FROM decision_memory_rules WHERE id=?").get(id) as unknown as DecisionMemoryRuleRow;
+  }
+
+  confirmDecisionMemory(input: DecisionMemoryRuleInput): DecisionMemoryRuleRow {
+    return this.upsertDecisionMemoryRule(input, "confirmed");
+  }
+
+  dismissDecisionMemory(input: DecisionMemoryRuleInput): DecisionMemoryRuleRow {
+    return this.upsertDecisionMemoryRule(input, "dismissed");
   }
 
   // --- Human Cards (work item 016, AGH-001) -----------------------------------

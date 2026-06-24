@@ -635,6 +635,31 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         return sendJson(response, database.approvalOutcomes(decodeURIComponent(outcomesMatch[1])));
       }
+      // Decision memory (AGH-014): operator-only. Suggestions surface repeated
+      // patterns; confirm/dismiss require an explicit operator action and are
+      // advisory only — they never auto-decide or expand agent authority.
+      if (request.method === "GET" && url.pathname === "/api/decision-memory/suggestions") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.decisionMemorySuggestions());
+      }
+      if (request.method === "GET" && url.pathname === "/api/decision-memory") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.decisionMemoryRules());
+      }
+      if (request.method === "POST" && (url.pathname === "/api/decision-memory/confirm" || url.pathname === "/api/decision-memory/dismiss")) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const rule = {
+          source: typeof payload.source === "string" ? payload.source : "",
+          template_id: typeof payload.template_id === "string" ? payload.template_id : "",
+          required_authority: typeof payload.required_authority === "string" ? payload.required_authority : "",
+          suggested_decision: boundedText(payload.suggested_decision, "suggested_decision", 20, /^(approve|deny)$/),
+          note: typeof payload.note === "string" ? payload.note : undefined,
+          occurrences: Number.isInteger(payload.occurrences) ? Number(payload.occurrences) : undefined
+        };
+        const saved = url.pathname.endsWith("/confirm") ? database.confirmDecisionMemory(rule) : database.dismissDecisionMemory(rule);
+        return sendJson(response, { ok: true, rule: saved }, 201);
+      }
       if (request.method === "GET" && url.pathname === "/api/signals/subscriptions") {
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         return sendJson(response, database.signalSubscriptions());

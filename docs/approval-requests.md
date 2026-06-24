@@ -252,6 +252,47 @@ Decision Records are only written from the local operator surface (launch token)
 never from an agent (MCP) token, so a well-formed agent action cannot forge an
 operator decision. The read endpoints reject agent tokens.
 
+## Decision Memory
+
+ForgeLink notices when the operator decides the same kind of request the same way
+repeatedly and offers it as *suggested* policy (work item 016, AGH-014). A
+suggestion fires when the same agent source, approval template, and required
+authority were decided the same direction (approve or deny) at least three times.
+Suggestions are operator-only and read-only:
+
+```http
+GET /api/decision-memory/suggestions
+```
+
+```jsonc
+[
+  {
+    "source": "codex",
+    "template_id": "github_release",
+    "required_authority": "release_approval",
+    "suggested_decision": "approve",
+    "occurrences": 3,
+    "last_decided_at": "2026-06-23T20:00:00.000Z",
+    "requires_confirmation": true
+  }
+]
+```
+
+The operator explicitly confirms or dismisses a suggestion; either records an
+advisory rule and removes the pattern from future suggestions:
+
+```http
+POST /api/decision-memory/confirm     # body: source, template_id, required_authority, suggested_decision, note?
+POST /api/decision-memory/dismiss     # same body
+GET  /api/decision-memory             # confirmed/dismissed rules
+```
+
+Decision memory **never expands agent authority and never auto-decides**. A
+confirmed rule is operator-facing metadata only — it is not read by the approval
+path, so a future matching request still requires an explicit operator decision.
+Confirmation is always an explicit operator action; ForgeLink does not create or
+apply rules on its own. These endpoints are operator-only.
+
 ## Outcomes
 
 After a decision, the agent reports what actually happened (work item 016,
@@ -330,6 +371,6 @@ chain endpoints are operator-only.
 ## Boundaries
 
 - The chain covers approval requests, evidence packs, decisions, and outcomes.
-- Decision **memory** (AGH-014) and the operator replay **view** (AGH-017) are later
-  criteria; the data the replay view needs (per-request decision, outcomes, and
-  chain) is already exposed by the endpoints above.
+- The operator replay **view** (AGH-017) is a later criterion; the data it needs
+  (per-request decision, outcomes, and chain) is already exposed by the endpoints
+  above.

@@ -13,6 +13,8 @@ export interface DecisionRecord { id: string; approval_request_id: string; opera
 export interface AuditChainEntry { seq: number; entry_type: string; ref_id: string; approval_request_id: string; payload_hash: string; prev_hash: string; entry_hash: string; created_at: string; }
 export interface AuditChainVerification { ok: boolean; length: number; broken_at: number | null; reason: string; }
 export interface ApprovalOutcome { id: string; approval_request_id: string; source: string; outcome_state: string; outcome_summary: string; scope_match: number; reported_resources: string; reported_at: string; }
+export interface DecisionMemorySuggestion { source: string; template_id: string; required_authority: string; suggested_decision: string; occurrences: number; last_decided_at: string; requires_confirmation: boolean; }
+export interface DecisionMemoryRule { id: string; source: string; template_id: string; required_authority: string; suggested_decision: string; occurrences: number; status: string; note: string; created_at: string; updated_at: string; }
 export interface SignalSubscription { id: string; title: string; url: string; enabled: boolean; muted: boolean; fetch_interval_minutes: number; retention_days: number; last_fetch_at: string | null; last_fetch_status: string; last_error: string; created_at: string; updated_at: string; }
 export interface SignalItem { id: string; subscription_id: string; source_title: string; title: string; url: string; summary: string; author: string; published_at: string | null; received_at: string; status: "unread" | "read" | "archived"; muted: boolean; }
 export interface ConfigStatus { account_sid: boolean; auth_token: boolean; phone_number: boolean; public_base_url: boolean; }

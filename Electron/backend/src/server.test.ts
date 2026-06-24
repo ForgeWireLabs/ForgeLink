@@ -628,6 +628,47 @@ test("accepts authenticated agent channel messages and records human actions", a
   }
 });
 
+test("surfaces decision-memory suggestions and records explicit confirmation (AGH-014)", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-decision-memory-api-"));
+  const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  try {
+    const mcpToken = ((await (await fetch(`${localUrl}/api/mcp/token`, { method: "POST", headers: authorized() })).json()) as { token: string }).token;
+    // Three repeated approvals of the same pattern establish a memory candidate.
+    for (let n = 0; n < 3; n += 1) {
+      const id = `dm-${n}`;
+      database.addAgentMessage({ id, channel_id: "forgewire", source: "codex", kind: "approval_request", urgency: "normal", title: "Release", body: "Publish", template_id: "github_release", required_authority: "release_approval", affected_resources: ["repo:ForgeLink"], decision_options: [{ id: "approve", label: "Approve" }] });
+      database.recordDecision({ approval_request_id: id, decision: "approve" });
+    }
+
+    const suggestions = await fetch(`${localUrl}/api/decision-memory/suggestions`, { headers: authorized() }).then((r) => r.json()) as Array<{ source: string; suggested_decision: string; occurrences: number }>;
+    assert.equal(suggestions.length, 1);
+    assert.equal(suggestions[0].source, "codex");
+    assert.equal(suggestions[0].suggested_decision, "approve");
+    assert.equal(suggestions[0].occurrences, 3);
+
+    // Confirmation requires an explicit operator action and a valid decision.
+    assert.equal((await fetch(`${localUrl}/api/decision-memory/confirm`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ source: "codex", template_id: "github_release", required_authority: "release_approval", suggested_decision: "maybe" }) })).status, 400);
+    const confirmed = await fetch(`${localUrl}/api/decision-memory/confirm`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ source: "codex", template_id: "github_release", required_authority: "release_approval", suggested_decision: "approve", occurrences: 3, note: "Routine" }) });
+    assert.equal(confirmed.status, 201);
+    assert.equal((await confirmed.json() as { rule: { status: string } }).rule.status, "confirmed");
+
+    // The confirmed pattern is no longer suggested and is listed as a rule.
+    assert.deepEqual(await fetch(`${localUrl}/api/decision-memory/suggestions`, { headers: authorized() }).then((r) => r.json()), []);
+    assert.equal((await fetch(`${localUrl}/api/decision-memory`, { headers: authorized() }).then((r) => r.json()) as Array<unknown>).length, 1);
+
+    // Decision memory is operator-only; an agent (MCP) token cannot read or write it.
+    const mcp = { Authorization: `Bearer ${mcpToken}` };
+    assert.equal((await fetch(`${localUrl}/api/decision-memory/suggestions`, { headers: mcp })).status, 401);
+    assert.equal((await fetch(`${localUrl}/api/decision-memory/confirm`, { method: "POST", headers: { ...mcp, "Content-Type": "application/json" }, body: JSON.stringify({ source: "codex", template_id: "github_release", required_authority: "release_approval", suggested_decision: "approve" }) })).status, 401);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("enforces agent channel credentials, revocation, disable, and urgency rate limits", async () => {
   const directory = mkdtempSync(join(tmpdir(), "twilio-phone-agent-channel-security-"));
   const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });

@@ -137,6 +137,8 @@ test("upgrades a version-seven (pre-015) database to the current schema without 
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='audit_chain'").get() as { name: string } | undefined)?.name, "audit_chain");
     // v19 (016 AGH-015) adds approval outcome callbacks.
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='approval_outcomes'").get() as { name: string } | undefined)?.name, "approval_outcomes");
+    // v20 (016 AGH-014) adds decision memory rules.
+    assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='decision_memory_rules'").get() as { name: string } | undefined)?.name, "decision_memory_rules");
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -515,6 +517,64 @@ test("records approval outcomes, flags scope mismatch, and surfaces dangling app
     // A tampered outcome is caught by chain verification.
     database.connection.prepare("UPDATE approval_outcomes SET outcome_state='action_failed' WHERE id=?").run(ok.id);
     assert.equal(database.verifyAuditChain().reason, "tampered_payload");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// Decision memory (work item 016, AGH-014): repeated patterns become suggestions
+// that require explicit operator confirmation and never auto-decide.
+test("suggests repeated decision patterns and requires explicit confirmation (AGH-014)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-decision-memory-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const approveOnce = (n: number) => {
+      const id = `mem-${n}`;
+      database.addAgentMessage({ id, channel_id: "forgewire", source: "codex", kind: "approval_request", urgency: "normal", title: "Release", body: "Publish", template_id: "github_release", required_authority: "release_approval", affected_resources: ["repo:ForgeLink"], decision_options: [{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }] });
+      database.recordDecision({ approval_request_id: id, decision: "approve" });
+    };
+
+    // Two approvals of the same pattern are below the threshold: no suggestion.
+    approveOnce(1);
+    approveOnce(2);
+    assert.deepEqual(database.decisionMemorySuggestions(), []);
+
+    // The third repeat crosses the threshold and surfaces a suggestion.
+    approveOnce(3);
+    const suggestions = database.decisionMemorySuggestions();
+    assert.equal(suggestions.length, 1);
+    assert.equal(suggestions[0].source, "codex");
+    assert.equal(suggestions[0].template_id, "github_release");
+    assert.equal(suggestions[0].required_authority, "release_approval");
+    assert.equal(suggestions[0].suggested_decision, "approve");
+    assert.equal(suggestions[0].occurrences, 3);
+    assert.equal(suggestions[0].requires_confirmation, true);
+
+    // suggested_decision is validated.
+    assert.throws(() => database.confirmDecisionMemory({ source: "codex", template_id: "github_release", required_authority: "release_approval", suggested_decision: "maybe" }), /approve or deny/);
+
+    // Confirming the suggestion records an explicit, advisory rule and removes it
+    // from future suggestions (idempotent on the pattern).
+    const confirmed = database.confirmDecisionMemory({ source: "codex", template_id: "github_release", required_authority: "release_approval", suggested_decision: "approve", note: "Routine release", occurrences: 3 });
+    assert.equal(confirmed.status, "confirmed");
+    assert.deepEqual(database.decisionMemorySuggestions(), []);
+    assert.equal(database.decisionMemoryRules().length, 1);
+    database.confirmDecisionMemory({ source: "codex", template_id: "github_release", required_authority: "release_approval", suggested_decision: "approve" });
+    assert.equal(database.decisionMemoryRules().length, 1);
+
+    // Crucial invariant: a confirmed rule is advisory only. A new matching request
+    // is NOT auto-decided — no decision exists until the operator acts.
+    database.addAgentMessage({ id: "mem-new", channel_id: "forgewire", source: "codex", kind: "approval_request", urgency: "normal", title: "Release", body: "Publish", template_id: "github_release", required_authority: "release_approval", affected_resources: ["repo:ForgeLink"], decision_options: [{ id: "approve", label: "Approve" }] });
+    assert.equal(database.decisionForRequest("mem-new"), undefined);
+    assert.equal(database.agentMessage("mem-new")?.status, "unread");
+
+    // Dismissing a different pattern records it without suggesting it again.
+    database.addAgentMessage({ id: "mem-del-1", channel_id: "forgewire", source: "rogue", kind: "approval_request", urgency: "normal", title: "Delete", body: "rm", template_id: "data_delete", required_authority: "general_approval", affected_resources: ["data:cache"], decision_options: [{ id: "deny", label: "Deny" }] });
+    database.recordDecision({ approval_request_id: "mem-del-1", decision: "deny" });
+    database.dismissDecisionMemory({ source: "rogue", template_id: "data_delete", required_authority: "general_approval", suggested_decision: "deny" });
+    assert.equal(database.decisionMemoryRules().find((rule) => rule.source === "rogue")?.status, "dismissed");
+
+    // Rules are part of the durable export.
+    const exported = database.exportData() as { decision_memory_rules: Array<unknown> };
+    assert.equal(exported.decision_memory_rules.length, 2);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
