@@ -20,7 +20,9 @@ REQUIRED_WORK_FIELDS = {
 }
 PREFLIGHT_REQUIRED_FROM_ID = 10
 
-DECISION_STATUSES = ("proposed", "accepted", "superseded", "deprecated")
+# ForgeLink local extension: the "deferred" decision status (ForgeLink decision
+# 0014; see scripts/LOCAL_EXTENSIONS.md). Re-apply on every RepoPact re-vendor.
+DECISION_STATUSES = ("proposed", "accepted", "superseded", "deprecated", "deferred")
 POLICY_STATUSES = ("active", "retired")
 
 # A work-item README may use the "- [ ] **CRIT-1** ..." checklist convention to

@@ -18,3 +18,9 @@ ForgeLink is governed with [RepoPact](https://github.com/ForgeWireLabs/repopact)
 (schemas and tooling vendored under `schemas/` and `scripts/`). Validate with
 `python scripts/validate_repo.py` (or `repopact validate`). Derived artifacts
 (`audits/reports/dashboard.md`) are generated, never hand-edited.
+
+The vendored `scripts/` and `schemas/` carry ForgeLink-local patches on top of
+upstream RepoPact. Before editing or re-vendoring any vendored file, read
+[`scripts/LOCAL_EXTENSIONS.md`](scripts/LOCAL_EXTENSIONS.md) — it is the
+authoritative list of carried patches (which a re-vendor will clobber unless
+re-applied) and the upstream backlog. Do not silently drop a carried patch.
