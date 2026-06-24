@@ -1,15 +1,24 @@
 # ForgeLink
 
-**ForgeLink is a private human communications boundary for agentic systems.**
+**ForgeLink is a local-first communications and decision runtime for humans and agents.**
 
-It gives local agents, MCP clients, and ForgeWire/Fabric workflows a controlled
-way to ask for human attention, request approval, and receive human decisions
-without becoming another feed, leaking secrets into ordinary chat surfaces, or
-turning the operator into a notification target.
+It is the private boundary where agents request human attention, authority, and
+decisions — and where a human operator reviews, approves, denies, defers, and
+replays that activity — without becoming another feed, leaking secrets into
+ordinary chat surfaces, or turning the operator into a notification target.
 
-Today ForgeLink ships as an Electron desktop app with Twilio SMS/MMS support,
-local SQLite storage, an MCP human bridge, per-channel credentials, rate limits,
-backup/export tools, and an explicit human attention policy.
+ForgeLink is built for both sides of the relationship. Agents need a governed way
+to communicate, request authority, and report outcomes; humans need a private,
+inspectable place to decide. Channels — SMS/MMS, voice, and future adapters — are
+edges. The center is governed communication state.
+
+Today ForgeLink ships a provider-neutral communications runtime (Twilio and Telnyx
+SMS/MMS, Twilio Voice, durable call history, and a contact timeline), rich contacts
+with per-contact attention policy, and a working agent-human governance layer —
+agent identity and trust, evidence-bearing approval requests, risk tiers, signed and
+replayable decision records, and a tamper-evident audit chain — on top of an Electron
+desktop app with local SQLite storage, an MCP human bridge, per-channel credentials,
+backup/export tooling, and an explicit attention policy.
 
 > Agent messages are communications, not content.
 
@@ -38,14 +47,20 @@ rules, and auditable outcomes.
 
 ## What ForgeLink Is
 
-ForgeLink is currently three things working together:
+ForgeLink is currently four things working together:
 
-1. **A private desktop communications console**
-   - Electron desktop client.
-   - React and TypeScript renderer.
-   - Bundled TypeScript backend.
+1. **A local-first communications runtime**
+   - Electron desktop client with a React/TypeScript renderer and a bundled
+     TypeScript backend.
    - Local SQLite persistence using Node's built-in SQLite support.
-   - Twilio SMS/MMS adapter for direct human messaging.
+   - Provider-neutral channel architecture: native, internet, and telecom-edge
+     adapters behind one capability contract, with a shared conformance kit every
+     adapter must pass.
+   - SMS/MMS through Twilio and Telnyx; Twilio Voice with durable call history.
+   - Rich contacts, contact points / channel identities, and per-contact
+     attention policy.
+   - A redaction-aware contact timeline across messages, calls, and agent requests.
+   - Provider-optional first run: usable local-only with no telecom provider.
    - Backup, restore, export, retention, and delivery-state handling.
 
 2. **A human bridge for agentic apps**
@@ -63,6 +78,21 @@ ForgeLink is currently three things working together:
    - Redacted desktop notifications by default.
    - Explicit rules for when agent messages, SMS, trusted signals, and system
      notices are allowed to interrupt.
+
+4. **An agent-human governance layer**
+   - Human Cards: resolvable local operator authority by alias (for example
+     `operator:primary`), with redacted, agent-reachable resolution.
+   - An agent identity registry with trust states and probation, so muted or
+     blocked agents cannot interrupt and only trusted agents can raise urgent ones.
+   - Structured, evidence-bearing approval requests carrying intent, requested
+     action, risk tier, required authority scope, and affected resources.
+   - Signed, replayable decision records written only from the local operator
+     surface, so an agent cannot forge an operator decision.
+   - A tamper-evident audit chain and approval outcome callbacks.
+
+This layer (work item 016) is in progress; the operator cockpit that turns it
+into a decision-first product surface (work item 017) is planned. See
+[Project Status](#project-status).
 
 ## What ForgeLink Is Not
 
@@ -87,18 +117,21 @@ forgelink-human MCP bridge
 ForgeLink local authenticated API
         |
         +-- Agent messages
-        +-- Approval requests
-        +-- Human actions
-        +-- Channel credentials
+        +-- Approval requests (evidence, risk, authority)
+        +-- Human actions and decision records
+        +-- Agent identity and trust
+        +-- Contacts and channel credentials
         +-- Attention policy
+        +-- Tamper-evident audit
         |
         v
 ForgeLink desktop app
         |
-        +-- Agents view
-        +-- SMS / MMS adapter
+        +-- Agents view / approvals
+        +-- SMS / MMS adapters (Twilio, Telnyx)
+        +-- Calls (Twilio Voice) and call history
         +-- Trusted signals
-        +-- Contacts
+        +-- Contacts and contact policy
         +-- Settings
         +-- Backup / export / retention
         |
@@ -113,7 +146,8 @@ human boundary.
 ## Requirements
 
 - Node.js 22 or newer
-- A Twilio account and phone number for SMS/MMS features
+- A Twilio or Telnyx account and phone number for SMS/MMS features (optional —
+  ForgeLink runs local-only with no telecom provider)
 - PowerShell for the included MCP install helper on Windows
 
 ForgeLink packages its backend with the Electron app. Packaged builds do not
@@ -129,15 +163,17 @@ npm install
 npm start
 ```
 
-On first launch, ForgeLink opens a setup wizard for:
+On first launch, ForgeLink offers a **Start local-only** path (agent approvals and
+the local human loop, no telecom provider) or a setup wizard to configure an
+SMS/MMS edge:
 
-- Twilio account SID
-- Twilio auth token
-- Twilio phone number
-- Public webhook URL
-- Local service address
+- Twilio (or Telnyx) account SID / API credentials
+- auth token
+- sending phone number
+- public webhook URL
+- local service address
 
-Use **Test connection** before saving. Stored Twilio auth tokens are encrypted
+Use **Test connection** before saving. Stored provider auth tokens are encrypted
 with Electron `safeStorage` and are never returned to the renderer.
 
 ## Development
@@ -404,38 +440,47 @@ Work item IDs are permanent and never reused.
 
 ForgeLink currently includes:
 
-- Electron desktop app
-- Twilio SMS/MMS adapter
-- setup wizard and settings UI
-- local SQLite storage
-- local backup, restore, export, and retention tools
-- conversation drafts
-- pending/failed outbound state recovery
+- Electron desktop app with setup wizard and settings UI
+- provider-neutral channel architecture and a shared adapter conformance kit
+- Twilio and Telnyx SMS/MMS adapters (Plivo/Bandwidth recorded as planning gates)
+- Twilio Voice: call UI, durable call history, and call status reconciliation
+- rich contacts, contact points / channel identities, and per-contact policy
+- a redaction-aware contact timeline across messages, calls, and agent requests
+- provider-optional local-only first run (no telecom provider required)
+- local SQLite storage; backup, restore, export, and retention tools
+- conversation drafts and pending/failed outbound state recovery
 - local authenticated agent-channel API
-- Agents view for human requests and outcomes
-- Node/TypeScript MCP bridge
-- MCP templates for multiple agentic apps
+- Agents view for human requests, approvals, and outcomes
+- agent identity registry with trust states and probation
+- evidence-bearing approval requests with risk tiers and authority scopes
+- signed, replayable decision records and a tamper-evident audit chain
+- Node/TypeScript MCP bridge with templates for multiple agentic apps
 - ForgeWire/Fabric smoke compatibility
 - MCP token creation, rotation, revocation, and testing
 - per-channel credentials and rate limits
-- notification redaction
-- quiet hours and human attention policy
+- notification redaction, quiet hours, and human attention policy
 - RepoPact work ledger and validation evidence
 
 ## Project Status
 
 ForgeLink is under active development.
 
-The current public shape is a local-first desktop communications console plus a
-human bridge for agentic applications. Twilio is the first real-world messaging
-adapter. MCP and ForgeWire/Fabric compatibility are the first agentic integration
-surfaces.
+The communications runtime (work item 015) is complete: a provider-neutral,
+local-first channel architecture with SMS/MMS and voice edges, contacts and
+contact policy, call history, and a contact timeline. The agent-human governance
+layer (work item 016) is in progress — agent identity and trust, evidence-bearing
+approval requests, risk tiers, decision records, and a tamper-evident audit chain
+have landed, with the remaining governance criteria still open. The operator
+cockpit (work item 017) — a decision-first inbox with Decisions / People / Agents /
+Channels surfaces, triage lanes, operator modes and presence, batch approvals, an
+agent fatigue/reputation budget, and a mobile decision companion — is planned.
 
-Near-term hardening areas include:
+Near-term areas include:
 
+- completing the remaining 016 governance criteria
+- the 017 operator cockpit information architecture
+- additional channel adapters (email, push, Telegram, WhatsApp, Discord, RSS)
 - packaged installer decisions for the MCP bridge
-- clearer operator setup paths
-- broader adapter strategy beyond Twilio
 - live registration flows for running ForgeWire/Fabric hubs
 - continued attention-policy refinement
 
@@ -445,7 +490,7 @@ ForgeLink is part of the ForgeWire Labs public ecosystem.
 
 - **ForgeWire/Fabric** provides the distributed task and control substrate.
 - **RepoPact** provides repo-native governance and durable work primitives.
-- **ForgeLink** provides the private human communications boundary.
+- **ForgeLink** provides the local-first human-agent communications and decision runtime.
 - **SkillForge** provides an applied learning and certification product surface.
 
 ForgeLink exists because agentic systems need a better way to reach people than
