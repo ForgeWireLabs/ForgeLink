@@ -1,0 +1,33 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260624-agh028-fabric-hitl-routing",
+  "timestamp": "2026-06-24T23:58:00Z",
+  "work_item": "016",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cargo check -p fabric-hub",
+      "exit_code": 0,
+      "summary": "fabric-hub (forgewire monorepo) checks cleanly with the new forgelink module wired into the needs_approval dispatch path."
+    },
+    {
+      "command": "cargo test -p fabric-hub --lib forgelink",
+      "exit_code": 0,
+      "summary": "5 fabric-hub unit tests passed: config/opt-out gating, kind->authority mapping, and the agent-governance-v1 approval-request body."
+    }
+  ],
+  "artifacts": [
+    "forgewire-fabric/crates/fabric-hub/src/forgelink.rs",
+    "forgewire-fabric/crates/fabric-hub/src/state.rs",
+    "forgewire-fabric/crates/fabric-hub/src/main.rs",
+    "forgewire-fabric/crates/fabric-hub/src/routes/tasks.rs",
+    "forgewire-fabric/CHANGELOG.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/forgewire (monorepo; forgewire-fabric subtree)",
+    "branch": "main",
+    "commit": "ce6e22a3",
+    "platform": "Windows",
+    "process_note": "AGH-028 Fabric side: fabric-hub auto-routes held HITL approvals to ForgeLink's agent-governance-v1 contract when configured/reachable, with FORGELINK_HITL opt-out and silent fallback to Fabric's built-in pane. Cross-repo; lands in the forgewire monorepo, mirrored to forgewire-fabric. Decision write-back (auto-resolving the held task from the ForgeLink decision) is the documented operational follow-up."
+  }
+}

@@ -247,9 +247,10 @@
     {
       "id": "AGH-028",
       "text": "Pipe ForgeWire Fabric human-in-the-loop approvals through ForgeLink: when ForgeLink is installed and reachable, Fabric's HITL approval pane automatically routes approval requests to ForgeLink as the governed decision surface (evidence packs, audit, redaction, mobile companion), with an explicit operator opt-out and graceful fallback to Fabric's built-in pane when ForgeLink is absent.",
-      "state": "pending",
+      "state": "satisfied",
       "evidence": [
-        "20260624-agh028-fabric-hitl-forgelink-side"
+        "20260624-agh028-fabric-hitl-forgelink-side",
+        "20260624-agh028-fabric-hitl-routing"
       ]
     }
   ],

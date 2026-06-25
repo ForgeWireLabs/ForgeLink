@@ -106,11 +106,14 @@ versions tracked in `VERSION` and `Electron/package.json`.
 - Agent-facing governance contract (agent-governance-v1): a documented submit ->
   await -> outcome loop, with a redacted agent status poll and a capability
   discovery endpoint so ForgeWire Fabric can auto-detect ForgeLink as the governed
-  HITL surface (AGH-026/028, decision 0004). The Fabric-side auto-routing is the
-  remaining cross-repo work in forgewire-fabric.
+  HITL surface (AGH-026/028, decision 0004).
+- ForgeWire Fabric HITL routing through ForgeLink: when ForgeLink is reachable,
+  Fabric's hub auto-routes held approvals to ForgeLink's governed decision surface,
+  with an operator opt-out and silent fallback to Fabric's built-in pane (AGH-028;
+  Fabric side shipped in forgewire-fabric `fabric-hub`).
 - End-to-end governance-loop integration test covering request -> risk -> evidence
   -> decision -> outcome -> audit -> replay (AGH-027). This completes work item 016
-  Phase 7 on the ForgeLink side (27 of 28 criteria; AGH-028's Fabric side deferred).
+  Phase 7 and work item 016 in full (28 of 28 criteria satisfied).
 
 ### Changed
 - Completed work item 015 (Communication Channels and Voice); moved to the
