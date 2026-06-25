@@ -1,7 +1,7 @@
 # ForgeLink
 
 <p align="center">
-  <img src="assets/readme/forgelink-architecture.svg" alt="ForgeLink architecture diagram" width="100%">
+  <img src="assets/readme/forgelink-architecture.png" alt="ForgeLink architecture diagram" width="100%">
 </p>
 
 **ForgeLink is a local-first communications and decision runtime for humans and agents.**
