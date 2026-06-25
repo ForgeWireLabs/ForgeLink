@@ -1098,13 +1098,35 @@ test("gates agent external messages through the firewall and a reviewed outbox (
     assert.equal(blocked.status, 403);
     assert.equal((await blocked.json() as { reason: string }).reason, "firewall_blocked");
 
-    // An allow rule is explicit direct-send authority: the message is sent immediately.
+    // An allow rule is explicit direct-send authority, but consent (AGH-021) is the
+    // second gate: an unknown external contact has no consent, so even an allow rule
+    // only parks a draft.
     await fetch(`${localUrl}/api/communication-firewall`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ agent_id: "trusted", channel_kind: "sms", rule_kind: "allow" }) });
+    const allowNoConsent = await postDraft({ source: "trusted", to: "+15551239111", body: "auto-send" });
+    const allowNoConsentPayload = await allowNoConsent.json() as { draft: { status: string }; evaluation: { decision: string }; consent: { allowed: boolean } };
+    assert.equal(allowNoConsentPayload.evaluation.decision, "allow");
+    assert.equal(allowNoConsentPayload.consent.allowed, false);
+    assert.equal(allowNoConsentPayload.draft.status, "draft");
+
+    // Once the operator grants consent for that contact, the allow rule auto-sends.
+    const consentContact = database.upsertContact("Allowed Vendor", "+15551239111");
+    await fetch(`${localUrl}/api/consent`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ contact_id: consentContact, agent_id: "trusted", allowed_channels: ["sms"], requires_review: false, consent_source: "operator" }) });
     const allowed = await postDraft({ source: "trusted", to: "+15551239111", body: "auto-send" });
     assert.equal(allowed.status, 201);
-    const allowedPayload = await allowed.json() as { draft: { status: string }; evaluation: { decision: string } };
+    const allowedPayload = await allowed.json() as { draft: { status: string }; evaluation: { decision: string }; consent: { allowed: boolean } };
     assert.equal(allowedPayload.evaluation.decision, "allow");
+    assert.equal(allowedPayload.consent.allowed, true);
     assert.equal(allowedPayload.draft.status, "sent");
+
+    // Consent management and redaction profiles are operator-only.
+    assert.equal((await fetch(`${localUrl}/api/consent`)).status, 401);
+    assert.equal(((await fetch(`${localUrl}/api/consent`, { headers: authorized() }).then((r) => r.json())) as Array<unknown>).length, 1);
+    const profiles = await fetch(`${localUrl}/api/redaction-profiles`, { headers: authorized() }).then((r) => r.json()) as Array<{ id: string }>;
+    assert.ok(profiles.some((p) => p.id === "mobile_lock_screen"));
+    const preview = await fetch(`${localUrl}/api/redaction-profiles/preview`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ profile: "mobile_lock_screen", evidence_pack: { summary: "ok", diff_summary: "secret" }, notification: { title: "T", body: "B" } }) }).then((r) => r.json()) as { evidence_pack: Record<string, unknown>; notification: { body: string } };
+    assert.equal(preview.evidence_pack.diff_summary, undefined);
+    assert.equal(preview.evidence_pack.summary, "ok");
+    assert.equal(preview.notification.body, "");
 
     // A dry-run evaluation lets the operator preview a decision; firewall management
     // is operator-only.

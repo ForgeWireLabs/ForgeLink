@@ -5,7 +5,7 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 21;
+export const CURRENT_SCHEMA_VERSION = 22;
 
 export interface ThreadRow {
   id: number;
@@ -436,9 +436,98 @@ export interface ApprovalReplay {
   audit_verification: AuditChainVerification;
 }
 
-// The one redaction profile that shows full private detail. Any other profile is
-// treated as redacted. Full profile semantics (AGH-022) build on this later.
-const FULL_REDACTION_PROFILE = "desktop_full";
+// Redaction profiles (work item 016, AGH-022): named per-surface rules that decide
+// how much of an evidence pack or notification a given channel may reveal. Evidence
+// packs (AGH-007) and the approval replay (AGH-017) render through the selected
+// profile so a lock screen, SMS fallback, or status-only surface never shows what a
+// desktop full-evidence surface does.
+export interface RedactionProfileSpec {
+  id: string;
+  label: string;
+  evidence_detail: "full" | "summary" | "minimal" | "none";
+  show_body: boolean;
+  show_summary: boolean;
+  show_resources: boolean;
+  show_links: boolean;
+}
+
+export const REDACTION_PROFILES: RedactionProfileSpec[] = [
+  { id: "desktop_full",       label: "Desktop (full evidence)", evidence_detail: "full",    show_body: true,  show_summary: true,  show_resources: true,  show_links: true },
+  { id: "mobile_lock_screen", label: "Mobile lock screen",      evidence_detail: "summary", show_body: false, show_summary: true,  show_resources: false, show_links: false },
+  { id: "email_summary",      label: "Email summary",           evidence_detail: "summary", show_body: false, show_summary: true,  show_resources: true,  show_links: false },
+  { id: "sms_fallback",       label: "SMS fallback (minimal)",  evidence_detail: "minimal", show_body: false, show_summary: false, show_resources: false, show_links: false },
+  { id: "status_only",       label: "Status only",             evidence_detail: "none",    show_body: false, show_summary: false, show_resources: false, show_links: false }
+];
+
+const DEFAULT_REDACTION_PROFILE_ID = "desktop_full";
+// Most restrictive known profile; an unknown profile id falls back here so a typo
+// can never over-disclose on a redacted surface.
+const SAFE_REDACTION_PROFILE_ID = "status_only";
+
+// Resolve a profile by id. An empty/unset id is the desktop default; an unknown id
+// falls back to the most restrictive profile (fail closed).
+export function redactionProfile(id?: string): RedactionProfileSpec {
+  if (!id) return REDACTION_PROFILES.find((profile) => profile.id === DEFAULT_REDACTION_PROFILE_ID)!;
+  return REDACTION_PROFILES.find((profile) => profile.id === id) || REDACTION_PROFILES.find((profile) => profile.id === SAFE_REDACTION_PROFILE_ID)!;
+}
+
+// Render an evidence pack through a redaction profile. `full` returns the pack as
+// given; `none` reveals nothing but the profile; otherwise only the fields the
+// profile permits are kept.
+export function redactEvidencePack(pack: Record<string, unknown>, profileId?: string): Record<string, unknown> {
+  const spec = redactionProfile(profileId);
+  if (spec.evidence_detail === "full") return { ...pack, redacted: false, redaction_profile: spec.id };
+  const out: Record<string, unknown> = { redacted: true, redaction_profile: spec.id };
+  if (spec.evidence_detail === "none") return out;
+  if (spec.show_summary && pack.summary !== undefined) out.summary = pack.summary;
+  if (spec.show_resources && pack.affected_resources !== undefined) out.affected_resources = pack.affected_resources;
+  if (spec.show_links && pack.links !== undefined) out.links = pack.links;
+  return out;
+}
+
+// Render a notification through a redaction profile: the title always shows; the
+// body shows only when the profile permits it.
+export function redactNotification(title: string, body: string, profileId?: string): { title: string; body: string; redaction_profile: string; redacted: boolean } {
+  const spec = redactionProfile(profileId);
+  return { title, body: spec.show_body ? body : "", redaction_profile: spec.id, redacted: !spec.show_body };
+}
+
+// External-contact consent ledger (work item 016, AGH-021): whether an agent may
+// directly contact a given external human, and under what limits (topics, channels,
+// hours, review requirement). Unknown external contacts have no record, which means
+// no direct agent contact by default.
+export interface ContactConsentInput {
+  id?: string;
+  contact_id: number;
+  agent_id?: string;            // "" => any agent
+  allowed_topics?: string[];
+  allowed_channels?: string[];
+  allowed_hours?: string;       // "HH:MM-HH:MM" UTC; "" => any time
+  requires_review?: boolean;
+  consent_source?: string;
+}
+
+export interface ContactConsentRow {
+  id: string;
+  contact_id: number;
+  agent_id: string;
+  allowed_topics: string;
+  allowed_channels: string;
+  allowed_hours: string;
+  requires_review: number;
+  consent_source: string;
+  last_reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContactConsentDecision {
+  allowed: boolean;
+  reason: string;
+  requires_review: boolean;
+  has_record: boolean;
+  consent_id: string | null;
+}
 
 // Communication firewall (work item 016, AGH-019): operator-defined policy that
 // governs how agents may communicate with humans/external channels, enforced
@@ -503,6 +592,7 @@ export interface OutboundDraftInput {
   to: string;
   body?: string;
   media_urls?: string[];
+  topic?: string;
 }
 
 export interface OutboundDraftRow {
@@ -1205,6 +1295,31 @@ export class PhoneDatabase {
         version = 21;
         this.connection.exec("PRAGMA user_version=21");
       }
+      if (version === 21) {
+        // External-contact consent ledger (work item 016, AGH-021; schema v22 per
+        // decision 0011). Whether an agent may directly contact a given external
+        // human, with allowed topics/channels/hours, a review requirement, the
+        // consent source, and the last review. No row means no direct agent contact.
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS consent_ledger (
+            id TEXT PRIMARY KEY,
+            contact_id INTEGER NOT NULL,
+            agent_id TEXT NOT NULL DEFAULT '',
+            allowed_topics TEXT NOT NULL DEFAULT '[]',
+            allowed_channels TEXT NOT NULL DEFAULT '[]',
+            allowed_hours TEXT NOT NULL DEFAULT '',
+            requires_review INTEGER NOT NULL DEFAULT 1,
+            consent_source TEXT NOT NULL DEFAULT '',
+            last_reviewed_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(contact_id, agent_id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_consent_ledger_contact ON consent_ledger(contact_id, agent_id);
+        `);
+        version = 22;
+        this.connection.exec("PRAGMA user_version=22");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -1263,6 +1378,7 @@ export class PhoneDatabase {
       decision_memory_rules: this.connection.prepare("SELECT * FROM decision_memory_rules ORDER BY updated_at, id").all(),
       communication_firewall_rules: this.connection.prepare("SELECT * FROM communication_firewall_rules ORDER BY updated_at, id").all(),
       agent_outbound_drafts: this.connection.prepare("SELECT * FROM agent_outbound_drafts ORDER BY created_at, id").all(),
+      consent_ledger: this.connection.prepare("SELECT * FROM consent_ledger ORDER BY contact_id, agent_id").all(),
       signal_subscriptions: this.connection.prepare("SELECT * FROM signal_subscriptions ORDER BY title, id").all(),
       signal_items: this.connection.prepare("SELECT * FROM signal_items ORDER BY received_at, id").all(),
       mcp_tokens: this.connection.prepare("SELECT id, created_at, rotated_at, revoked_at, last_used_at, last_test_at, last_test_status FROM mcp_tokens ORDER BY id").all(),
@@ -2023,13 +2139,17 @@ export class PhoneDatabase {
   // replay reflects what the operator was actually shown rather than a recomputed
   // guess. When `redactionProfile` is omitted, the primary operator card's profile
   // is used; passing a non-`desktop_full` profile previews a redacted surface.
-  approvalReplay(requestId: string, redactionProfile?: string): ApprovalReplay | undefined {
+  approvalReplay(requestId: string, redactionProfileId?: string): ApprovalReplay | undefined {
     const message = this.agentMessage(requestId);
     if (!message) return undefined;
-    const profile = (redactionProfile && redactionProfile.trim())
+    const requestedProfile = (redactionProfileId && redactionProfileId.trim())
       || this.humanCardByAlias("operator:primary")?.redaction_profile
-      || FULL_REDACTION_PROFILE;
-    const full = profile === FULL_REDACTION_PROFILE;
+      || DEFAULT_REDACTION_PROFILE_ID;
+    // Resolve through the canonical redaction profiles (AGH-022): the profile spec
+    // decides which fields each surface may reveal.
+    const spec = redactionProfile(requestedProfile);
+    const full = spec.evidence_detail === "full";
+    const showBody = spec.show_body;
     const parseArray = (value: string): string[] => { try { const parsed = JSON.parse(value || "[]"); return Array.isArray(parsed) ? parsed.map(String) : []; } catch { return []; } };
     const steps: ReplayStep[] = [];
 
@@ -2050,7 +2170,7 @@ export class PhoneDatabase {
         required_authority: message.required_authority,
         to_human: message.to_human,
         affected_resources: parseArray(message.affected_resources),
-        ...(full ? { body: message.body, reason_for_interrupt: message.reason_for_interrupt } : {})
+        ...(showBody ? { body: message.body, reason_for_interrupt: message.reason_for_interrupt } : {})
       }
     });
 
@@ -2075,13 +2195,12 @@ export class PhoneDatabase {
     if (message.evidence_pack && message.evidence_pack !== "{}") {
       let evidence: Record<string, unknown> = {};
       try { evidence = JSON.parse(message.evidence_pack) as Record<string, unknown>; } catch { evidence = {}; }
+      const redactedEvidence = redactEvidencePack(evidence, spec.id);
       steps.push({
         step: "evidence_shown",
         at: message.created_at,
-        summary: full ? String(evidence.summary || "Evidence pack provided") : "Evidence pack provided (redacted)",
-        detail: full
-          ? { evidence_pack: evidence, request_hash: this.requestHash(message), evidence_hash: this.evidenceHashOf(message) }
-          : { redacted: true, evidence_redaction_profile: String(evidence.redaction_profile || ""), request_hash: this.requestHash(message), evidence_hash: this.evidenceHashOf(message) }
+        summary: spec.show_summary && evidence.summary ? String(evidence.summary) : "Evidence pack provided" + (full ? "" : " (redacted)"),
+        detail: { evidence_pack: redactedEvidence, redacted: !full, request_hash: this.requestHash(message), evidence_hash: this.evidenceHashOf(message) }
       });
     }
 
@@ -2098,7 +2217,7 @@ export class PhoneDatabase {
           selected_options: parseArray(decision.selected_options),
           authority_grant: decision.authority_grant,
           decision_hash: decision.decision_hash,
-          ...(full ? { decision_comment: decision.decision_comment, device_id: decision.device_id } : {})
+          ...(showBody ? { decision_comment: decision.decision_comment, device_id: decision.device_id } : {})
         }
       });
     }
@@ -2115,7 +2234,7 @@ export class PhoneDatabase {
           scope_match: outcome.scope_match,
           reported_resources: parseArray(outcome.reported_resources),
           source: outcome.source,
-          ...(full ? { outcome_summary: outcome.outcome_summary } : {})
+          ...(showBody ? { outcome_summary: outcome.outcome_summary } : {})
         }
       });
     }
@@ -2135,7 +2254,7 @@ export class PhoneDatabase {
 
     return {
       approval_request_id: message.id,
-      redaction_profile: profile,
+      redaction_profile: spec.id,
       redacted: !full,
       decided: Boolean(decision),
       final_state: finalState,
@@ -2306,11 +2425,14 @@ export class PhoneDatabase {
     return this.connection.prepare("SELECT * FROM outbound_draft_events WHERE draft_id=? ORDER BY created_at DESC, id DESC").all(String(draftId || "").trim()) as unknown as OutboundDraftEventRow[];
   }
 
-  // An agent submits an external message. The firewall is consulted first: a
-  // `block` decision throws FirewallBlockedError (no draft is created); every other
-  // decision parks a pending draft. This method never sends — the operator (or an
-  // explicit `allow` rule, handled by the caller) authorizes the send separately.
-  createOutboundDraft(input: OutboundDraftInput): { draft: OutboundDraftRow; evaluation: FirewallEvaluation } {
+  // An agent submits an external message. Two gates are consulted before anything
+  // is sent: the firewall (AGH-019) — a `block` decision throws FirewallBlockedError
+  // (no draft is created) — and the external-contact consent ledger (AGH-021), which
+  // decides whether the agent may directly reach this contact at all. Either way the
+  // message is parked as a pending draft; this method never sends. The caller only
+  // auto-sends when the firewall says `allow` AND consent permits, so an unknown
+  // external contact (no consent) defaults to no direct agent contact.
+  createOutboundDraft(input: OutboundDraftInput): { draft: OutboundDraftRow; evaluation: FirewallEvaluation; consent: ContactConsentDecision } {
     const agentId = String(input.agent_id || "").trim();
     const channelKind = String(input.channel_kind || "sms").trim() || "sms";
     if (!DRAFTABLE_CHANNEL_KINDS.has(channelKind)) throw new Error("Only sms and mms external drafts are supported.");
@@ -2321,6 +2443,9 @@ export class PhoneDatabase {
     const contactId = this.resolveContactIdByValue(to);
     const evaluation = this.evaluateCommunicationFirewall(agentId, channelKind, contactId);
     if (evaluation.decision === "block") throw new FirewallBlockedError("The communication firewall blocked this external message.");
+    const consent = this.evaluateContactConsent(contactId, agentId, channelKind, String(input.topic || ""));
+    // The recorded reason reflects why the draft was parked rather than auto-sent.
+    const reason = evaluation.decision === "allow" && !consent.allowed ? `allow_blocked_by_consent:${consent.reason}` : evaluation.reason;
     const now = utcNow();
     const id = `draft-${randomUUID()}`;
     this.connection.exec("BEGIN IMMEDIATE");
@@ -2328,14 +2453,14 @@ export class PhoneDatabase {
       this.connection.prepare(`
         INSERT INTO agent_outbound_drafts(id, agent_id, channel_id, channel_kind, to_number, contact_id, body, media_urls, status, firewall_decision, reason, created_at, updated_at)
         VALUES(?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)
-      `).run(id, agentId, String(input.channel_id || ""), channelKind, to, contactId, body, media.join(","), evaluation.decision, evaluation.reason, now, now);
-      this.recordDraftEvent(id, "draft_created", { agent_id: agentId, channel_kind: channelKind, firewall_decision: evaluation.decision, reason: evaluation.reason }, now);
+      `).run(id, agentId, String(input.channel_id || ""), channelKind, to, contactId, body, media.join(","), evaluation.decision, reason, now, now);
+      this.recordDraftEvent(id, "draft_created", { agent_id: agentId, channel_kind: channelKind, firewall_decision: evaluation.decision, consent: consent.reason, reason }, now);
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
       throw error;
     }
-    return { draft: this.outboundDraft(id)!, evaluation };
+    return { draft: this.outboundDraft(id)!, evaluation, consent };
   }
 
   // Operator edits a pending draft before sending (review/edit; AGH-020).
@@ -2384,6 +2509,92 @@ export class PhoneDatabase {
     if (this.connection.prepare("UPDATE agent_outbound_drafts SET status='failed', last_error=?, updated_at=? WHERE id=?").run(String(error || "").slice(0, 500), now, id).changes !== 1) throw new Error("Outbound draft not found.");
     this.recordDraftEvent(id, "draft_failed", { error: String(error || "").slice(0, 200) }, now);
     return this.outboundDraft(id)!;
+  }
+
+  // --- External-contact consent ledger (work item 016, AGH-021) ----------------
+
+  consentLedger(): ContactConsentRow[] {
+    return this.connection.prepare("SELECT * FROM consent_ledger ORDER BY contact_id, agent_id").all() as unknown as ContactConsentRow[];
+  }
+
+  consentRecord(id: string): ContactConsentRow | undefined {
+    return this.connection.prepare("SELECT * FROM consent_ledger WHERE id=?").get(String(id || "").trim()) as unknown as ContactConsentRow | undefined;
+  }
+
+  upsertContactConsent(input: ContactConsentInput): ContactConsentRow {
+    const contactId = Number(input.contact_id);
+    if (!Number.isInteger(contactId)) throw new Error("contact_id is required.");
+    if (!this.connection.prepare("SELECT id FROM contacts WHERE id=?").get(contactId)) throw new Error("Contact not found.");
+    const agentId = String(input.agent_id || "").trim().slice(0, 80);
+    const allowedHours = String(input.allowed_hours || "").trim();
+    if (allowedHours && !/^\d{2}:\d{2}-\d{2}:\d{2}$/.test(allowedHours)) throw new Error("allowed_hours must look like HH:MM-HH:MM.");
+    const now = utcNow();
+    const existing = this.connection.prepare("SELECT id, created_at FROM consent_ledger WHERE contact_id=? AND agent_id=?").get(contactId, agentId) as { id: string; created_at: string } | undefined;
+    const id = String(input.id || "").trim() || existing?.id || randomUUID();
+    const requiresReview = input.requires_review === undefined ? 1 : (input.requires_review ? 1 : 0);
+    this.connection.prepare(`
+      INSERT INTO consent_ledger(id, contact_id, agent_id, allowed_topics, allowed_channels, allowed_hours, requires_review, consent_source, last_reviewed_at, created_at, updated_at)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(contact_id, agent_id) DO UPDATE SET
+        allowed_topics=excluded.allowed_topics,
+        allowed_channels=excluded.allowed_channels,
+        allowed_hours=excluded.allowed_hours,
+        requires_review=excluded.requires_review,
+        consent_source=excluded.consent_source,
+        updated_at=excluded.updated_at
+    `).run(
+      id, contactId, agentId,
+      JSON.stringify(Array.isArray(input.allowed_topics) ? input.allowed_topics.map((topic) => String(topic).slice(0, 80)) : []),
+      JSON.stringify(Array.isArray(input.allowed_channels) ? input.allowed_channels.map((channel) => String(channel).slice(0, 40)) : []),
+      allowedHours,
+      requiresReview,
+      String(input.consent_source || "").slice(0, 200),
+      null,
+      existing?.created_at || now,
+      now
+    );
+    return this.connection.prepare("SELECT * FROM consent_ledger WHERE contact_id=? AND agent_id=?").get(contactId, agentId) as unknown as ContactConsentRow;
+  }
+
+  // Operator records that they reviewed a consent record (sets last_reviewed_at).
+  markConsentReviewed(id: string): ContactConsentRow {
+    const now = utcNow();
+    if (this.connection.prepare("UPDATE consent_ledger SET last_reviewed_at=?, updated_at=? WHERE id=?").run(now, now, String(id || "").trim()).changes !== 1) throw new Error("Consent record not found.");
+    return this.consentRecord(id)!;
+  }
+
+  deleteContactConsent(id: string): boolean {
+    return this.connection.prepare("DELETE FROM consent_ledger WHERE id=?").run(String(id || "").trim()).changes === 1;
+  }
+
+  private withinAllowedHours(spec: string, at: string): boolean {
+    if (!spec) return true;
+    const match = spec.match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
+    if (!match) return true;
+    const start = Number(match[1]) * 60 + Number(match[2]);
+    const end = Number(match[3]) * 60 + Number(match[4]);
+    const when = new Date(at);
+    const minutes = when.getUTCHours() * 60 + when.getUTCMinutes();
+    // Same-day window, or a window that wraps past midnight (for example 22:00-06:00).
+    return start <= end ? minutes >= start && minutes < end : minutes >= start || minutes < end;
+  }
+
+  // Decide whether an agent may directly contact an external human (AGH-021). An
+  // unknown contact (no contact_id) or a contact with no consent record means no
+  // direct agent contact; an agent-specific record beats the any-agent wildcard.
+  evaluateContactConsent(contactId: number | null, agentId: string, channelKind: string, topic = "", at = utcNow()): ContactConsentDecision {
+    if (contactId === null) return { allowed: false, reason: "no_consent_unknown_contact", requires_review: true, has_record: false, consent_id: null };
+    const records = (this.connection.prepare("SELECT * FROM consent_ledger WHERE contact_id=? AND (agent_id=? OR agent_id='')").all(contactId, String(agentId || "").trim()) as unknown as ContactConsentRow[])
+      .sort((left, right) => (right.agent_id ? 1 : 0) - (left.agent_id ? 1 : 0));
+    if (!records.length) return { allowed: false, reason: "no_consent_record", requires_review: true, has_record: false, consent_id: null };
+    const record = records[0];
+    const parse = (value: string): string[] => { try { const parsed = JSON.parse(value || "[]"); return Array.isArray(parsed) ? parsed.map(String) : []; } catch { return []; } };
+    if (record.requires_review) return { allowed: false, reason: "requires_review", requires_review: true, has_record: true, consent_id: record.id };
+    const channels = parse(record.allowed_channels);
+    if (channels.length && !channels.includes(channelKind)) return { allowed: false, reason: "channel_not_consented", requires_review: false, has_record: true, consent_id: record.id };
+    if (topic) { const topics = parse(record.allowed_topics); if (topics.length && !topics.includes(topic)) return { allowed: false, reason: "topic_not_consented", requires_review: false, has_record: true, consent_id: record.id }; }
+    if (!this.withinAllowedHours(record.allowed_hours, at)) return { allowed: false, reason: "outside_allowed_hours", requires_review: false, has_record: true, consent_id: record.id };
+    return { allowed: true, reason: "consented", requires_review: false, has_record: true, consent_id: record.id };
   }
 
   // --- Decision memory (work item 016, AGH-014) -------------------------------

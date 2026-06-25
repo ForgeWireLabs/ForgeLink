@@ -92,10 +92,48 @@ registry and lands the message in the conversation thread. Every transition —
 `draft_failed` — is recorded in the draft's event log, so direct-send authority is
 always auditable.
 
+## External-contact consent ledger (AGH-021)
+
+The firewall governs *agents*; the consent ledger governs *contacts*. It records,
+per external contact (and optionally per agent), whether direct agent contact is
+permitted and under what limits:
+
+| Field | Meaning |
+| --- | --- |
+| `contact_id` | The local contact the consent applies to. |
+| `agent_id` | A specific agent, or empty for any agent (a specific record wins). |
+| `allowed_topics` | Topics the agent may raise; empty means any. |
+| `allowed_channels` | Channel kinds permitted; empty means any. |
+| `allowed_hours` | `HH:MM-HH:MM` UTC window (wrap-around supported); empty means any time. |
+| `requires_review` | While set, direct contact is withheld pending operator review. |
+| `consent_source` | Where the consent came from. |
+| `last_reviewed_at` | When the operator last reviewed it. |
+
+`evaluateContactConsent` returns **no direct contact** for an unknown contact or a
+contact with no record, withholds while `requires_review`, and otherwise enforces
+the channel, topic, and allowed-hours limits.
+
+```http
+GET    /api/consent                  # list (operator-only)
+POST   /api/consent                  # upsert a consent record
+GET    /api/consent/evaluate?contact_id=&agent=&channel_kind=&topic=   # dry-run
+POST   /api/consent/<id>/review      # record an operator review (last_reviewed_at)
+DELETE /api/consent/<id>             # delete
+```
+
+### Two gates before an agent reaches a contact
+
+An agent's external message auto-sends **only** when both gates clear: the firewall
+decision is `allow` **and** the consent ledger permits the contact/channel/topic/
+time. Because an unknown external contact has no consent record, an `allow` rule
+alone is not enough — the message is parked as a draft for operator review. This is
+how "unknown external contacts default to no direct agent contact" is enforced.
+
 ## Boundaries
 
 - The firewall governs agent-originated external messages; it does not change the
   operator's own `/api/send`.
-- Drafts and firewall rules participate in the durable local export.
-- This is the firewall and safe-drafting layer; external-contact consent
-  (AGH-021) and per-surface redaction profiles (AGH-022) build on it.
+- Drafts, firewall rules, and consent records participate in the durable local
+  export.
+- Per-surface redaction of what each channel reveals is handled by redaction
+  profiles (AGH-022); see [approval-requests.md](approval-requests.md).

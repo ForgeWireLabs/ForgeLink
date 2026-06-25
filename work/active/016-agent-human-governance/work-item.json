@@ -191,14 +191,18 @@
     {
       "id": "AGH-021",
       "text": "Add external-contact consent ledger covering allowed topics, channels, hours, review requirements, consent source, and last review.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260624-agh021-consent-ledger"
+      ]
     },
     {
       "id": "AGH-022",
       "text": "Add redaction profiles for desktop, mobile lock screen, SMS fallback, email, Discord/status-only, and other channel surfaces.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260624-agh022-redaction-profiles"
+      ]
     },
     {
       "id": "AGH-023",

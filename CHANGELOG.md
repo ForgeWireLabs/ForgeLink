@@ -80,6 +80,17 @@ versions tracked in `VERSION` and `Electron/package.json`.
   than sending. Operators review, edit, approve+send, or deny from a reviewed
   outbox; a block rule refuses outright and an allow rule grants explicit,
   audited direct-send authority. Every draft lifecycle step is audited (AGH-020).
+- External-contact consent ledger: per-contact (and optionally per-agent) consent
+  records cover allowed topics, channels, and hours, a review requirement, the
+  consent source, and the last review. Unknown external contacts default to no
+  direct agent contact, and an agent's external message only auto-sends when both
+  the firewall allows it and consent permits it (AGH-021).
+- Redaction profiles: canonical per-surface profiles (desktop full, mobile lock
+  screen, email summary, SMS fallback, status only) decide how much of an evidence
+  pack or notification a surface may reveal. The approval replay renders through
+  the selected profile, an unknown profile fails closed to the most restrictive,
+  and operators can list and preview profiles (AGH-022). This completes work item
+  016 Phase 6 (communication firewall and consent).
 
 ### Changed
 - Completed work item 015 (Communication Channels and Voice); moved to the

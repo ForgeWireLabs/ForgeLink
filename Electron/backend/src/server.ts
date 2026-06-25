@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:
 import { createServer, IncomingMessage, Server, ServerResponse } from "node:http";
 import { extname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
-import { AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, DecisionRecordRow, EvidencePack, FirewallBlockedError, isAuthorityScope, OutboundDraftRow, PhoneDatabase } from "./database";
+import { AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, DecisionRecordRow, EvidencePack, FirewallBlockedError, isAuthorityScope, OutboundDraftRow, PhoneDatabase, redactEvidencePack, redactNotification, redactionProfile, REDACTION_PROFILES } from "./database";
 import { utcNow } from "./phone";
 import { fetchTrustedSignalFeed } from "./signals";
 import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, loadTwilioConfig, sendTwilioMessage, startTwilioCall, validateTwilioSignature } from "./twilio";
@@ -827,22 +827,25 @@ export function createBackend(options: BackendOptions): { server: Server; databa
           return sendJson(response, { error: "Agent is not permitted to communicate.", reason, agent: { id: agentIdentity.id, trust_state: agentIdentity.trust_state } }, 403);
         }
         try {
-          const { draft, evaluation } = database.createOutboundDraft({
+          const { draft, evaluation, consent } = database.createOutboundDraft({
             agent_id: source,
             channel_id: channelId,
             channel_kind: typeof payload.channel_kind === "string" ? payload.channel_kind : "sms",
             to: boundedText(payload.to, "to", 40),
             body: typeof payload.body === "string" ? payload.body.slice(0, 4000) : "",
-            media_urls: boundedStringList(payload.media_urls, "media_urls", 10, 500)
+            media_urls: boundedStringList(payload.media_urls, "media_urls", 10, 500),
+            topic: typeof payload.topic === "string" ? payload.topic : ""
           });
           database.markAgentChannelUsed(channelId, "normal");
-          // An operator-configured `allow` rule is explicit direct-send authority.
-          if (evaluation.decision === "allow" && evaluation.sendable) {
+          // Auto-send only when the firewall says `allow` AND the contact consent
+          // ledger permits it (AGH-021). An unknown external contact has no consent,
+          // so the message stays a draft the operator must review.
+          if (evaluation.decision === "allow" && evaluation.sendable && consent.allowed) {
             database.approveOutboundDraft(draft.id, "rule:allow", true);
             const sent = await performDraftSend(draft, true);
-            return sendJson(response, { ok: !sent.error, draft: sent.draft, evaluation, error: sent.error }, sent.error ? 502 : 201);
+            return sendJson(response, { ok: !sent.error, draft: sent.draft, evaluation, consent, error: sent.error }, sent.error ? 502 : 201);
           }
-          return sendJson(response, { ok: true, draft, evaluation }, 201);
+          return sendJson(response, { ok: true, draft, evaluation, consent }, 201);
         } catch (error) {
           if (error instanceof FirewallBlockedError) {
             database.markAgentChannelRejected(channelId, "normal", "firewall_blocked");
@@ -997,6 +1000,64 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         database.approveOutboundDraft(id, decisionMetadata(payload).operator_alias || "operator:primary");
         const sent = await performDraftSend(draft, false);
         return sendJson(response, { ok: !sent.error, draft: sent.draft, error: sent.error }, sent.error ? 502 : 200);
+      }
+      // External-contact consent ledger (AGH-021): operator-only. Governs whether an
+      // agent may directly contact a given external human, with a dry-run evaluation.
+      if (request.method === "GET" && url.pathname === "/api/consent") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.consentLedger());
+      }
+      if (request.method === "POST" && url.pathname === "/api/consent") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const record = database.upsertContactConsent({
+          contact_id: Number(payload.contact_id),
+          agent_id: typeof payload.agent_id === "string" ? payload.agent_id : "",
+          allowed_topics: boundedStringList(payload.allowed_topics, "allowed_topics", 40, 80),
+          allowed_channels: boundedStringList(payload.allowed_channels, "allowed_channels", 20, 40),
+          allowed_hours: typeof payload.allowed_hours === "string" ? payload.allowed_hours : "",
+          requires_review: payload.requires_review === undefined ? undefined : Boolean(payload.requires_review),
+          consent_source: typeof payload.consent_source === "string" ? payload.consent_source : ""
+        });
+        return sendJson(response, { ok: true, consent: record }, 201);
+      }
+      if (request.method === "GET" && url.pathname === "/api/consent/evaluate") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const contactParam = url.searchParams.get("contact_id");
+        return sendJson(response, database.evaluateContactConsent(
+          contactParam ? Number(contactParam) : null,
+          url.searchParams.get("agent") || "",
+          url.searchParams.get("channel_kind") || "sms",
+          url.searchParams.get("topic") || ""
+        ));
+      }
+      const consentReviewMatch = url.pathname.match(/^\/api\/consent\/([^/]+)\/review$/);
+      if (request.method === "POST" && consentReviewMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, { ok: true, consent: database.markConsentReviewed(decodeURIComponent(consentReviewMatch[1])) });
+      }
+      const consentMatch = url.pathname.match(/^\/api\/consent\/([^/]+)$/);
+      if (request.method === "DELETE" && consentMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, { ok: database.deleteContactConsent(decodeURIComponent(consentMatch[1])) });
+      }
+      // Redaction profiles (AGH-022): operator-only. List the canonical per-surface
+      // profiles and preview how an evidence pack / notification renders under one.
+      if (request.method === "GET" && url.pathname === "/api/redaction-profiles") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, REDACTION_PROFILES);
+      }
+      if (request.method === "POST" && url.pathname === "/api/redaction-profiles/preview") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const profileId = typeof payload.profile === "string" ? payload.profile : "";
+        return sendJson(response, {
+          profile: redactionProfile(profileId),
+          evidence_pack: payload.evidence_pack && typeof payload.evidence_pack === "object" ? redactEvidencePack(payload.evidence_pack as Record<string, unknown>, profileId) : null,
+          notification: payload.notification && typeof payload.notification === "object"
+            ? redactNotification(String((payload.notification as Record<string, unknown>).title || ""), String((payload.notification as Record<string, unknown>).body || ""), profileId)
+            : null
+        });
       }
       if (request.method === "POST" && url.pathname === "/api/data/retention") {
         const payload = await readJson(request);

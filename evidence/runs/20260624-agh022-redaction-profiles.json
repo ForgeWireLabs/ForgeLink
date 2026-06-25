@@ -1,0 +1,46 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260624-agh022-redaction-profiles",
+  "timestamp": "2026-06-24T22:30:00Z",
+  "work_item": "016",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed with canonical REDACTION_PROFILES, redactEvidencePack/redactNotification, and the approval replay refactored to render through the profile spec."
+    },
+    {
+      "command": "node --test backend-dist/channels.test.js backend-dist/telnyx.test.js backend-dist/database.test.js backend-dist/migration.test.js backend-dist/server.test.js backend-dist/signals.test.js backend-dist/twilio.test.js",
+      "exit_code": 0,
+      "summary": "97 backend tests passed, including per-profile evidence/notification redaction, the fail-closed unknown-profile default, the replay integration (summary-only, status-only, unknown), and the list/preview endpoints."
+    },
+    {
+      "command": "npx tsc -p renderer/tsconfig.json",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript typecheck passed with the added RedactionProfileSpec type."
+    },
+    {
+      "command": "python .local\\validate_system.py",
+      "exit_code": 0,
+      "summary": "Local audit passed after AGH-022 implementation and ledger updates; Phase 6 (communication firewall and consent) complete."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/types.ts",
+    "docs/approval-requests.md",
+    "CHANGELOG.md",
+    "work/active/016-agent-human-governance/README.md",
+    "work/active/016-agent-human-governance/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "AGH-022: canonical per-surface redaction profiles applied to evidence packs and notifications; approval replay renders through the selected profile and an unknown profile fails closed to the most restrictive surface."
+  }
+}

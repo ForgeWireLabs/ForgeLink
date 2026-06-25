@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { CURRENT_SCHEMA_VERSION, PhoneDatabase } from "./database";
+import { CURRENT_SCHEMA_VERSION, PhoneDatabase, REDACTION_PROFILES, redactEvidencePack, redactNotification } from "./database";
 import { normalizeNumber } from "./phone";
 
 test("normalizes US phone numbers", () => {
@@ -142,6 +142,8 @@ test("upgrades a version-seven (pre-015) database to the current schema without 
     // v21 (016 AGH-019/020) adds the communication firewall and outbound drafts.
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='communication_firewall_rules'").get() as { name: string } | undefined)?.name, "communication_firewall_rules");
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_outbound_drafts'").get() as { name: string } | undefined)?.name, "agent_outbound_drafts");
+    // v22 (016 AGH-021) adds the external-contact consent ledger.
+    assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='consent_ledger'").get() as { name: string } | undefined)?.name, "consent_ledger");
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -627,10 +629,23 @@ test("replays an approval lifecycle and redacts according to operator policy (AG
     assert.equal(redacted.final_state, "action_succeeded");
     assert.equal(redacted.steps[0].detail.body, undefined);
     const redactedEvidence = redacted.steps.find((s) => s.step === "evidence_shown")!;
-    assert.equal(redactedEvidence.detail.evidence_pack, undefined);
+    // Mobile lock screen shows the evidence summary but not the diff/operation.
+    const redactedPack = redactedEvidence.detail.evidence_pack as Record<string, unknown>;
+    assert.equal(redactedPack.redacted, true);
+    assert.equal(redactedPack.summary, "Build is green");
+    assert.equal(redactedPack.diff_summary, undefined);
+    assert.equal(redactedPack.proposed_operation, undefined);
     assert.equal(redactedEvidence.detail.redacted, true);
     assert.ok(redactedEvidence.detail.evidence_hash);
     assert.equal(redacted.steps.find((s) => s.step === "decision_made")!.detail.decision_comment, undefined);
+
+    // status_only is the most restrictive surface: no evidence detail at all.
+    const statusOnly = database.approvalReplay("rp-1", "status_only")!;
+    const statusEvidence = (statusOnly.steps.find((s) => s.step === "evidence_shown")!.detail.evidence_pack) as Record<string, unknown>;
+    assert.equal(statusEvidence.summary, undefined);
+    assert.equal(statusEvidence.redacted, true);
+    // An unknown profile fails closed to the most restrictive surface.
+    assert.equal(database.approvalReplay("rp-1", "bogus_profile")!.redaction_profile, "status_only");
 
     // An undecided request still replays: it ends at its current status.
     database.addAgentMessage({ id: "rp-2", channel_id: "forgewire", source: "codex", kind: "approval_request", urgency: "low", title: "Pending", body: "b", risk: "low", interruption_policy: "passive_notification" });
@@ -776,6 +791,96 @@ test("parks agent external messages as drafts and gates sending (AGH-020)", () =
     assert.equal(exported.agent_outbound_drafts.length, 2);
     assert.equal(exported.communication_firewall_rules.length, 1);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// External-contact consent ledger (work item 016, AGH-021): unknown external
+// contacts default to no direct agent contact; consent limits topics/channels/hours.
+test("gates direct agent contact through the consent ledger (AGH-021)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-consent-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    // Unknown contact (no contact_id): no direct agent contact.
+    assert.equal(database.evaluateContactConsent(null, "codex", "sms").allowed, false);
+    assert.equal(database.evaluateContactConsent(null, "codex", "sms").reason, "no_consent_unknown_contact");
+
+    const contactId = database.upsertContact("Vendor", "+15558887777");
+    // Known contact but no consent record: still no direct contact.
+    let decision = database.evaluateContactConsent(contactId, "codex", "sms");
+    assert.equal(decision.allowed, false);
+    assert.equal(decision.reason, "no_consent_record");
+
+    // A record defaults to requires_review, which withholds direct contact.
+    database.upsertContactConsent({ contact_id: contactId, consent_source: "operator" });
+    assert.equal(database.evaluateContactConsent(contactId, "codex", "sms").reason, "requires_review");
+    assert.throws(() => database.upsertContactConsent({ contact_id: 99999 }), /Contact not found/);
+    assert.throws(() => database.upsertContactConsent({ contact_id: contactId, allowed_hours: "9-5" }), /HH:MM/);
+
+    // Granting consent for sms, no review, within hours, permits direct contact.
+    database.upsertContactConsent({ contact_id: contactId, allowed_channels: ["sms"], allowed_topics: ["billing"], requires_review: false, consent_source: "operator" });
+    decision = database.evaluateContactConsent(contactId, "codex", "sms", "billing");
+    assert.equal(decision.allowed, true);
+    assert.equal(decision.has_record, true);
+    // A channel or topic outside the grant is refused.
+    assert.equal(database.evaluateContactConsent(contactId, "codex", "mms", "billing").reason, "channel_not_consented");
+    assert.equal(database.evaluateContactConsent(contactId, "codex", "sms", "marketing").reason, "topic_not_consented");
+
+    // Allowed-hours window is enforced (UTC); a wrap-around window works too.
+    database.upsertContactConsent({ contact_id: contactId, allowed_channels: ["sms"], allowed_hours: "09:00-17:00", requires_review: false });
+    assert.equal(database.evaluateContactConsent(contactId, "codex", "sms", "", "2026-06-24T12:00:00.000Z").allowed, true);
+    assert.equal(database.evaluateContactConsent(contactId, "codex", "sms", "", "2026-06-24T20:00:00.000Z").reason, "outside_allowed_hours");
+
+    // An agent-specific record overrides the any-agent wildcard.
+    database.upsertContactConsent({ contact_id: contactId, agent_id: "rogue", requires_review: true });
+    assert.equal(database.evaluateContactConsent(contactId, "rogue", "sms", "", "2026-06-24T12:00:00.000Z").reason, "requires_review");
+
+    // Review timestamp and deletion, plus durable export.
+    const record = database.consentLedger().find((r) => r.agent_id === "")!;
+    assert.equal(record.last_reviewed_at, null);
+    assert.ok(database.markConsentReviewed(record.id).last_reviewed_at);
+    const exported = database.exportData() as { consent_ledger: Array<unknown> };
+    assert.equal(exported.consent_ledger.length, 2);
+    assert.equal(database.deleteContactConsent(record.id), true);
+    assert.equal(database.consentLedger().length, 1);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// Redaction profiles (work item 016, AGH-022): per-surface rules redact evidence
+// packs and notifications.
+test("redacts evidence packs and notifications per profile (AGH-022)", () => {
+  const pack = { summary: "Ready to release", affected_resources: ["repo:ForgeLink"], diff_summary: "private diff", proposed_operation: "publish", checks: ["tests"], rollback_plan: "revert", links: ["local://x"], limitations: "none", redaction_profile: "desktop_full" };
+
+  // desktop_full reveals everything.
+  const full = redactEvidencePack(pack, "desktop_full");
+  assert.equal(full.redacted, false);
+  assert.equal(full.diff_summary, "private diff");
+
+  // mobile_lock_screen shows the summary only.
+  const mobile = redactEvidencePack(pack, "mobile_lock_screen");
+  assert.equal(mobile.redacted, true);
+  assert.equal(mobile.summary, "Ready to release");
+  assert.equal(mobile.diff_summary, undefined);
+  assert.equal(mobile.affected_resources, undefined);
+
+  // email_summary keeps the summary and resources but not the diff or links.
+  const email = redactEvidencePack(pack, "email_summary");
+  assert.deepEqual(email.affected_resources, ["repo:ForgeLink"]);
+  assert.equal(email.links, undefined);
+
+  // sms_fallback and status_only reveal essentially nothing.
+  assert.equal(redactEvidencePack(pack, "sms_fallback").summary, undefined);
+  assert.equal(redactEvidencePack(pack, "status_only").summary, undefined);
+  // Unknown profile fails closed to the most restrictive surface.
+  assert.equal(redactEvidencePack(pack, "bogus").redaction_profile, "status_only");
+
+  // Notifications: the title always shows; the body shows only when permitted.
+  assert.equal(redactNotification("Approval needed", "Publish v2.0.4", "desktop_full").body, "Publish v2.0.4");
+  const lockNote = redactNotification("Approval needed", "Publish v2.0.4", "mobile_lock_screen");
+  assert.equal(lockNote.title, "Approval needed");
+  assert.equal(lockNote.body, "");
+  assert.equal(lockNote.redacted, true);
+
+  // The canonical profile set is stable and ordered most-open to most-restrictive.
+  assert.deepEqual(REDACTION_PROFILES.map((p) => p.id), ["desktop_full", "mobile_lock_screen", "email_summary", "sms_fallback", "status_only"]);
 });
 
 test("stores trusted signals separately with duplicate handling, export, archive, and retention", () => {

@@ -422,10 +422,35 @@ are excluded and listed under `excludes`. A **full** export includes that privat
 detail and therefore requires explicit operator confirmation: `full: true` without
 `confirm_full: true` is rejected with `400`. Governance export is launch-only.
 
+## Redaction profiles (AGH-022)
+
+Replay redaction — and any other surface that shows an evidence pack or a
+notification — renders through a named **redaction profile** that decides how much
+each surface may reveal:
+
+| Profile | Evidence | Body | Use |
+| --- | --- | --- | --- |
+| `desktop_full` | full | shown | The operator desktop; full evidence. |
+| `mobile_lock_screen` | summary only | hidden | Paired mobile lock screen. |
+| `email_summary` | summary + resources | hidden | Email surface. |
+| `sms_fallback` | minimal | hidden | SMS fallback. |
+| `status_only` | none | hidden | Status/Discord-style surfaces. |
+
+An unknown profile id **fails closed** to the most restrictive profile, so a typo
+never over-discloses. The replay endpoint (AGH-017) resolves the profile from the
+operator card or the `redaction_profile` query parameter and renders evidence,
+body, and decision/outcome comments accordingly. Operators inspect and preview
+profiles with:
+
+```http
+GET  /api/redaction-profiles               # list canonical profiles
+POST /api/redaction-profiles/preview       # { profile, evidence_pack?, notification? }
+```
+
 ## Boundaries
 
 - The chain covers approval requests, evidence packs, decisions, and outcomes.
 - Replay and governance export are derived, read-only views over already-stored
   governance records; neither changes state or grants authority.
-- Replay redaction is the first use of redaction profiles; full per-surface
-  redaction profiles (AGH-022) build on it.
+- Redaction profiles drive replay redaction and any evidence/notification surface;
+  the profile is selected per operator card or per request.
