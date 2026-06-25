@@ -139,6 +139,9 @@ test("upgrades a version-seven (pre-015) database to the current schema without 
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='approval_outcomes'").get() as { name: string } | undefined)?.name, "approval_outcomes");
     // v20 (016 AGH-014) adds decision memory rules.
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='decision_memory_rules'").get() as { name: string } | undefined)?.name, "decision_memory_rules");
+    // v21 (016 AGH-019/020) adds the communication firewall and outbound drafts.
+    assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='communication_firewall_rules'").get() as { name: string } | undefined)?.name, "communication_firewall_rules");
+    assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_outbound_drafts'").get() as { name: string } | undefined)?.name, "agent_outbound_drafts");
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -683,6 +686,95 @@ test("exports redacted governance history by default and full detail on request 
     assert.ok(full.approval_requests[0].evidence_pack.summary);
     assert.equal(full.decision_records[0].decision_comment, "private comment");
     assert.equal(full.approval_outcomes[0].outcome_summary, "private outcome detail");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// Communication firewall (work item 016, AGH-019): operator policy decides how an
+// agent's external message is handled before dispatch; most specific rule wins and
+// ties break to the more restrictive decision.
+test("evaluates the communication firewall with specificity and restrictiveness (AGH-019)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-firewall-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    // Default posture with no rules is draft-don't-send.
+    const def = database.evaluateCommunicationFirewall("codex", "sms", null);
+    assert.equal(def.decision, "draft_only");
+    assert.equal(def.matched_rule_id, null);
+    assert.equal(def.sendable, true);
+    // Non-messageable kinds are not sendable but can still be evaluated/blocked.
+    assert.equal(database.evaluateCommunicationFirewall("codex", "voice", null).sendable, false);
+
+    // rule_kind is validated.
+    assert.throws(() => database.upsertCommunicationFirewallRule({ rule_kind: "maybe" }), /rule_kind/);
+
+    // A global allow rule opens direct send; a more specific block for one agent on
+    // mms wins over it by specificity.
+    database.upsertCommunicationFirewallRule({ rule_kind: "allow" });
+    assert.equal(database.evaluateCommunicationFirewall("codex", "sms", null).decision, "allow");
+    const block = database.upsertCommunicationFirewallRule({ agent_id: "rogue", channel_kind: "mms", rule_kind: "block" });
+    assert.equal(database.evaluateCommunicationFirewall("rogue", "mms", null).decision, "block");
+    assert.equal(database.evaluateCommunicationFirewall("rogue", "mms", null).matched_rule_id, block.id);
+    // Another agent on sms still gets the global allow.
+    assert.equal(database.evaluateCommunicationFirewall("codex", "sms", null).decision, "allow");
+
+    // Disabling a rule removes it from evaluation; deleting works too.
+    database.upsertCommunicationFirewallRule({ id: block.id, agent_id: "rogue", channel_kind: "mms", rule_kind: "block", enabled: false });
+    assert.equal(database.evaluateCommunicationFirewall("rogue", "mms", null).decision, "allow");
+    assert.equal(database.deleteCommunicationFirewallRule(block.id), true);
+    assert.equal(database.communicationFirewallRules().length, 1);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// Draft-don't-send (work item 016, AGH-020): agents draft external messages; the
+// operator reviews, edits, approves, or denies; direct-send authority is audited.
+test("parks agent external messages as drafts and gates sending (AGH-020)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-drafts-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    // Default posture parks a draft rather than sending.
+    const { draft, evaluation } = database.createOutboundDraft({ agent_id: "codex", channel_id: "forgewire", to: "+15551230000", body: "Hi there" });
+    assert.equal(evaluation.decision, "draft_only");
+    assert.equal(draft.status, "draft");
+    assert.equal(draft.firewall_decision, "draft_only");
+    assert.equal(database.outboundDrafts("draft").length, 1);
+    // Creation is audited.
+    assert.equal(database.outboundDraftEvents(draft.id).some((e) => e.event_type === "draft_created"), true);
+
+    // Empty drafts and unsupported channel kinds are rejected.
+    assert.throws(() => database.createOutboundDraft({ agent_id: "codex", channel_id: "forgewire", to: "+15551230000", body: "" }), /body or media/);
+    assert.throws(() => database.createOutboundDraft({ agent_id: "codex", channel_id: "forgewire", channel_kind: "email", to: "+15551230000", body: "x" }), /sms and mms/);
+
+    // A block rule refuses outright (no draft created).
+    database.upsertCommunicationFirewallRule({ agent_id: "rogue", rule_kind: "block" });
+    assert.throws(() => database.createOutboundDraft({ agent_id: "rogue", channel_id: "forgewire", to: "+15551230000", body: "blocked" }), /firewall blocked/i);
+    assert.equal(database.outboundDrafts().length, 1);
+
+    // The operator can edit a pending draft, and edits are audited.
+    const edited = database.editOutboundDraft(draft.id, "Edited body");
+    assert.equal(edited.body, "Edited body");
+    assert.equal(database.outboundDraftEvents(draft.id).some((e) => e.event_type === "draft_edited"), true);
+
+    // Approval is recorded (explicit, audited) before the send is attempted.
+    database.approveOutboundDraft(draft.id, "operator:primary");
+    assert.equal(database.outboundDraftEvents(draft.id).some((e) => e.event_type === "draft_approved"), true);
+    const sent = database.markOutboundDraftSent(draft.id, "SM-PROVIDER-1");
+    assert.equal(sent.status, "sent");
+    assert.equal(sent.provider_message_id, "SM-PROVIDER-1");
+    assert.equal(database.outboundDraftEvents(draft.id).some((e) => e.event_type === "draft_sent"), true);
+    // A sent draft can no longer be edited, denied, or re-approved.
+    assert.throws(() => database.editOutboundDraft(draft.id, "late"), /pending/);
+    assert.throws(() => database.denyOutboundDraft(draft.id), /pending/);
+
+    // A second draft can be denied; denial is terminal and audited.
+    const second = database.createOutboundDraft({ agent_id: "codex", channel_id: "forgewire", to: "+15551230000", body: "Second" }).draft;
+    const denied = database.denyOutboundDraft(second.id, "not appropriate");
+    assert.equal(denied.status, "denied");
+    assert.equal(database.outboundDraftEvents(second.id).some((e) => e.event_type === "draft_denied"), true);
+
+    // Drafts and firewall rules participate in the durable export.
+    const exported = database.exportData() as { agent_outbound_drafts: Array<unknown>; communication_firewall_rules: Array<unknown> };
+    assert.equal(exported.agent_outbound_drafts.length, 2);
+    assert.equal(exported.communication_firewall_rules.length, 1);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 

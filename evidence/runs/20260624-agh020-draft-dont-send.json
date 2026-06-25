@@ -1,0 +1,47 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260624-agh020-draft-dont-send",
+  "timestamp": "2026-06-24T20:30:00Z",
+  "work_item": "016",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed with schema v21 agent_outbound_drafts/outbound_draft_events, the agent draft-submission route, and the operator reviewed-outbox routes."
+    },
+    {
+      "command": "node --test backend-dist/channels.test.js backend-dist/telnyx.test.js backend-dist/database.test.js backend-dist/migration.test.js backend-dist/server.test.js backend-dist/signals.test.js backend-dist/twilio.test.js",
+      "exit_code": 0,
+      "summary": "95 backend tests passed, including the default draft, edit/approve/send into the thread, deny terminality, the allow auto-send, the block refusal, lifecycle audit events, and operator/agent route scoping."
+    },
+    {
+      "command": "npx tsc -p renderer/tsconfig.json",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript typecheck passed with the added OutboundDraft/OutboundDraftEvent types."
+    },
+    {
+      "command": "python .local\\validate_system.py",
+      "exit_code": 0,
+      "summary": "Local audit passed after AGH-020 implementation and ledger updates; Phase 6 AGH-019/020 complete."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/types.ts",
+    "docs/communication-firewall.md",
+    "decisions/0011-schema-migration-coordination.md",
+    "CHANGELOG.md",
+    "work/active/016-agent-human-governance/README.md",
+    "work/active/016-agent-human-governance/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "AGH-020: draft-don't-send reviewed outbox for agent external messages; default parks a draft, block refuses, allow grants explicit audited direct send, operator reviews/edits/approves/denies, and approve-send re-checks the firewall before dispatch."
+  }
+}

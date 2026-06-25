@@ -76,6 +76,7 @@ the table is the single place that says who owns what.
 | v18 | 016 AGH-016 | `audit_chain` (append-only hash-linked log of approval requests, evidence packs, and decisions) | shipped |
 | v19 | 016 AGH-015 | `approval_outcomes` (agent-reported post-decision outcomes with scope-match flag) | shipped |
 | v20 | 016 AGH-014 | `decision_memory_rules` (operator-confirmed/dismissed repeated-decision patterns; advisory only) | shipped |
+| v21 | 016 AGH-019/020 | `communication_firewall_rules`, `agent_outbound_drafts`, `outbound_draft_events` (firewall policy + draft-don't-send reviewed outbox) | shipped |
 
 Future allocations are appended to this table as they land. 015's dependent
 channel-adapter items (018–024) and the governance/cockpit items (016/017) all

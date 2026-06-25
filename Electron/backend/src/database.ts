@@ -5,7 +5,7 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 20;
+export const CURRENT_SCHEMA_VERSION = 21;
 
 export interface ThreadRow {
   id: number;
@@ -439,6 +439,104 @@ export interface ApprovalReplay {
 // The one redaction profile that shows full private detail. Any other profile is
 // treated as redacted. Full profile semantics (AGH-022) build on this later.
 const FULL_REDACTION_PROFILE = "desktop_full";
+
+// Communication firewall (work item 016, AGH-019): operator-defined policy that
+// governs how agents may communicate with humans/external channels, enforced
+// before channel dispatch. A rule's `rule_kind` is the decision it applies:
+//   block           — refuse the external message outright;
+//   draft_only      — agent may only draft; the operator must send (the default);
+//   require_approval — park as a draft that needs explicit operator approval;
+//   allow           — explicit direct-send authority (audited).
+export const FIREWALL_RULE_KINDS = ["block", "draft_only", "require_approval", "allow"] as const;
+export type FirewallRuleKind = typeof FIREWALL_RULE_KINDS[number];
+export function isFirewallRuleKind(value: string): value is FirewallRuleKind {
+  return (FIREWALL_RULE_KINDS as readonly string[]).includes(value);
+}
+
+// Channel kinds a firewall rule may scope. Drafts are only produced for the
+// messageable kinds (see DRAFTABLE_CHANNEL_KINDS); a rule can still `block` a
+// non-messageable kind (for example "agents may never call phone numbers").
+export const OUTBOUND_CHANNEL_KINDS = ["sms", "mms", "voice", "email"] as const;
+const DRAFTABLE_CHANNEL_KINDS = new Set(["sms", "mms"]);
+// Kinds ForgeLink can actually dispatch today.
+const SENDABLE_CHANNEL_KINDS = new Set(["sms", "mms"]);
+// Default posture for external agent communication when no rule matches:
+// draft-don't-send (AGH-020).
+const DEFAULT_FIREWALL_DECISION: FirewallRuleKind = "draft_only";
+
+export interface CommunicationFirewallRuleInput {
+  id?: string;
+  agent_id?: string;
+  contact_id?: number | null;
+  channel_kind?: string;
+  rule_kind: string;
+  policy?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+export interface CommunicationFirewallRuleRow {
+  id: string;
+  agent_id: string;            // "" matches any agent
+  contact_id: number | null;   // null matches any contact
+  channel_kind: string;        // "" matches any channel kind
+  rule_kind: string;
+  policy_json: string;
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FirewallEvaluation {
+  decision: FirewallRuleKind;
+  matched_rule_id: string | null;  // null => default posture, no rule matched
+  reason: string;
+  sendable: boolean;               // whether ForgeLink can dispatch this channel kind
+}
+
+// Draft-don't-send (work item 016, AGH-020): an agent-drafted external message
+// held for explicit operator review/edit/approve/deny. The default firewall
+// posture parks every external message here rather than sending it.
+export interface OutboundDraftInput {
+  agent_id: string;
+  channel_id: string;
+  channel_kind?: string;
+  to: string;
+  body?: string;
+  media_urls?: string[];
+}
+
+export interface OutboundDraftRow {
+  id: string;
+  agent_id: string;
+  channel_id: string;
+  channel_kind: string;
+  to_number: string;
+  contact_id: number | null;
+  body: string;
+  media_urls: string;
+  status: string;              // draft | sent | denied | failed
+  firewall_decision: string;
+  reason: string;
+  provider_message_id: string;
+  last_error: string;
+  created_at: string;
+  updated_at: string;
+  decided_at: string | null;
+}
+
+export interface OutboundDraftEventRow {
+  id: number;
+  draft_id: string;
+  event_type: string;
+  detail: string;
+  created_at: string;
+}
+
+// Raised by createOutboundDraft when a `block` rule applies, so the route can
+// answer 403 without creating a draft.
+export class FirewallBlockedError extends Error {
+  readonly reason = "firewall_blocked";
+}
 
 export interface McpTokenStatus {
   configured: boolean;
@@ -1056,6 +1154,57 @@ export class PhoneDatabase {
         version = 20;
         this.connection.exec("PRAGMA user_version=20");
       }
+      if (version === 20) {
+        // Communication firewall + draft-don't-send (work item 016, AGH-019/020;
+        // schema v21 per decision 0011). `communication_firewall_rules` is the
+        // operator-defined policy enforced before an agent's external message is
+        // dispatched; `agent_outbound_drafts` parks agent-drafted external messages
+        // for explicit operator review/edit/approve/deny; `outbound_draft_events`
+        // is the audit log of each draft's lifecycle.
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS communication_firewall_rules (
+            id TEXT PRIMARY KEY,
+            agent_id TEXT NOT NULL DEFAULT '',
+            contact_id INTEGER,
+            channel_kind TEXT NOT NULL DEFAULT '',
+            rule_kind TEXT NOT NULL,
+            policy_json TEXT NOT NULL DEFAULT '{}',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_firewall_rules_match ON communication_firewall_rules(agent_id, channel_kind, enabled);
+          CREATE TABLE IF NOT EXISTS agent_outbound_drafts (
+            id TEXT PRIMARY KEY,
+            agent_id TEXT NOT NULL DEFAULT '',
+            channel_id TEXT NOT NULL DEFAULT '',
+            channel_kind TEXT NOT NULL DEFAULT 'sms',
+            to_number TEXT NOT NULL DEFAULT '',
+            contact_id INTEGER,
+            body TEXT NOT NULL DEFAULT '',
+            media_urls TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'draft',
+            firewall_decision TEXT NOT NULL DEFAULT '',
+            reason TEXT NOT NULL DEFAULT '',
+            provider_message_id TEXT NOT NULL DEFAULT '',
+            last_error TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            decided_at TEXT
+          );
+          CREATE INDEX IF NOT EXISTS idx_outbound_drafts_status ON agent_outbound_drafts(status, created_at DESC);
+          CREATE TABLE IF NOT EXISTS outbound_draft_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            draft_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_outbound_draft_events_draft ON outbound_draft_events(draft_id, created_at DESC);
+        `);
+        version = 21;
+        this.connection.exec("PRAGMA user_version=21");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -1112,6 +1261,8 @@ export class PhoneDatabase {
       audit_chain: this.connection.prepare("SELECT * FROM audit_chain ORDER BY seq").all(),
       approval_outcomes: this.connection.prepare("SELECT * FROM approval_outcomes ORDER BY reported_at, id").all(),
       decision_memory_rules: this.connection.prepare("SELECT * FROM decision_memory_rules ORDER BY updated_at, id").all(),
+      communication_firewall_rules: this.connection.prepare("SELECT * FROM communication_firewall_rules ORDER BY updated_at, id").all(),
+      agent_outbound_drafts: this.connection.prepare("SELECT * FROM agent_outbound_drafts ORDER BY created_at, id").all(),
       signal_subscriptions: this.connection.prepare("SELECT * FROM signal_subscriptions ORDER BY title, id").all(),
       signal_items: this.connection.prepare("SELECT * FROM signal_items ORDER BY received_at, id").all(),
       mcp_tokens: this.connection.prepare("SELECT id, created_at, rotated_at, revoked_at, last_used_at, last_test_at, last_test_status FROM mcp_tokens ORDER BY id").all(),
@@ -2075,6 +2226,164 @@ export class PhoneDatabase {
       audit_verification: this.verifyAuditChain(),
       decision_memory_rules: memoryRules
     };
+  }
+
+  // --- Communication firewall (work item 016, AGH-019) ------------------------
+
+  communicationFirewallRules(): CommunicationFirewallRuleRow[] {
+    return this.connection.prepare("SELECT * FROM communication_firewall_rules ORDER BY updated_at DESC, id").all() as unknown as CommunicationFirewallRuleRow[];
+  }
+
+  upsertCommunicationFirewallRule(input: CommunicationFirewallRuleInput): CommunicationFirewallRuleRow {
+    const ruleKind = String(input.rule_kind || "").trim();
+    if (!isFirewallRuleKind(ruleKind)) throw new Error("rule_kind must be block, draft_only, require_approval, or allow.");
+    const agentId = String(input.agent_id || "").trim().slice(0, 80);
+    const channelKind = String(input.channel_kind || "").trim().slice(0, 40);
+    if (channelKind && !(OUTBOUND_CHANNEL_KINDS as readonly string[]).includes(channelKind)) throw new Error("channel_kind is invalid.");
+    const contactId = input.contact_id === undefined || input.contact_id === null ? null : Number(input.contact_id);
+    if (contactId !== null && !Number.isInteger(contactId)) throw new Error("contact_id must be an integer.");
+    const policyJson = JSON.stringify(input.policy && typeof input.policy === "object" ? input.policy : {});
+    const now = utcNow();
+    const id = String(input.id || "").trim() || randomUUID();
+    const enabled = input.enabled === undefined ? 1 : (input.enabled ? 1 : 0);
+    const existing = this.connection.prepare("SELECT created_at FROM communication_firewall_rules WHERE id=?").get(id) as { created_at: string } | undefined;
+    this.connection.prepare(`
+      INSERT INTO communication_firewall_rules(id, agent_id, contact_id, channel_kind, rule_kind, policy_json, enabled, created_at, updated_at)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        agent_id=excluded.agent_id,
+        contact_id=excluded.contact_id,
+        channel_kind=excluded.channel_kind,
+        rule_kind=excluded.rule_kind,
+        policy_json=excluded.policy_json,
+        enabled=excluded.enabled,
+        updated_at=excluded.updated_at
+    `).run(id, agentId, contactId, channelKind, ruleKind, policyJson, enabled, existing?.created_at || now, now);
+    return this.connection.prepare("SELECT * FROM communication_firewall_rules WHERE id=?").get(id) as unknown as CommunicationFirewallRuleRow;
+  }
+
+  deleteCommunicationFirewallRule(id: string): boolean {
+    return this.connection.prepare("DELETE FROM communication_firewall_rules WHERE id=?").run(String(id || "").trim()).changes === 1;
+  }
+
+  // Decide how an external agent message must be handled before dispatch. The most
+  // specific enabled matching rule wins; ties break toward the more restrictive
+  // decision, then the most recently updated rule. With no matching rule the
+  // default posture is draft-don't-send (AGH-020).
+  evaluateCommunicationFirewall(agentId: string, channelKind: string, contactId: number | null): FirewallEvaluation {
+    const kind = String(channelKind || "sms").trim() || "sms";
+    const sendable = SENDABLE_CHANNEL_KINDS.has(kind);
+    const matches = this.communicationFirewallRules().filter((rule) =>
+      Boolean(rule.enabled)
+      && (rule.agent_id === "" || rule.agent_id === agentId)
+      && (rule.contact_id === null || rule.contact_id === contactId)
+      && (rule.channel_kind === "" || rule.channel_kind === kind));
+    if (!matches.length) return { decision: DEFAULT_FIREWALL_DECISION, matched_rule_id: null, reason: "default_draft_dont_send", sendable };
+    const restrictiveness: Record<string, number> = { block: 3, require_approval: 2, draft_only: 1, allow: 0 };
+    const specificity = (rule: CommunicationFirewallRuleRow): number => (rule.agent_id ? 1 : 0) + (rule.contact_id !== null ? 1 : 0) + (rule.channel_kind ? 1 : 0);
+    matches.sort((left, right) => specificity(right) - specificity(left) || restrictiveness[right.rule_kind] - restrictiveness[left.rule_kind] || right.updated_at.localeCompare(left.updated_at));
+    const top = matches[0];
+    return { decision: top.rule_kind as FirewallRuleKind, matched_rule_id: top.id, reason: `rule:${top.rule_kind}`, sendable };
+  }
+
+  // --- Draft-don't-send for external channels (work item 016, AGH-020) --------
+
+  private recordDraftEvent(draftId: string, eventType: string, detail: Record<string, unknown>, at: string): void {
+    this.connection.prepare("INSERT INTO outbound_draft_events(draft_id, event_type, detail, created_at) VALUES(?, ?, ?, ?)")
+      .run(draftId, eventType, JSON.stringify(detail || {}), at);
+  }
+
+  outboundDraft(id: string): OutboundDraftRow | undefined {
+    return this.connection.prepare("SELECT * FROM agent_outbound_drafts WHERE id=?").get(String(id || "").trim()) as unknown as OutboundDraftRow | undefined;
+  }
+
+  outboundDrafts(status?: string): OutboundDraftRow[] {
+    if (status) return this.connection.prepare("SELECT * FROM agent_outbound_drafts WHERE status=? ORDER BY created_at DESC, id DESC LIMIT 500").all(status) as unknown as OutboundDraftRow[];
+    return this.connection.prepare("SELECT * FROM agent_outbound_drafts ORDER BY created_at DESC, id DESC LIMIT 500").all() as unknown as OutboundDraftRow[];
+  }
+
+  outboundDraftEvents(draftId: string): OutboundDraftEventRow[] {
+    return this.connection.prepare("SELECT * FROM outbound_draft_events WHERE draft_id=? ORDER BY created_at DESC, id DESC").all(String(draftId || "").trim()) as unknown as OutboundDraftEventRow[];
+  }
+
+  // An agent submits an external message. The firewall is consulted first: a
+  // `block` decision throws FirewallBlockedError (no draft is created); every other
+  // decision parks a pending draft. This method never sends — the operator (or an
+  // explicit `allow` rule, handled by the caller) authorizes the send separately.
+  createOutboundDraft(input: OutboundDraftInput): { draft: OutboundDraftRow; evaluation: FirewallEvaluation } {
+    const agentId = String(input.agent_id || "").trim();
+    const channelKind = String(input.channel_kind || "sms").trim() || "sms";
+    if (!DRAFTABLE_CHANNEL_KINDS.has(channelKind)) throw new Error("Only sms and mms external drafts are supported.");
+    const to = normalizeNumber(input.to);
+    const body = String(input.body || "");
+    const media = (input.media_urls || []).map((value) => String(value));
+    if (!body && !media.length) throw new Error("An outbound draft needs a body or media.");
+    const contactId = this.resolveContactIdByValue(to);
+    const evaluation = this.evaluateCommunicationFirewall(agentId, channelKind, contactId);
+    if (evaluation.decision === "block") throw new FirewallBlockedError("The communication firewall blocked this external message.");
+    const now = utcNow();
+    const id = `draft-${randomUUID()}`;
+    this.connection.exec("BEGIN IMMEDIATE");
+    try {
+      this.connection.prepare(`
+        INSERT INTO agent_outbound_drafts(id, agent_id, channel_id, channel_kind, to_number, contact_id, body, media_urls, status, firewall_decision, reason, created_at, updated_at)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)
+      `).run(id, agentId, String(input.channel_id || ""), channelKind, to, contactId, body, media.join(","), evaluation.decision, evaluation.reason, now, now);
+      this.recordDraftEvent(id, "draft_created", { agent_id: agentId, channel_kind: channelKind, firewall_decision: evaluation.decision, reason: evaluation.reason }, now);
+      this.connection.exec("COMMIT");
+    } catch (error) {
+      this.connection.exec("ROLLBACK");
+      throw error;
+    }
+    return { draft: this.outboundDraft(id)!, evaluation };
+  }
+
+  // Operator edits a pending draft before sending (review/edit; AGH-020).
+  editOutboundDraft(id: string, body: string, media: string[] = []): OutboundDraftRow {
+    const draft = this.outboundDraft(id);
+    if (!draft) throw new Error("Outbound draft not found.");
+    if (draft.status !== "draft") throw new Error("Only pending drafts can be edited.");
+    const next = String(body ?? "");
+    const nextMedia = (media || []).map((value) => String(value));
+    if (!next && !nextMedia.length) throw new Error("An outbound draft needs a body or media.");
+    const now = utcNow();
+    this.connection.prepare("UPDATE agent_outbound_drafts SET body=?, media_urls=?, updated_at=? WHERE id=?").run(next, nextMedia.join(","), now, id);
+    this.recordDraftEvent(id, "draft_edited", {}, now);
+    return this.outboundDraft(id)!;
+  }
+
+  // Records the operator's (or an allow rule's) explicit authorization just before
+  // the send is attempted, so direct-send authority is always audited (AGH-020).
+  approveOutboundDraft(id: string, operatorAlias = "operator:primary", viaAllowRule = false): OutboundDraftRow {
+    const draft = this.outboundDraft(id);
+    if (!draft) throw new Error("Outbound draft not found.");
+    if (draft.status !== "draft") throw new Error("Only pending drafts can be approved.");
+    this.recordDraftEvent(id, "draft_approved", { operator_alias: operatorAlias, via_allow_rule: viaAllowRule }, utcNow());
+    return draft;
+  }
+
+  denyOutboundDraft(id: string, reason = "denied"): OutboundDraftRow {
+    const draft = this.outboundDraft(id);
+    if (!draft) throw new Error("Outbound draft not found.");
+    if (draft.status !== "draft") throw new Error("Only pending drafts can be denied.");
+    const now = utcNow();
+    this.connection.prepare("UPDATE agent_outbound_drafts SET status='denied', reason=?, decided_at=?, updated_at=? WHERE id=?").run(String(reason || "denied").slice(0, 500), now, now, id);
+    this.recordDraftEvent(id, "draft_denied", { reason: String(reason || "") }, now);
+    return this.outboundDraft(id)!;
+  }
+
+  markOutboundDraftSent(id: string, providerMessageId: string, viaAllowRule = false): OutboundDraftRow {
+    const now = utcNow();
+    if (this.connection.prepare("UPDATE agent_outbound_drafts SET status='sent', provider_message_id=?, last_error='', decided_at=COALESCE(decided_at, ?), updated_at=? WHERE id=?").run(String(providerMessageId || ""), now, now, id).changes !== 1) throw new Error("Outbound draft not found.");
+    this.recordDraftEvent(id, "draft_sent", { provider_message_id: String(providerMessageId || ""), via_allow_rule: viaAllowRule }, now);
+    return this.outboundDraft(id)!;
+  }
+
+  markOutboundDraftFailed(id: string, error: string): OutboundDraftRow {
+    const now = utcNow();
+    if (this.connection.prepare("UPDATE agent_outbound_drafts SET status='failed', last_error=?, updated_at=? WHERE id=?").run(String(error || "").slice(0, 500), now, id).changes !== 1) throw new Error("Outbound draft not found.");
+    this.recordDraftEvent(id, "draft_failed", { error: String(error || "").slice(0, 200) }, now);
+    return this.outboundDraft(id)!;
   }
 
   // --- Decision memory (work item 016, AGH-014) -------------------------------

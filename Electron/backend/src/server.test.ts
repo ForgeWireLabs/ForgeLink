@@ -1051,3 +1051,71 @@ test("contacts metadata, points, and policy over HTTP (CLV-009/010/011)", async 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+// Communication firewall + draft-don't-send over HTTP (work item 016, AGH-019/020).
+test("gates agent external messages through the firewall and a reviewed outbox (AGH-019/020)", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-draftsend-http-"));
+  let sendCount = 0;
+  const sendMessage = async () => ({ sid: `SM-OK-${++sendCount}`, status: "queued" });
+  const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken, sendMessage });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  try {
+    const token = await createChannel(localUrl);
+    const draftHeaders = { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": token };
+    const postDraft = (body: Record<string, unknown>) => fetch(`${localUrl}/api/agent-channels/forgewire/outbound-drafts`, { method: "POST", headers: draftHeaders, body: JSON.stringify(body) });
+
+    // Default posture: the external message is parked as a draft, not sent.
+    const drafted = await postDraft({ source: "codex", to: "+15551239000", body: "Hi from the agent" });
+    assert.equal(drafted.status, 201);
+    const draftedPayload = await drafted.json() as { draft: { id: string; status: string }; evaluation: { decision: string } };
+    assert.equal(draftedPayload.evaluation.decision, "draft_only");
+    assert.equal(draftedPayload.draft.status, "draft");
+    const draftId = draftedPayload.draft.id;
+
+    // The reviewed outbox is operator-only.
+    assert.equal((await fetch(`${localUrl}/api/outbound-drafts`)).status, 401);
+    assert.equal(((await fetch(`${localUrl}/api/outbound-drafts`, { headers: authorized() }).then((r) => r.json())) as Array<unknown>).length, 1);
+
+    // The operator edits, then approves and sends; the draft becomes sent and the
+    // message lands in the thread.
+    await fetch(`${localUrl}/api/outbound-drafts/${draftId}/edit`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ body: "Reviewed and edited" }) });
+    const sent = await fetch(`${localUrl}/api/outbound-drafts/${draftId}/approve-send`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({}) }).then((r) => r.json()) as { ok: boolean; draft: { status: string; provider_message_id: string } };
+    assert.equal(sent.ok, true);
+    assert.equal(sent.draft.status, "sent");
+    assert.match(sent.draft.provider_message_id, /^SM-OK-/);
+    assert.ok(database.threads().some((thread) => thread.canonical_number === "+15551239000"));
+    // The lifecycle is audited: created, edited, approved, sent.
+    const events = await fetch(`${localUrl}/api/outbound-drafts/${draftId}/events`, { headers: authorized() }).then((r) => r.json()) as Array<{ event_type: string }>;
+    const types = events.map((e) => e.event_type);
+    for (const expected of ["draft_created", "draft_edited", "draft_approved", "draft_sent"]) assert.ok(types.includes(expected), `expected ${expected}`);
+
+    // A block rule refuses an agent's external message before any dispatch.
+    const blockRule = await fetch(`${localUrl}/api/communication-firewall`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ agent_id: "rogue", rule_kind: "block" }) });
+    assert.equal(blockRule.status, 201);
+    const blocked = await postDraft({ source: "rogue", to: "+15551239000", body: "blocked" });
+    assert.equal(blocked.status, 403);
+    assert.equal((await blocked.json() as { reason: string }).reason, "firewall_blocked");
+
+    // An allow rule is explicit direct-send authority: the message is sent immediately.
+    await fetch(`${localUrl}/api/communication-firewall`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ agent_id: "trusted", channel_kind: "sms", rule_kind: "allow" }) });
+    const allowed = await postDraft({ source: "trusted", to: "+15551239111", body: "auto-send" });
+    assert.equal(allowed.status, 201);
+    const allowedPayload = await allowed.json() as { draft: { status: string }; evaluation: { decision: string } };
+    assert.equal(allowedPayload.evaluation.decision, "allow");
+    assert.equal(allowedPayload.draft.status, "sent");
+
+    // A dry-run evaluation lets the operator preview a decision; firewall management
+    // is operator-only.
+    const evaluation = await fetch(`${localUrl}/api/communication-firewall/evaluate?agent=trusted&channel_kind=sms`, { headers: authorized() }).then((r) => r.json()) as { decision: string };
+    assert.equal(evaluation.decision, "allow");
+    assert.equal((await fetch(`${localUrl}/api/communication-firewall`)).status, 401);
+
+    // A bad channel credential cannot submit a draft.
+    assert.equal((await fetch(`${localUrl}/api/agent-channels/forgewire/outbound-drafts`, { method: "POST", headers: { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": "wrong" }, body: JSON.stringify({ source: "codex", to: "+15551239000", body: "x" }) })).status, 401);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

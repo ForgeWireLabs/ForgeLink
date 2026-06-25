@@ -69,6 +69,17 @@ versions tracked in `VERSION` and `Electron/package.json`.
   summaries are excluded — and a full export with private detail requires explicit
   operator confirmation. The export endpoint is operator-only (AGH-018). This
   completes work item 016 Phase 5 (audit, replay, and integrity).
+- Communication firewall: operators define how agents may communicate with humans
+  and external channels (per agent, contact, and channel kind), with decisions of
+  block, draft-only, require-approval, or allow. The most specific rule wins, ties
+  break to the more restrictive decision, and the firewall is enforced before any
+  external dispatch. Rule management and a dry-run evaluation are operator-only
+  (AGH-019).
+- Draft-don't-send for external channels: agents submit external messages over
+  their channel credential, but the default posture parks them as drafts rather
+  than sending. Operators review, edit, approve+send, or deny from a reviewed
+  outbox; a block rule refuses outright and an allow rule grants explicit,
+  audited direct-send authority. Every draft lifecycle step is audited (AGH-020).
 
 ### Changed
 - Completed work item 015 (Communication Channels and Voice); moved to the

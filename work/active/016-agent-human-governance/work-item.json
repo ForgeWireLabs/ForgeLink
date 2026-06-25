@@ -175,14 +175,18 @@
     {
       "id": "AGH-019",
       "text": "Add communication firewall rules controlling how agents may communicate with humans and external channels before dispatch.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260624-agh019-communication-firewall"
+      ]
     },
     {
       "id": "AGH-020",
       "text": "Add draft-don't-send mode for external channels so agents can draft messages while human review/send remains explicit and audited.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260624-agh020-draft-dont-send"
+      ]
     },
     {
       "id": "AGH-021",

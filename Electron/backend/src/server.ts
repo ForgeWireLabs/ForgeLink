@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:
 import { createServer, IncomingMessage, Server, ServerResponse } from "node:http";
 import { extname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
-import { AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, DecisionRecordRow, EvidencePack, isAuthorityScope, PhoneDatabase } from "./database";
+import { AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, DecisionRecordRow, EvidencePack, FirewallBlockedError, isAuthorityScope, OutboundDraftRow, PhoneDatabase } from "./database";
 import { utcNow } from "./phone";
 import { fetchTrustedSignalFeed } from "./signals";
 import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, loadTwilioConfig, sendTwilioMessage, startTwilioCall, validateTwilioSignature } from "./twilio";
@@ -114,7 +114,7 @@ function channelToken(request: IncomingMessage): string {
 }
 
 function agentChannelPath(pathname: string): string | undefined {
-  return pathname.match(/^\/api\/agent-channels\/([A-Za-z0-9_.:-]{1,80})\/messages$/)?.[1];
+  return pathname.match(/^\/api\/agent-channels\/([A-Za-z0-9_.:-]{1,80})\/(?:messages|outbound-drafts)$/)?.[1];
 }
 
 function hasValidAgentChannelCredential(token: string, record: AgentChannelRecord): boolean {
@@ -365,6 +365,24 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       await rm(uploadsDir, { recursive: true, force: true });
       if (await stat(uploadsRollback).then((value) => value.isDirectory()).catch(() => false)) await rename(uploadsRollback, uploadsDir);
       throw error;
+    }
+  };
+  // Dispatch an authorized outbound draft (AGH-020). Mirrors /api/send: persist a
+  // pending message so the sent external message appears in the thread, send through
+  // the channel registry, then reconcile both the message and the draft. The draft's
+  // explicit approval (operator or allow rule) is recorded by the caller first.
+  const performDraftSend = async (draft: OutboundDraftRow, viaAllowRule: boolean): Promise<{ draft: OutboundDraftRow; error?: string }> => {
+    const localId = `agentdraft-${draft.id}`;
+    const media = draft.media_urls ? draft.media_urls.split(",").filter(Boolean) : [];
+    const pending = database.outboundMessage(localId) || database.createPendingMessage(localId, draft.to_number, draft.body, media);
+    try {
+      const result = await channels.select("sms_send").send({ to: pending.number, body: pending.body, mediaUrls: media });
+      database.markMessageSent(localId, result.providerMessageId || "", result.status);
+      return { draft: database.markOutboundDraftSent(draft.id, result.providerMessageId || "", viaAllowRule) };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Message delivery failed.";
+      database.markMessageFailed(localId, message);
+      return { draft: database.markOutboundDraftFailed(draft.id, message), error: message };
     }
   };
   const server = createServer(async (request, response) => {
@@ -792,6 +810,47 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         database.markAgentChannelUsed(channelId, urgency);
         return sendJson(response, { ok: true, message, agent: { id: agentIdentity.id, trust_state: agentIdentity.trust_state } }, 201);
       }
+      // Draft-don't-send (AGH-019/020): an agent submits an external message over
+      // its channel credential. The communication firewall decides before any
+      // dispatch — a `block` rule refuses it, an `allow` rule sends immediately
+      // (explicit, audited direct-send authority), and every other decision parks a
+      // pending draft for explicit operator review/edit/approve/deny.
+      const agentDraftMatch = url.pathname.match(/^\/api\/agent-channels\/([A-Za-z0-9_.:-]{1,80})\/outbound-drafts$/);
+      if (request.method === "POST" && agentDraftMatch) {
+        const channelId = agentDraftMatch[1];
+        const payload = await readJson(request);
+        const source = boundedText(payload.source, "source", 80, /^[A-Za-z0-9_.:-]+$/);
+        const agentIdentity = database.recordAgentIdentitySeen(source, String(payload.source_kind || "mcp"));
+        if (agentIdentity.trust_state === "blocked" || agentIdentity.trust_state === "muted") {
+          const reason = agentIdentity.trust_state === "blocked" ? "agent_blocked" : "agent_muted";
+          database.markAgentChannelRejected(channelId, "normal", reason);
+          return sendJson(response, { error: "Agent is not permitted to communicate.", reason, agent: { id: agentIdentity.id, trust_state: agentIdentity.trust_state } }, 403);
+        }
+        try {
+          const { draft, evaluation } = database.createOutboundDraft({
+            agent_id: source,
+            channel_id: channelId,
+            channel_kind: typeof payload.channel_kind === "string" ? payload.channel_kind : "sms",
+            to: boundedText(payload.to, "to", 40),
+            body: typeof payload.body === "string" ? payload.body.slice(0, 4000) : "",
+            media_urls: boundedStringList(payload.media_urls, "media_urls", 10, 500)
+          });
+          database.markAgentChannelUsed(channelId, "normal");
+          // An operator-configured `allow` rule is explicit direct-send authority.
+          if (evaluation.decision === "allow" && evaluation.sendable) {
+            database.approveOutboundDraft(draft.id, "rule:allow", true);
+            const sent = await performDraftSend(draft, true);
+            return sendJson(response, { ok: !sent.error, draft: sent.draft, evaluation, error: sent.error }, sent.error ? 502 : 201);
+          }
+          return sendJson(response, { ok: true, draft, evaluation }, 201);
+        } catch (error) {
+          if (error instanceof FirewallBlockedError) {
+            database.markAgentChannelRejected(channelId, "normal", "firewall_blocked");
+            return sendJson(response, { error: error.message, reason: error.reason }, 403);
+          }
+          throw error;
+        }
+      }
       const agentStatusMatch = url.pathname.match(/^\/api\/agent-messages\/([^/]+)\/(read|dismiss)$/);
       if (request.method === "POST" && agentStatusMatch) {
         const id = decodeURIComponent(agentStatusMatch[1]);
@@ -858,6 +917,86 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const data = database.governanceExport(full);
         await writeFile(join(exportsDir, name), JSON.stringify(data, null, 2), { mode: 0o600 });
         return sendJson(response, { ok: true, name, mode: data.mode, audit_verification: data.audit_verification });
+      }
+      // Communication firewall (AGH-019): operator-only policy management and a
+      // dry-run evaluation so the operator can preview a decision before it bites.
+      if (request.method === "GET" && url.pathname === "/api/communication-firewall") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.communicationFirewallRules());
+      }
+      if (request.method === "POST" && url.pathname === "/api/communication-firewall") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const rule = database.upsertCommunicationFirewallRule({
+          id: typeof payload.id === "string" ? payload.id : undefined,
+          agent_id: typeof payload.agent_id === "string" ? payload.agent_id : "",
+          contact_id: payload.contact_id === undefined || payload.contact_id === null ? null : Number(payload.contact_id),
+          channel_kind: typeof payload.channel_kind === "string" ? payload.channel_kind : "",
+          rule_kind: boundedText(payload.rule_kind, "rule_kind", 40, /^[a-z_]+$/),
+          policy: payload.policy && typeof payload.policy === "object" ? payload.policy as Record<string, unknown> : undefined,
+          enabled: payload.enabled === undefined ? undefined : Boolean(payload.enabled)
+        });
+        return sendJson(response, { ok: true, rule }, 201);
+      }
+      if (request.method === "GET" && url.pathname === "/api/communication-firewall/evaluate") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const contactParam = url.searchParams.get("contact_id");
+        const evaluation = database.evaluateCommunicationFirewall(
+          url.searchParams.get("agent") || "",
+          url.searchParams.get("channel_kind") || "sms",
+          contactParam ? Number(contactParam) : null
+        );
+        return sendJson(response, evaluation);
+      }
+      const firewallRuleMatch = url.pathname.match(/^\/api\/communication-firewall\/([^/]+)$/);
+      if (request.method === "DELETE" && firewallRuleMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, { ok: database.deleteCommunicationFirewallRule(decodeURIComponent(firewallRuleMatch[1])) });
+      }
+      // Reviewed outbox for agent-drafted external messages (AGH-020): operator-only
+      // list, lifecycle audit, edit, approve+send, and deny.
+      if (request.method === "GET" && url.pathname === "/api/outbound-drafts") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.outboundDrafts(url.searchParams.get("status") || undefined));
+      }
+      const draftEventsMatch = url.pathname.match(/^\/api\/outbound-drafts\/([^/]+)\/events$/);
+      if (request.method === "GET" && draftEventsMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.outboundDraftEvents(decodeURIComponent(draftEventsMatch[1])));
+      }
+      const draftEditMatch = url.pathname.match(/^\/api\/outbound-drafts\/([^/]+)\/edit$/);
+      if (request.method === "POST" && draftEditMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const draft = database.editOutboundDraft(
+          decodeURIComponent(draftEditMatch[1]),
+          typeof payload.body === "string" ? payload.body.slice(0, 4000) : "",
+          boundedStringList(payload.media_urls, "media_urls", 10, 500)
+        );
+        return sendJson(response, { ok: true, draft });
+      }
+      const draftDenyMatch = url.pathname.match(/^\/api\/outbound-drafts\/([^/]+)\/deny$/);
+      if (request.method === "POST" && draftDenyMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request).catch((): Record<string, unknown> => ({}));
+        const draft = database.denyOutboundDraft(decodeURIComponent(draftDenyMatch[1]), typeof payload.reason === "string" ? payload.reason : "denied");
+        return sendJson(response, { ok: true, draft });
+      }
+      const draftSendMatch = url.pathname.match(/^\/api\/outbound-drafts\/([^/]+)\/approve-send$/);
+      if (request.method === "POST" && draftSendMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const id = decodeURIComponent(draftSendMatch[1]);
+        const draft = database.outboundDraft(id);
+        if (!draft) return sendJson(response, { error: "Outbound draft not found." }, 404);
+        if (draft.status !== "draft") return sendJson(response, { error: "Only pending drafts can be sent." }, 400);
+        // Re-check the firewall at send time: a rule added after drafting still binds.
+        const evaluation = database.evaluateCommunicationFirewall(draft.agent_id, draft.channel_kind, draft.contact_id);
+        if (evaluation.decision === "block") return sendJson(response, { error: "The communication firewall now blocks this external message.", reason: "firewall_blocked" }, 403);
+        if (!evaluation.sendable) return sendJson(response, { error: "This channel kind cannot be dispatched yet." }, 400);
+        const payload = await readJson(request).catch((): Record<string, unknown> => ({}));
+        database.approveOutboundDraft(id, decisionMetadata(payload).operator_alias || "operator:primary");
+        const sent = await performDraftSend(draft, false);
+        return sendJson(response, { ok: !sent.error, draft: sent.draft, error: sent.error }, sent.error ? 502 : 200);
       }
       if (request.method === "POST" && url.pathname === "/api/data/retention") {
         const payload = await readJson(request);
