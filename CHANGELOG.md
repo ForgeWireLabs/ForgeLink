@@ -108,9 +108,10 @@ versions tracked in `VERSION` and `Electron/package.json`.
   discovery endpoint so ForgeWire Fabric can auto-detect ForgeLink as the governed
   HITL surface (AGH-026/028, decision 0004).
 - ForgeWire Fabric HITL routing through ForgeLink: when ForgeLink is reachable,
-  Fabric's hub auto-routes held approvals to ForgeLink's governed decision surface,
-  with an operator opt-out and silent fallback to Fabric's built-in pane (AGH-028;
-  Fabric side shipped in forgewire-fabric `fabric-hub`).
+  Fabric's hub auto-routes held approvals to ForgeLink's governed decision surface
+  and reads the operator's decision back to resolve the held approval, with an
+  operator opt-out and silent fallback to Fabric's built-in pane (AGH-028; Fabric
+  side shipped in forgewire-fabric `fabric-hub`). The loop is closed end to end.
 - End-to-end governance-loop integration test covering request -> risk -> evidence
   -> decision -> outcome -> audit -> replay (AGH-027). This completes work item 016
   Phase 7 and work item 016 in full (28 of 28 criteria satisfied).

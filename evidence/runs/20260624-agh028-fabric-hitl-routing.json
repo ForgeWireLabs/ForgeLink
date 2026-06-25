@@ -13,7 +13,7 @@
     {
       "command": "cargo test -p fabric-hub --lib forgelink",
       "exit_code": 0,
-      "summary": "5 fabric-hub unit tests passed: config/opt-out gating, kind->authority mapping, and the agent-governance-v1 approval-request body."
+      "summary": "6 fabric-hub unit tests passed: config/opt-out/reconcile gating, kind->authority mapping, the agent-governance-v1 approval-request body, and decision classification."
     }
   ],
   "artifacts": [
@@ -21,13 +21,14 @@
     "forgewire-fabric/crates/fabric-hub/src/state.rs",
     "forgewire-fabric/crates/fabric-hub/src/main.rs",
     "forgewire-fabric/crates/fabric-hub/src/routes/tasks.rs",
+    "forgewire-fabric/crates/fabric-hub/src/routes/approvals.rs",
     "forgewire-fabric/CHANGELOG.md"
   ],
   "environment": {
     "repository": "ForgeWireLabs/forgewire (monorepo; forgewire-fabric subtree)",
     "branch": "main",
-    "commit": "ce6e22a3",
+    "commit": "ce6e22a3 (routing) + 5769275c (decision write-back)",
     "platform": "Windows",
-    "process_note": "AGH-028 Fabric side: fabric-hub auto-routes held HITL approvals to ForgeLink's agent-governance-v1 contract when configured/reachable, with FORGELINK_HITL opt-out and silent fallback to Fabric's built-in pane. Cross-repo; lands in the forgewire monorepo, mirrored to forgewire-fabric. Decision write-back (auto-resolving the held task from the ForgeLink decision) is the documented operational follow-up."
+    "process_note": "AGH-028 Fabric side, loop closed end to end: fabric-hub auto-routes held HITL approvals to ForgeLink's agent-governance-v1 contract when configured/reachable (FORGELINK_HITL opt-out, silent fallback), and GET /approvals/{id} reconciles a pending routed approval by polling ForgeLink's status (fabric-<approval_id>, needs FORGELINK_MCP_TOKEN) and resolving the Fabric approval approved/denied, audited as forgelink_decision_synced. Cross-repo; lands in the forgewire monorepo, mirrored to forgewire-fabric."
   }
 }
