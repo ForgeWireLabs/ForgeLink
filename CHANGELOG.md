@@ -91,6 +91,26 @@ versions tracked in `VERSION` and `Electron/package.json`.
   the selected profile, an unknown profile fails closed to the most restrictive,
   and operators can list and preview profiles (AGH-022). This completes work item
   016 Phase 6 (communication firewall and consent).
+- Public ingress hardening: the inbound webhook tunnel is now rate-limited
+  (120/min) before signature handling, the residual attack surface is documented,
+  and tests confirm only provider-signature-validated requests reach handlers while
+  private routes stay credential-gated (AGH-023, decision 0003).
+- Untrusted agent content: agent-supplied evidence, titles, and bodies are labeled
+  agent-provided/unverified and sanitized (control, zero-width, and look-alike
+  system/operator prefixes are neutralized) so they cannot impersonate ForgeLink UI
+  or be auto-trusted (AGH-024).
+- Decision/audit key management: a device-key registry records device identities
+  and public-key references with rotation and lost-device revocation; private keys
+  stay in OS-backed storage. The audit chain's guarantee is stated honestly as
+  local tamper-evidence, not non-repudiation (AGH-025, decision 0016).
+- Agent-facing governance contract (agent-governance-v1): a documented submit ->
+  await -> outcome loop, with a redacted agent status poll and a capability
+  discovery endpoint so ForgeWire Fabric can auto-detect ForgeLink as the governed
+  HITL surface (AGH-026/028, decision 0004). The Fabric-side auto-routing is the
+  remaining cross-repo work in forgewire-fabric.
+- End-to-end governance-loop integration test covering request -> risk -> evidence
+  -> decision -> outcome -> audit -> replay (AGH-027). This completes work item 016
+  Phase 7 on the ForgeLink side (27 of 28 criteria; AGH-028's Fabric side deferred).
 
 ### Changed
 - Completed work item 015 (Communication Channels and Voice); moved to the

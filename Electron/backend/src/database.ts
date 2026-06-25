@@ -5,7 +5,7 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 
-export const CURRENT_SCHEMA_VERSION = 22;
+export const CURRENT_SCHEMA_VERSION = 23;
 
 export interface ThreadRow {
   id: number;
@@ -490,6 +490,50 @@ export function redactEvidencePack(pack: Record<string, unknown>, profileId?: st
 export function redactNotification(title: string, body: string, profileId?: string): { title: string; body: string; redaction_profile: string; redacted: boolean } {
   const spec = redactionProfile(profileId);
   return { title, body: spec.show_body ? body : "", redaction_profile: spec.id, redacted: !spec.show_body };
+}
+
+// Untrusted agent content (work item 016, AGH-024): evidence packs, approval text,
+// and agent messages are untrusted input. They are labeled with this provenance so
+// no surface treats them as system/operator text, and they are sanitized before
+// display so they cannot smuggle control sequences or impersonate ForgeLink UI.
+export const AGENT_CONTENT_PROVENANCE = "agent_unverified";
+
+// Neutralize agent-supplied free text for display: drop ASCII control characters
+// (except tab/newline), strip zero-width and bidi-override characters used to spoof
+// look-alike text, and defang lines that impersonate system/operator prompts. The
+// result is safe to show in a labeled, agent-provided context; it never executes.
+export function sanitizeAgentText(value: unknown, maxLength = 4000): string {
+  let text = String(value ?? "");
+  // Drop ASCII control characters except tab, newline, and carriage return.
+  // eslint-disable-next-line no-control-regex
+  text = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+  // Strip zero-width and bidi-override characters used to spoof look-alike text.
+  text = text.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, "");
+  // Defang impersonation of system/operator/ForgeLink prefixes at the start of a line.
+  text = text.replace(/^([ \t]*)(system|operator|forgelink|assistant|admin)(\s*:)/gim, "$1[agent] $2$3");
+  if (text.length > maxLength) text = text.slice(0, maxLength);
+  return text;
+}
+
+// Decision/audit device key registry (work item 016, AGH-025). Device identities
+// and their public-key references; private keys live in OS-backed storage.
+export const DEVICE_TRUST_STATES = ["active", "revoked"] as const;
+
+export interface DeviceKeyInput {
+  id?: string;
+  label?: string;
+  public_key?: string;
+}
+
+export interface DeviceKeyRow {
+  id: string;
+  label: string;
+  public_key: string;
+  trust_state: string;
+  created_at: string;
+  rotated_at: string;
+  revoked_at: string | null;
+  last_seen_at: string | null;
 }
 
 // External-contact consent ledger (work item 016, AGH-021): whether an agent may
@@ -1320,6 +1364,26 @@ export class PhoneDatabase {
         version = 22;
         this.connection.exec("PRAGMA user_version=22");
       }
+      if (version === 22) {
+        // Decision/audit device key registry (work item 016, AGH-025; schema v23 per
+        // decision 0011 / decision 0016). The registry holds device identities and
+        // their public-key references for decision attribution and lost-device
+        // revocation; private keys live in OS-backed storage, never here.
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS device_keys (
+            id TEXT PRIMARY KEY,
+            label TEXT NOT NULL DEFAULT '',
+            public_key TEXT NOT NULL DEFAULT '',
+            trust_state TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL,
+            rotated_at TEXT NOT NULL,
+            revoked_at TEXT,
+            last_seen_at TEXT
+          );
+        `);
+        version = 23;
+        this.connection.exec("PRAGMA user_version=23");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -2000,6 +2064,30 @@ export class PhoneDatabase {
     return this.connection.prepare("SELECT * FROM decision_records WHERE approval_request_id=? ORDER BY decided_at DESC, id DESC LIMIT 1").get(requestId) as unknown as DecisionRecordRow | undefined;
   }
 
+  // Agent-facing status of one approval request (work item 016, AGH-026): the
+  // submitting agent polls this to await a decision and learn the outcome. It is
+  // redacted by design — the agent sees whether it was decided, the chosen option,
+  // whether authority was granted, and the latest reported outcome, but never the
+  // operator's identity, comment, or any evidence detail.
+  agentRequestStatus(requestId: string): { id: string; status: string; decided: boolean; decision: string; authority_granted: boolean; outcome_state: string; final_state: string } | undefined {
+    const message = this.agentMessage(requestId);
+    if (!message) return undefined;
+    const decision = this.decisionForRequest(requestId);
+    const outcomes = this.approvalOutcomes(requestId);
+    const latestOutcome = outcomes.length ? outcomes[0] : undefined; // approvalOutcomes is DESC
+    const denied = decision ? DENIAL_DECISIONS.has(decision.decision.toLowerCase()) : false;
+    const finalState = latestOutcome ? latestOutcome.outcome_state : decision ? (denied ? "denied" : "approved") : message.status;
+    return {
+      id: message.id,
+      status: message.status,
+      decided: Boolean(decision),
+      decision: decision ? decision.decision : "",
+      authority_granted: Boolean(decision && decision.authority_grant),
+      outcome_state: latestOutcome ? latestOutcome.outcome_state : "",
+      final_state: finalState
+    };
+  }
+
   // --- Tamper-evident audit chain (work item 016, AGH-016) --------------------
 
   // Hash committing to one chain entry and the previous entry's hash, so editing
@@ -2164,13 +2252,16 @@ export class PhoneDatabase {
         source: message.source,
         kind: message.kind,
         urgency: message.urgency,
-        title: message.title,
-        intent: message.intent,
-        requested_action: message.requested_action,
+        // Agent-supplied free text is untrusted (AGH-024): sanitized and labeled,
+        // never shown as system/operator text and never executed.
+        provenance: AGENT_CONTENT_PROVENANCE,
+        title: sanitizeAgentText(message.title, 160),
+        intent: sanitizeAgentText(message.intent, 1200),
+        requested_action: sanitizeAgentText(message.requested_action, 1200),
         required_authority: message.required_authority,
         to_human: message.to_human,
         affected_resources: parseArray(message.affected_resources),
-        ...(showBody ? { body: message.body, reason_for_interrupt: message.reason_for_interrupt } : {})
+        ...(showBody ? { body: sanitizeAgentText(message.body), reason_for_interrupt: sanitizeAgentText(message.reason_for_interrupt, 1200) } : {})
       }
     });
 
@@ -2595,6 +2686,50 @@ export class PhoneDatabase {
     if (topic) { const topics = parse(record.allowed_topics); if (topics.length && !topics.includes(topic)) return { allowed: false, reason: "topic_not_consented", requires_review: false, has_record: true, consent_id: record.id }; }
     if (!this.withinAllowedHours(record.allowed_hours, at)) return { allowed: false, reason: "outside_allowed_hours", requires_review: false, has_record: true, consent_id: record.id };
     return { allowed: true, reason: "consented", requires_review: false, has_record: true, consent_id: record.id };
+  }
+
+  // --- Decision/audit device key registry (work item 016, AGH-025) -------------
+
+  // The registry records device identities and their public-key references so the
+  // operator can attribute decisions to a device and revoke a lost device. Private
+  // keys are generated and held in OS-backed secure storage (Electron safeStorage)
+  // in the main process — never in this database. The audit chain's guarantee is
+  // local tamper-evidence (hash-linked records), not cryptographic non-repudiation;
+  // see decision 0016.
+  deviceKeys(): DeviceKeyRow[] {
+    return this.connection.prepare("SELECT * FROM device_keys ORDER BY created_at, id").all() as unknown as DeviceKeyRow[];
+  }
+
+  deviceKey(id: string): DeviceKeyRow | undefined {
+    return this.connection.prepare("SELECT * FROM device_keys WHERE id=?").get(String(id || "").trim()) as unknown as DeviceKeyRow | undefined;
+  }
+
+  registerDeviceKey(input: DeviceKeyInput): DeviceKeyRow {
+    const id = String(input.id || "").trim() || randomUUID();
+    if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(id)) throw new Error("Invalid device id.");
+    const now = utcNow();
+    const existing = this.deviceKey(id);
+    this.connection.prepare(`
+      INSERT INTO device_keys(id, label, public_key, trust_state, created_at, rotated_at, last_seen_at)
+      VALUES(?, ?, ?, 'active', ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET label=excluded.label, public_key=excluded.public_key, last_seen_at=excluded.last_seen_at
+    `).run(id, String(input.label || "").slice(0, 200), String(input.public_key || "").slice(0, 4000), existing?.created_at || now, now, now);
+    return this.deviceKey(id)!;
+  }
+
+  // Rotate to a new public key, keeping the device identity and its decision history.
+  rotateDeviceKey(id: string, publicKey: string): DeviceKeyRow {
+    const now = utcNow();
+    if (this.connection.prepare("UPDATE device_keys SET public_key=?, trust_state='active', revoked_at=NULL, rotated_at=?, last_seen_at=? WHERE id=?").run(String(publicKey || "").slice(0, 4000), now, now, String(id || "").trim()).changes !== 1) throw new Error("Device key not found.");
+    return this.deviceKey(id)!;
+  }
+
+  // Lost-device revocation: the device can no longer attribute new decisions, but
+  // its past decision records remain in the tamper-evident chain.
+  revokeDeviceKey(id: string): DeviceKeyRow {
+    const now = utcNow();
+    if (this.connection.prepare("UPDATE device_keys SET trust_state='revoked', revoked_at=?, rotated_at=? WHERE id=?").run(now, now, String(id || "").trim()).changes !== 1) throw new Error("Device key not found.");
+    return this.deviceKey(id)!;
   }
 
   // --- Decision memory (work item 016, AGH-014) -------------------------------

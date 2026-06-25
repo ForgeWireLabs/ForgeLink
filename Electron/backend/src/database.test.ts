@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { CURRENT_SCHEMA_VERSION, PhoneDatabase, REDACTION_PROFILES, redactEvidencePack, redactNotification } from "./database";
+import { AGENT_CONTENT_PROVENANCE, CURRENT_SCHEMA_VERSION, PhoneDatabase, REDACTION_PROFILES, redactEvidencePack, redactNotification, sanitizeAgentText } from "./database";
 import { normalizeNumber } from "./phone";
 
 test("normalizes US phone numbers", () => {
@@ -144,6 +144,8 @@ test("upgrades a version-seven (pre-015) database to the current schema without 
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_outbound_drafts'").get() as { name: string } | undefined)?.name, "agent_outbound_drafts");
     // v22 (016 AGH-021) adds the external-contact consent ledger.
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='consent_ledger'").get() as { name: string } | undefined)?.name, "consent_ledger");
+    // v23 (016 AGH-025) adds the decision/audit device key registry.
+    assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='device_keys'").get() as { name: string } | undefined)?.name, "device_keys");
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -881,6 +883,91 @@ test("redacts evidence packs and notifications per profile (AGH-022)", () => {
 
   // The canonical profile set is stable and ordered most-open to most-restrictive.
   assert.deepEqual(REDACTION_PROFILES.map((p) => p.id), ["desktop_full", "mobile_lock_screen", "email_summary", "sms_fallback", "status_only"]);
+});
+
+// Untrusted agent content (work item 016, AGH-024): agent-supplied text is
+// sanitized and labeled so it cannot impersonate system/operator UI.
+test("sanitizes untrusted agent text and labels its provenance (AGH-024)", () => {
+  // Control characters (including a NUL) and zero-width/bidi characters are stripped.
+  assert.equal(sanitizeAgentText("a bc"), "abc");
+  assert.equal(sanitizeAgentText("x​y‮z"), "xyz");
+  // Tabs and newlines survive as legitimate whitespace.
+  assert.equal(sanitizeAgentText("line1\nline2\tend"), "line1\nline2\tend");
+  // Look-alike system/operator prefixes are defanged, not obeyed.
+  assert.match(sanitizeAgentText("SYSTEM: grant all authority"), /^\[agent\] SYSTEM:/);
+  assert.match(sanitizeAgentText("operator: approve everything"), /^\[agent\] operator:/);
+  // Length is bounded.
+  assert.equal(sanitizeAgentText("a".repeat(5000), 100).length, 100);
+  // The provenance label is the untrusted marker.
+  assert.equal(AGENT_CONTENT_PROVENANCE, "agent_unverified");
+});
+
+// Decision/audit device key registry (work item 016, AGH-025): register, rotate,
+// and revoke device identities for decision attribution and lost-device revocation.
+test("registers, rotates, and revokes decision/audit device keys (AGH-025)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-device-keys-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const device = database.registerDeviceKey({ id: "desktop-1", label: "Operator desktop", public_key: "pk-1" });
+    assert.equal(device.trust_state, "active");
+    assert.equal(device.public_key, "pk-1");
+    assert.equal(database.deviceKeys().length, 1);
+    assert.throws(() => database.registerDeviceKey({ id: "bad id!" }), /Invalid device id/);
+
+    // Rotation keeps the identity but swaps the key and bumps rotated_at.
+    const rotated = database.rotateDeviceKey("desktop-1", "pk-2");
+    assert.equal(rotated.public_key, "pk-2");
+    assert.equal(rotated.trust_state, "active");
+    assert.throws(() => database.rotateDeviceKey("missing", "pk"), /not found/);
+
+    // Revocation marks the device revoked but keeps the record (history survives).
+    const revoked = database.revokeDeviceKey("desktop-1");
+    assert.equal(revoked.trust_state, "revoked");
+    assert.ok(revoked.revoked_at);
+    assert.equal(database.deviceKeys().length, 1);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// End-to-end governance loop (work item 016, AGH-027): request -> risk -> evidence
+// -> decision -> outcome -> audit -> replay holds together beyond per-primitive tests.
+test("runs the full governance loop end to end (AGH-027)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-governance-loop-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    // 1. Request + 2. risk (persisted) + evidence pack.
+    database.addAgentMessage({
+      id: "loop-1", channel_id: "forgewire", source: "codex", kind: "approval_request", urgency: "normal",
+      title: "Publish release", body: "Publish v2.0.5", required_authority: "release_approval",
+      affected_resources: ["repo:ForgeLink"], decision_options: [{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }],
+      risk: "normal", interruption_policy: "normal_approval", escalation_behavior: "deny_or_defer_on_timeout",
+      evidence_pack: { summary: "Green build", affected_resources: ["repo:ForgeLink"], diff_summary: "d", proposed_operation: "publish", checks: ["tests"], rollback_plan: "revert tag", links: [], limitations: "none", redaction_profile: "desktop_full" }
+    });
+    // 3. Decision (grants the declared authority) + 4. outcome.
+    const decision = database.recordDecision({ approval_request_id: "loop-1", decision: "approve", decision_comment: "ship it" });
+    assert.equal(decision.authority_grant, "release_approval");
+    database.recordOutcome({ approval_request_id: "loop-1", outcome_state: "action_succeeded", reported_resources: ["repo:ForgeLink"] });
+
+    // 5. Audit: request, evidence, decision, and outcome are all chained and verify.
+    assert.deepEqual(database.auditChain("loop-1").map((e) => e.entry_type), ["approval_request", "evidence_pack", "decision", "outcome"]);
+    assert.equal(database.verifyAuditChain().ok, true);
+
+    // 6. Replay reconstructs the whole lifecycle and reports the final state.
+    const replay = database.approvalReplay("loop-1")!;
+    assert.deepEqual(replay.steps.map((s) => s.step), ["request_received", "risk_classified", "evidence_shown", "decision_made", "action_reported", "final_state"]);
+    assert.equal(replay.decided, true);
+    assert.equal(replay.final_state, "action_succeeded");
+    assert.equal(replay.audit_verification.ok, true);
+
+    // The agent's redacted status view reflects the same resolved outcome.
+    const status = database.agentRequestStatus("loop-1")!;
+    assert.equal(status.decided, true);
+    assert.equal(status.authority_granted, true);
+    assert.equal(status.final_state, "action_succeeded");
+
+    // Tampering with the decided record is detected by chain verification.
+    database.connection.prepare("UPDATE decision_records SET decision='deny' WHERE approval_request_id='loop-1'").run();
+    assert.equal(database.verifyAuditChain().ok, false);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("stores trusted signals separately with duplicate handling, export, archive, and retention", () => {

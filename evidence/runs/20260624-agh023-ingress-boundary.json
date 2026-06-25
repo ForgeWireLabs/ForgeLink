@@ -1,0 +1,39 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260624-agh023-ingress-boundary",
+  "timestamp": "2026-06-24T23:30:00Z",
+  "work_item": "016",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend build passed with the per-minute webhook ingress rate limit enforced before signature handling."
+    },
+    {
+      "command": "node --test backend-dist/channels.test.js backend-dist/telnyx.test.js backend-dist/database.test.js backend-dist/migration.test.js backend-dist/server.test.js backend-dist/signals.test.js backend-dist/twilio.test.js",
+      "exit_code": 0,
+      "summary": "101 backend tests passed, including the webhook flood -> 429 (after signature-rejected 403s) and private-route 401 over the public ingress."
+    },
+    {
+      "command": "python .local\\validate_system.py",
+      "exit_code": 0,
+      "summary": "Local audit passed after AGH-023 implementation and ledger updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "docs/ingress-boundary.md",
+    "decisions/0003-public-webhook-ingress-boundary.md",
+    "CHANGELOG.md",
+    "work/active/016-agent-human-governance/README.md",
+    "work/active/016-agent-human-governance/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "AGH-023: rate-limited, signature-gated, scoped public webhook ingress per decision 0003, with the residual attack surface documented."
+  }
+}

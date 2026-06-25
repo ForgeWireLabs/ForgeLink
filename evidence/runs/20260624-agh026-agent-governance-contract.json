@@ -1,0 +1,40 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260624-agh026-agent-governance-contract",
+  "timestamp": "2026-06-24T23:45:00Z",
+  "work_item": "016",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend build passed with agentRequestStatus and the MCP-safe agent status poll."
+    },
+    {
+      "command": "node --test backend-dist/database.test.js backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Tests cover the redacted agent status view (decided/decision/authority_granted/outcome/final_state, no operator identity) and MCP-token reachability."
+    },
+    {
+      "command": "python .local\\validate_system.py",
+      "exit_code": 0,
+      "summary": "Local audit passed after AGH-026 implementation and the agent governance contract doc."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.test.ts",
+    "docs/agent-governance-contract.md",
+    "decisions/0004-agent-facing-governance-contract-and-fabric-hitl.md",
+    "work/active/016-agent-human-governance/README.md",
+    "work/active/016-agent-human-governance/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "AGH-026: documented agent-governance-v1 contract (submit -> await -> outcome) mapped onto MCP bridge and Fabric dispatch/await_result, with a redacted agent status poll."
+  }
+}

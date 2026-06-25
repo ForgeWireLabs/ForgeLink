@@ -1,0 +1,38 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260624-agh028-fabric-hitl-forgelink-side",
+  "timestamp": "2026-06-24T23:55:00Z",
+  "work_item": "016",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend build passed with the MCP-safe governance capabilities discovery endpoint."
+    },
+    {
+      "command": "node --test backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "HTTP test asserts GET /api/governance/capabilities is reachable over an MCP token and advertises forgelink/hitl_surface/contract and the submit/await/outcome endpoints."
+    },
+    {
+      "command": "python .local\\validate_system.py",
+      "exit_code": 0,
+      "summary": "Local audit passed; AGH-028 recorded as deferred (Fabric-side routing lives in forgewire-fabric)."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "docs/agent-governance-contract.md",
+    "decisions/0004-agent-facing-governance-contract-and-fabric-hitl.md",
+    "work/active/016-agent-human-governance/README.md",
+    "work/active/016-agent-human-governance/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "AGH-028 ForgeLink side: governance capability discovery + the submit/await/outcome contract ship here so Fabric can auto-detect ForgeLink. The Fabric-side auto-detection/pane routing is deferred to the forgewire-fabric repo (decision 0004 spans two repos)."
+  }
+}

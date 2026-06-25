@@ -1,0 +1,33 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260624-agh027-governance-loop-integration",
+  "timestamp": "2026-06-24T23:50:00Z",
+  "work_item": "016",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "node --test backend-dist/database.test.js",
+      "exit_code": 0,
+      "summary": "The end-to-end governance loop test drives request -> persisted risk -> evidence -> decision (authority grant) -> outcome -> audit (four chained entry types, verified) -> replay (ordered steps + final state) -> agent status, then tampers a decided record and asserts verification fails."
+    },
+    {
+      "command": "node --test backend-dist/channels.test.js backend-dist/telnyx.test.js backend-dist/database.test.js backend-dist/migration.test.js backend-dist/server.test.js backend-dist/signals.test.js backend-dist/twilio.test.js",
+      "exit_code": 0,
+      "summary": "Full backend suite of 101 tests passed."
+    },
+    {
+      "command": "python .local\\validate_system.py",
+      "exit_code": 0,
+      "summary": "Local audit passed after AGH-027."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.test.ts"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "AGH-027: one integration test proves the full governance lifecycle holds together (request -> risk -> evidence -> decision -> outcome -> audit -> replay) beyond per-primitive unit tests."
+  }
+}

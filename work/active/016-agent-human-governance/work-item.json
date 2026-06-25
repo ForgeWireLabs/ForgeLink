@@ -207,38 +207,50 @@
     {
       "id": "AGH-023",
       "text": "Reconcile the automatic public webhook tunnel (item 014) with the private-first posture: document the inbound public attack surface, ensure only provider-signature-validated requests reach handlers, rate-limit and lock down the publicly exposed webhook routes, scope exactly what the tunnel exposes, and record a decision on the tunnel boundary.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260624-agh023-ingress-boundary"
+      ]
     },
     {
       "id": "AGH-024",
       "text": "Treat agent-supplied content (evidence packs, approval text, agent messages) as untrusted input: label it as agent-provided/unverified in the UI, never auto-execute or auto-trust it, sanitize/escape it, and design the approval surface to resist social engineering such as spoofed system text, fabricated urgency, or look-alike operator prompts.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260624-agh024-untrusted-agent-content"
+      ]
     },
     {
       "id": "AGH-025",
       "text": "Define key management for decision signing and the tamper-evident audit chain: key and device-key generation, OS-backed secure storage, rotation, lost-device revocation, and recovery, and state the actual integrity guarantee the chain provides.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260624-agh025-device-key-management"
+      ]
     },
     {
       "id": "AGH-026",
       "text": "Specify the agent-facing governance contract: how an agent submits an approval request, awaits a decision, and receives the outcome, mapped onto the MCP bridge and ForgeWire Fabric dispatch/await_result, including timeouts, deferral, and outcome reporting, so agents have a concrete contract to consume.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260624-agh026-agent-governance-contract"
+      ]
     },
     {
       "id": "AGH-027",
       "text": "Add one end-to-end governance-loop integration test exercising request -> risk classification -> evidence -> decision -> outcome -> audit -> replay, proving the full lifecycle holds together beyond per-primitive unit tests.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260624-agh027-governance-loop-integration"
+      ]
     },
     {
       "id": "AGH-028",
       "text": "Pipe ForgeWire Fabric human-in-the-loop approvals through ForgeLink: when ForgeLink is installed and reachable, Fabric's HITL approval pane automatically routes approval requests to ForgeLink as the governed decision surface (evidence packs, audit, redaction, mobile companion), with an explicit operator opt-out and graceful fallback to Fabric's built-in pane when ForgeLink is absent.",
       "state": "pending",
-      "evidence": []
+      "evidence": [
+        "20260624-agh028-fabric-hitl-forgelink-side"
+      ]
     }
   ],
   "created": "2026-06-18",

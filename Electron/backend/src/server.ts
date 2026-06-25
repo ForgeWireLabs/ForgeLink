@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:
 import { createServer, IncomingMessage, Server, ServerResponse } from "node:http";
 import { extname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
-import { AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, DecisionRecordRow, EvidencePack, FirewallBlockedError, isAuthorityScope, OutboundDraftRow, PhoneDatabase, redactEvidencePack, redactNotification, redactionProfile, REDACTION_PROFILES } from "./database";
+import { AGENT_CONTENT_PROVENANCE, AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, DecisionRecordRow, EvidencePack, FirewallBlockedError, isAuthorityScope, OutboundDraftRow, PhoneDatabase, redactEvidencePack, redactNotification, redactionProfile, REDACTION_PROFILES } from "./database";
 import { utcNow } from "./phone";
 import { fetchTrustedSignalFeed } from "./signals";
 import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, loadTwilioConfig, sendTwilioMessage, startTwilioCall, validateTwilioSignature } from "./twilio";
@@ -17,6 +17,10 @@ const BACKUP_FORMAT = "forgelink-backup-v1";
 const LEGACY_BACKUP_FORMAT = "twilio-phone-backup-v1";
 const AGENT_URGENCIES = new Set(["low", "normal", "high", "urgent"]);
 const CHANNEL_LIMITS: Record<string, number> = { low: 60, normal: 30, high: 10, urgent: 3 };
+// Public webhook ingress is bounded against floods/probing (AGH-023, decision 0003):
+// a generous per-minute cap across all `/webhooks/*` requests, enforced before any
+// signature handler runs. In-memory and per-process by design.
+const WEBHOOK_RATE_LIMIT_PER_MINUTE = 120;
 const OPERATOR_MODES = new Set(["available", "focus", "driving", "sleeping", "family", "work", "emergency_only", "offline"]);
 const APPROVAL_TEMPLATES = [
   { id: "file_write", label: "File write", required_fields: ["intent", "requested_action", "affected_resources"], minimum_evidence: ["summary", "proposed_operation", "checks", "rollback_plan"], default_risk: "normal", timeout_behavior: "deny_on_timeout", decision_options: ["approve", "deny", "defer"], rollback_required: true, audit_required: true },
@@ -96,6 +100,10 @@ function isMcpSafeRoute(method: string | undefined, pathname: string): boolean {
   if (method === "POST" && pathname === "/api/mcp/test-message") return true;
   if (method === "GET" && pathname === "/api/agent-messages") return true;
   if (method === "GET" && /^\/api\/agent-messages\/[^/]+\/events$/.test(pathname)) return true;
+  // The submitting agent polls its own request's decision/outcome (AGH-026, redacted).
+  if (method === "GET" && /^\/api\/agent-messages\/[^/]+\/status$/.test(pathname)) return true;
+  // Fabric/agents auto-detect ForgeLink's governance surface (AGH-028).
+  if (method === "GET" && pathname === "/api/governance/capabilities") return true;
   if (method === "POST" && /^\/api\/agent-messages\/[^/]+\/(read|dismiss)$/.test(pathname)) return true;
   if (method === "POST" && /^\/api\/agent-messages\/[^/]+\/actions\/[^/]+$/.test(pathname)) return true;
   // Agents report what happened after a decision (AGH-015).
@@ -367,6 +375,8 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       throw error;
     }
   };
+  // Timestamps of recent public webhook hits, for the AGH-023 ingress rate limit.
+  const webhookHits: number[] = [];
   // Dispatch an authorized outbound draft (AGH-020). Mirrors /api/send: persist a
   // pending message so the sent external message appears in the thread, send through
   // the channel registry, then reconcile both the message and the draft. The draft's
@@ -391,6 +401,14 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       if (request.method === "OPTIONS") {
         response.writeHead(204, { "Access-Control-Allow-Origin": "null", "Access-Control-Allow-Headers": "Authorization, Content-Type, X-ForgeLink-Channel-Token", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" });
         return response.end();
+      }
+      // Public webhook ingress (decision 0003) is the only surface reachable through
+      // the tunnel; bound it against floods/probing before any handler runs (AGH-023).
+      if (url.pathname.startsWith("/webhooks/")) {
+        const nowMs = Date.now();
+        while (webhookHits.length && webhookHits[0] <= nowMs - 60_000) webhookHits.shift();
+        if (webhookHits.length >= WEBHOOK_RATE_LIMIT_PER_MINUTE) return sendJson(response, { error: "Rate limit exceeded", retry_after_seconds: 60 }, 429);
+        webhookHits.push(nowMs);
       }
       let auth: AuthKind = "none";
       if (isPrivateRoute(url.pathname)) {
@@ -612,9 +630,20 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         });
         return sendJson(response, { ok: true, message, status: database.markMcpTest("passed") });
       }
-      if (request.method === "GET" && url.pathname === "/api/agent-messages") return sendJson(response, database.agentMessages());
+      // Agent messages carry untrusted agent-supplied content (AGH-024): label each
+      // with its provenance so no surface treats it as system/operator text.
+      if (request.method === "GET" && url.pathname === "/api/agent-messages") return sendJson(response, database.agentMessages().map((message) => ({ ...message, provenance: AGENT_CONTENT_PROVENANCE })));
       const agentEventsMatch = url.pathname.match(/^\/api\/agent-messages\/([^/]+)\/events$/);
       if (request.method === "GET" && agentEventsMatch) return sendJson(response, database.agentMessageEvents(decodeURIComponent(agentEventsMatch[1])));
+      // Agent-facing status of a submitted request (AGH-026): the submitting agent
+      // polls this (over its MCP token) to await the decision and learn the outcome.
+      // Redacted by design — no operator identity, comment, or evidence detail.
+      const agentStatusPollMatch = url.pathname.match(/^\/api\/agent-messages\/([^/]+)\/status$/);
+      if (request.method === "GET" && agentStatusPollMatch) {
+        const status = database.agentRequestStatus(decodeURIComponent(agentStatusPollMatch[1]));
+        if (!status) return sendJson(response, { error: "Agent message not found." }, 404);
+        return sendJson(response, status);
+      }
       // Decision Records (AGH-013): operator-only inspection so a completed decision
       // can be replayed later. Not agent-reachable.
       if (request.method === "GET" && url.pathname === "/api/decision-records") {
@@ -1058,6 +1087,51 @@ export function createBackend(options: BackendOptions): { server: Server; databa
             ? redactNotification(String((payload.notification as Record<string, unknown>).title || ""), String((payload.notification as Record<string, unknown>).body || ""), profileId)
             : null
         });
+      }
+      // Governance capabilities (AGH-028, decision 0004): Fabric/agents auto-detect
+      // that ForgeLink is present and can serve as the governed HITL surface. MCP-safe
+      // so a Fabric agent with an MCP token can discover it; advertises the contract.
+      if (request.method === "GET" && url.pathname === "/api/governance/capabilities") {
+        return sendJson(response, {
+          forgelink: true,
+          governance: true,
+          contract: "agent-governance-v1",
+          version: process.env.FORGELINK_APP_VERSION || "unknown",
+          hitl_surface: true,
+          features: ["evidence_packs", "risk_tiers", "decision_records", "audit_chain", "approval_replay", "redaction_profiles", "communication_firewall", "consent_ledger"],
+          endpoints: {
+            submit: "POST /api/agent-channels/:channel_id/messages",
+            await: "GET /api/agent-messages/:id/status",
+            outcome: "POST /api/agent-messages/:id/outcome"
+          }
+        });
+      }
+      // Decision/audit device key registry (AGH-025): operator-only. Register, rotate,
+      // and revoke device identities used to attribute and protect decisions.
+      if (request.method === "GET" && url.pathname === "/api/device-keys") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.deviceKeys());
+      }
+      if (request.method === "POST" && url.pathname === "/api/device-keys") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const device = database.registerDeviceKey({
+          id: typeof payload.id === "string" ? payload.id : undefined,
+          label: typeof payload.label === "string" ? payload.label : "",
+          public_key: typeof payload.public_key === "string" ? payload.public_key : ""
+        });
+        return sendJson(response, { ok: true, device }, 201);
+      }
+      const deviceRotateMatch = url.pathname.match(/^\/api\/device-keys\/([A-Za-z0-9_.:-]{1,80})\/rotate$/);
+      if (request.method === "POST" && deviceRotateMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        return sendJson(response, { ok: true, device: database.rotateDeviceKey(deviceRotateMatch[1], typeof payload.public_key === "string" ? payload.public_key : "") });
+      }
+      const deviceRevokeMatch = url.pathname.match(/^\/api\/device-keys\/([A-Za-z0-9_.:-]{1,80})\/revoke$/);
+      if (request.method === "POST" && deviceRevokeMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, { ok: true, device: database.revokeDeviceKey(deviceRevokeMatch[1]) });
       }
       if (request.method === "POST" && url.pathname === "/api/data/retention") {
         const payload = await readJson(request);

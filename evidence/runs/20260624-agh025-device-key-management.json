@@ -1,0 +1,41 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260624-agh025-device-key-management",
+  "timestamp": "2026-06-24T23:40:00Z",
+  "work_item": "016",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend build passed with schema v23 device_keys registry and register/rotate/revoke methods."
+    },
+    {
+      "command": "node --test backend-dist/database.test.js backend-dist/migration.test.js backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Tests cover register/rotate/revoke, the v23 from-previous-shipped-schema upgrade, and operator-only device-key routes."
+    },
+    {
+      "command": "python .local\\validate_system.py",
+      "exit_code": 0,
+      "summary": "Local audit passed after AGH-025 implementation, decision 0016, and ledger updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/types.ts",
+    "decisions/0016-decision-audit-key-management.md",
+    "decisions/0011-schema-migration-coordination.md",
+    "work/active/016-agent-human-governance/README.md",
+    "work/active/016-agent-human-governance/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "AGH-025: device-key registry (public-key refs, rotation, lost-device revocation) with private keys in OS-backed storage; audit chain guarantee stated honestly as local tamper-evidence (decision 0016)."
+  }
+}
