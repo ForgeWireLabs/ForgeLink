@@ -59,7 +59,9 @@ in [`work-item.json`](work-item.json); this is the human summary.
   (keeps PR-014 pending):** a code-signing certificate (operator-provided) and a
   published auto-update feed (`latest.yml`), which is held until signing so the
   channel is not unauthenticated. A manual-download release is fine now. Overlaps
-  017 OCX-020.
+  017 OCX-020. Work item 030 is now the long-term shell strategy: PR-014 should
+  preserve the current Electron baseline for near-term desktop releases, but
+  should not deepen Electron-only assumptions that make Tauri 2 migration harder.
 
 ## Priority order
 
@@ -106,7 +108,7 @@ in [`work-item.json`](work-item.json); this is the human summary.
 - [x] **PR-011 Expand security verification.** Add proxy-aware webhook signature tests, local API threat tests, secret scanning, dependency scanning, and diagnostic redaction tests.
 - [ ] **PR-012 Complete accessibility.** Keyboard-only navigation, focus restoration, screen-reader labels, WCAG AA contrast, zoom, reduced motion, and high-contrast behavior.
 - [x] **PR-013 Build the test pyramid.** Backend HTTP integration tests, renderer interaction tests, Electron lifecycle tests, installer tests, and opt-in Twilio sandbox/live tests.
-- [ ] **PR-014 Establish releases.** Real icon, signed installer, version metadata, release notes, checksums, update strategy, rollback, and reproducible release checklist.
+- [ ] **PR-014 Establish releases.** Real icon, signed installer, version metadata, release notes, checksums, update strategy, rollback, and reproducible release checklist for the current desktop baseline while coordinating long-term Tauri 2 distribution with work item 030.
 - [x] **PR-015 Add support diagnostics.** User-triggered health report with versions and status while excluding credentials, messages, contacts, and media by default.
 
 ## Deferred product decision
@@ -186,3 +188,4 @@ in [`work-item.json`](work-item.json); this is the human summary.
 | 2026-06-18 | PR-011 | Proxy-aware webhook signature tests, local API threat tests, secret scanner (scan:secrets) + unit tests, dependency audit (scan:deps), redaction coverage | Closed PR-011 with evidence 20260618-pr011-security-verification. |
 | 2026-06-18 | PR-013 | Installer/packaging completeness tests + opt-in live Twilio test; pyramid layers (backend HTTP, renderer, lifecycle, security) confirmed green | Closed PR-013 with evidence 20260618-pr013-test-pyramid. |
 | 2026-06-18 | PR-014 (partial) | Version metadata, release notes (CHANGELOG), reproducible release checklist (docs), and auto-update wiring; packaging test caught + fixed a missing-module regression | Unblocked items landed (evidence 20260618-pr014-release-unblocked); PR-014 stays pending on signing, electron-updater asar bundling, and a published feed. |
+| 2026-06-27 | shell strategy alignment | Operator decision: Tauri 2 is the long-term shared desktop/mobile shell. Work item 030 owns the migration and Electron retirement gate. | PR-014 remains pending for current desktop release/signing work, but future release planning must coordinate with 030 and avoid deepening Electron-only assumptions. |

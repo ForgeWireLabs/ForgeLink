@@ -130,6 +130,14 @@ Turns the original Twilio Phone / ForgeLink application into a secure, installab
 
 Defines the product experience that makes ForgeLink an operator cockpit: Decisions/People/Agents/Channels navigation, triage lanes, operator modes, presence, mobile companion UX, batching, fatigue budget, reputation UI, summaries, scoped MCP resources, sample workspace, public demo, semantic-summary safety, and distribution/update strategy.
 
+```text
+030-tauri-shared-shell-and-electron-retirement
+```
+
+Defines the Tauri 2 shared desktop/mobile shell path: one reusable cockpit UI,
+Tauri desktop/mobile scaffolding, app-bridge boundaries, signed distribution and
+update strategy, and the explicit parity gate for retiring Electron.
+
 Completed upstream foundation:
 
 ```text
@@ -586,9 +594,10 @@ ForgeLink Core
   data safety
 
 Native Surfaces
-  desktop cockpit
+  shared Tauri desktop/mobile cockpit
+  current Electron desktop compatibility shell
   local notifications
-  mobile companion
+  mobile decision terminal
   local agent bridge
 
 Adapters

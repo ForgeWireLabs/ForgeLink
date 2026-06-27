@@ -1,0 +1,75 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "030",
+  "title": "Tauri Shared Shell and Electron Retirement",
+  "status": "active",
+  "owner_scope": "work",
+  "affected_scopes": [
+    "work",
+    "desktop",
+    "ui",
+    "mobile",
+    "local-runtime",
+    "security",
+    "release",
+    "docs",
+    "tooling"
+  ],
+  "depends_on": [
+    "011",
+    "015",
+    "016",
+    "017"
+  ],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-06-27T15:00:00Z",
+    "note": "Created before Tauri implementation work starts. Captures the operator decision to make Tauri 2 the target shared desktop/mobile shell and retire Electron after parity."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "TAURI-001",
+      "text": "Record the Tauri 2 target architecture: one shared React/Web UI for desktop and mobile, Rust-native shell logic, platform plugins where needed, desktop as source of truth, and Electron treated as a temporary compatibility shell.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TAURI-002",
+      "text": "Introduce a narrow app-bridge abstraction so renderer code does not directly depend on Electron APIs for local service control, notifications, secure storage, deep links, updater/distribution hooks, or mobile decision actions.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TAURI-003",
+      "text": "Scaffold a Tauri 2 desktop shell alongside Electron using the existing React renderer, with parity smoke tests for startup, authenticated local API access, settings/onboarding entry, notifications, and the Decisions/People/Agents/Channels cockpit.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TAURI-004",
+      "text": "Define and implement the Tauri 2 mobile decision-terminal path for Android/iOS: paired device, redacted alerts, approval cards, signed approve/deny/defer/request-more-info/short-reply decisions, presence signal, emergency toggle, and device revoke without private database replication.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TAURI-005",
+      "text": "Define the Electron retirement gate: Tauri must cover onboarding, local service lifecycle, credential storage, notifications, deep links, updates/distribution, diagnostics, data safety, and existing desktop workflows before Electron is removed.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TAURI-006",
+      "text": "Define the signed distribution and update strategy for Tauri desktop and mobile targets, coordinating with work item 011 PR-014 and work item 017 OCX-020 so release work does not deepen the Electron-only path.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TAURI-007",
+      "text": "Add automated validation for the shared-shell bridge and Tauri targets, including renderer interaction tests, desktop shell smoke tests, mobile decision-flow tests or documented emulator/device evidence, and rollback notes.",
+      "state": "pending",
+      "evidence": []
+    }
+  ],
+  "created": "2026-06-27",
+  "updated": "2026-06-27"
+}

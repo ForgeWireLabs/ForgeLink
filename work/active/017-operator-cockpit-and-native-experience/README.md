@@ -56,13 +56,17 @@ The product should optimize for:
 - fast human response from desktop or paired mobile device;
 - durable replay of what happened.
 
-## Relationship to Work Items 015 and 016
+## Relationship to Work Items 015, 016, and 030
 
 - Work item 015 owns the local communications runtime, channels, provider edges,
   contact metadata, voice, and mobile companion protocol foundation.
 - Work item 016 owns governance primitives: Human Cards, agent identity,
   structured approval, evidence packs, risk tiers, decision records, audit,
   communication firewall, and redaction profiles.
+- Work item 030 owns the Tauri 2 shared desktop/mobile shell and Electron
+  retirement path. This item must shape the operator cockpit and mobile decision
+  UX so the same UI can move into Tauri instead of becoming an Electron-only or
+  throwaway mobile surface.
 - This item owns the operator experience: layout, triage, modes, presence,
   batching, fatigue, reputation, summaries, mobile decision UX, and demo polish.
 
@@ -73,6 +77,8 @@ The product should optimize for:
 - Do not add Matrix support.
 - Do not expose private messages or approval evidence through broad MCP resources.
 - Do not make the mobile companion a full chat clone in its first version.
+- Do not create a separate throwaway mobile shell or deepen Electron-only UI
+  dependencies that block the Tauri 2 migration in work item 030.
 - Do not use cloud summarization by default for private communications.
 
 ## Priority order
@@ -99,6 +105,16 @@ The product should optimize for:
     unknown, blocked.
   - Acceptance: Unknown and blocked entities have visibly different treatment.
 
+### Phase 0.5: Shared shell alignment before Phase 1
+
+- [ ] **OCX-021 Align cockpit UI with the Tauri 2 shared shell.** Keep the
+  renderer on a ForgeLink-owned bridge boundary and avoid new direct Electron
+  assumptions before adding operator modes, presence, and mobile flows.
+  - Acceptance: Cockpit UX changes can run through the future Tauri 2 desktop
+    and mobile shells owned by work item 030.
+  - Acceptance: Electron remains a temporary compatibility shell until item 030
+    satisfies the retirement gate.
+
 ### Phase 1: Operator modes and presence
 
 - [ ] **OCX-004 Add operator availability modes.** Add explicit modes that inform
@@ -122,18 +138,19 @@ The product should optimize for:
     fail-safe behavior.
   - Acceptance: Agents cannot mark requests as emergency without matching policy.
 
-### Phase 2: Mobile companion experience
+### Phase 2: Tauri 2 mobile decision terminal experience
 
-- [ ] **OCX-007 Define mobile companion MVP UX.** Keep the first mobile companion
-  focused on human decisions rather than full chat.
+- [ ] **OCX-007 Define Tauri-first mobile decision terminal MVP UX.** Keep the
+  first mobile surface focused on human decisions rather than full chat, using
+  the shared cockpit UI direction from work item 030.
   - Include: paired device, redacted alerts, approval cards, approve/deny, short
     reply, presence signal, emergency contact toggle, and device revoke.
   - Acceptance: Desktop remains source of truth.
   - Acceptance: Locked/mobile notification surfaces use redaction profiles.
 
-- [ ] **OCX-008 Add mobile decision terminal flow.** Design the flow where a
-  local agent request appears on mobile, receives a signed decision, and returns
-  to desktop.
+- [ ] **OCX-008 Add Tauri mobile decision terminal flow.** Design the flow where
+  a local agent request appears on mobile, receives a signed decision through
+  the shared UI/bridge model, and returns to desktop.
   - Acceptance: Flow supports approve, deny, defer, request more info, and short
     reply.
   - Acceptance: Mobile never needs full private database replication for the MVP.
@@ -215,7 +232,7 @@ The product should optimize for:
 ### Phase 7: Summary safety and distribution (added 2026-06-18 gap review)
 
 - [ ] **OCX-019 Make local summaries injection-resistant.** Treat thread/agent content as untrusted, use injection-resistant prompting, show provenance, keep summaries advisory, and never let summarized content elevate authority or trigger actions.
-- [ ] **OCX-020 Define distribution and update strategy.** Code-signed desktop releases + auto-update channel, and a signed build/update path for the mobile companion, as a prerequisite for shipping the mobile companion (OCX-007/008) and the public demo; coordinate with 011 PR-014.
+- [ ] **OCX-020 Define distribution and update strategy.** Code-signed desktop releases + auto-update channel, and a signed build/update path for the Tauri 2 mobile decision terminal, as a prerequisite for shipping the mobile surface (OCX-007/008) and the public demo; coordinate with 011 PR-014 and 030 TAURI-006.
 
 ## Suggested UI structure
 
@@ -258,7 +275,9 @@ ForgeLink
 ## Security and privacy constraints
 
 - Presence is local, transparent, and configurable.
-- Mobile companion starts as a decision terminal, not a private-data mirror.
+- Mobile starts as a Tauri 2 decision terminal, not a private-data mirror.
+- The cockpit UI should stay portable across Electron and Tauri through a narrow
+  ForgeLink bridge boundary.
 - Summaries are derived artifacts and must be deletable/rebuildable.
 - MCP resources must be scoped and redacted.
 - Demo/sample data must be obviously synthetic.
@@ -273,7 +292,8 @@ Add or update docs for:
 - operator modes;
 - presence signals;
 - emergency behavior;
-- mobile companion MVP UX;
+- Tauri 2 mobile decision terminal MVP UX;
+- shared shell/app bridge constraints owned with work item 030;
 - triage lanes;
 - batch approvals;
 - fatigue budget;
@@ -301,3 +321,4 @@ Add or update docs for:
 | 2026-06-18 | gap review | Roadmap gap review with operator: local-only onboarding, public-tunnel hardening, untrusted agent content, key management, agent-facing contract, conformance/integration testing, migration coordination, and distribution/updates | Added acceptance criteria and fixed README acceptance-criteria numbering to match work-item.json. |
 | 2026-06-27 | OCX-001 complete | Desktop IA now starts with Decisions, People, Agents, and Channels: approval requests live in Decisions, People owns the human directory, Agents shows agent/channel health, and Channels keeps Messages, Calls, Signals, and provider readiness reachable without making ordinary conversations the primary surface. `docs/operator-cockpit.md`; renderer build + 25 renderer interaction tests passed. | OCX-001 satisfied (evidence 20260627-ocx001-decision-first-navigation). Next: OCX-002 triage lanes. |
 | 2026-06-27 | OCX-002/003 complete | Decisions now renders seven triage lanes (needs decision, waiting on agent, informational, failed/repair, muted, expired, completed) using existing agent-message status/kind/action/error/expiry/muted-policy fields; People now groups contacts into operator, family, trusted humans, external contacts, agents, systems, unknown, and blocked, with unknown/blocked sections visually distinct. `docs/operator-cockpit.md`; renderer build + 27 renderer interaction tests passed. | OCX-002 and OCX-003 satisfied (evidence 20260627-ocx002-003-triage-relationship-grouping). Next: OCX-004 operator availability modes. |
+| 2026-06-27 | Tauri shared-shell alignment | Operator decision: Phase 2 should target Tauri 2 so ForgeLink can share one cockpit UI across desktop and mobile, retire Electron after parity, and avoid a throwaway mobile companion. Created work item 030 and added OCX-021 as the pre-Phase-1 bridge/alignment gate. | 017 now coordinates mobile UX and distribution criteria with 030; no implementation criterion closed. |

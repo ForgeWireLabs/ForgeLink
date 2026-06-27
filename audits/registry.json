@@ -47,6 +47,15 @@
       "notes": "Planning roadmap item; scoped contract under active work."
     },
     {
+      "path": "work/active/030-tauri-shared-shell-and-electron-retirement",
+      "owner": "planning-agent",
+      "contract": "work/active/030-tauri-shared-shell-and-electron-retirement/AGENTS.md",
+      "last_reviewed": "2026-06-27",
+      "next_review": "2026-09-27",
+      "alignment": "current",
+      "notes": "Tauri 2 shared shell and Electron-retirement arc; scoped contract under active work."
+    },
+    {
       "path": "work/completed/025-ledger-integrity-enforcement",
       "owner": "planning-agent",
       "contract": "work/completed/025-ledger-integrity-enforcement/AGENTS.md",

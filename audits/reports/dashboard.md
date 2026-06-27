@@ -10,8 +10,8 @@
 | --- | ---: |
 | Invariants | 6 |
 | Frozen-surface entries | 5 |
-| Scope contracts | 7 |
-| Audit registry entries | 7 |
+| Scope contracts | 8 |
+| Audit registry entries | 8 |
 | Audit findings | 0 |
 | Decision records | 16 |
 | Policy records | 0 |
@@ -21,7 +21,7 @@
 
 | Status | Count |
 | --- | ---: |
-| active | 9 |
+| active | 10 |
 | blocked | 0 |
 | deferred | 0 |
 | completed | 21 |
@@ -41,3 +41,4 @@ All audit scopes are within their review cadence.
 - 022: Discord Channel Adapter (active)
 - 023: RSS Atom Signal Follow-Up (active)
 - 024: Local Webhook and LAN Integrations (active)
+- 030: Tauri Shared Shell and Electron Retirement (active)

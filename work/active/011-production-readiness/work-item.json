@@ -80,7 +80,7 @@
     },
     {
       "id": "PR-014",
-      "text": "Establish releases: real icon, signed installer, version metadata, release notes, checksums, update strategy, rollback, and reproducible release checklist.",
+      "text": "Establish releases for the current desktop baseline: real icon, signed installer, version metadata, release notes, checksums, update strategy, rollback, and reproducible release checklist, while coordinating long-term Tauri 2 distribution with work item 030.",
       "state": "pending",
       "evidence": []
     },
@@ -100,5 +100,5 @@
     }
   ],
   "created": "2026-06-17",
-  "updated": "2026-06-18"
+  "updated": "2026-06-27"
 }

@@ -74,13 +74,13 @@
     },
     {
       "id": "OCX-007",
-      "text": "Define mobile companion MVP UX as a paired human decision terminal with redacted alerts, approval cards, approve/deny, short reply, presence signal, emergency toggle, and device revoke.",
+      "text": "Define Tauri-first mobile decision terminal MVP UX as a paired human decision terminal with redacted alerts, approval cards, approve/deny, short reply, presence signal, emergency toggle, and device revoke, using the shared cockpit UI direction from work item 030.",
       "state": "pending",
       "evidence": []
     },
     {
       "id": "OCX-008",
-      "text": "Add mobile decision terminal flow design for signed approve/deny/defer/request-more-info/short-reply decisions returning to desktop without full private database replication.",
+      "text": "Add Tauri mobile decision terminal flow design for signed approve/deny/defer/request-more-info/short-reply decisions returning to desktop through the shared UI/bridge model without full private database replication.",
       "state": "pending",
       "evidence": []
     },
@@ -152,7 +152,13 @@
     },
     {
       "id": "OCX-020",
-      "text": "Define the distribution and update strategy for the expanded surface: code-signed desktop releases with an auto-update channel and a signed build/update path for the mobile companion, as a prerequisite for shipping the mobile companion (OCX-007/008) and the public demo; coordinate with item 011 PR-014.",
+      "text": "Define the distribution and update strategy for the expanded surface: code-signed desktop releases with an auto-update channel and a signed build/update path for the Tauri 2 mobile decision terminal, as a prerequisite for shipping the mobile surface (OCX-007/008) and the public demo; coordinate with item 011 PR-014 and item 030 TAURI-006.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "OCX-021",
+      "text": "Align the operator cockpit UI with the Tauri 2 shared desktop/mobile shell by keeping renderer code behind a ForgeLink-owned bridge boundary and avoiding new direct Electron assumptions before Phase 1 expands modes, presence, and mobile flows.",
       "state": "pending",
       "evidence": []
     }
