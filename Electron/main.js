@@ -11,7 +11,6 @@ const { findAvailablePort, createRestartPolicy } = require("./lifecycle");
 const { shouldAutoUpdate } = require("./updates");
 
 const APP_NAME = "ForgeLink";
-const BACKEND_ENTRY = path.join(__dirname, "backend-dist", "index.js");
 const apiToken = randomBytes(32).toString("base64url");
 
 let backendProcess = null;
@@ -23,6 +22,13 @@ let effectivePort = 0;
 let lastExitCode = null;
 let recoveryMessage = "";
 const backendRestarts = createRestartPolicy({ maxRestarts: 5, windowMs: 60_000 });
+
+function backendEntryPath() {
+  if (app.isPackaged && __dirname.includes("app.asar")) {
+    return path.join(process.resourcesPath, "app.asar.unpacked", "backend-dist", "index.js");
+  }
+  return path.join(__dirname, "backend-dist", "index.js");
+}
 
 function tunnelService() {
   if (!tunnel) {
@@ -134,7 +140,7 @@ async function startBackend() {
   effectivePort = await findAvailablePort(preferred, host);
   if (effectivePort !== preferred) console.warn(`Local port ${preferred} unavailable; using ${effectivePort}.`);
   recoveryMessage = "";
-  const processHandle = utilityProcess.fork(BACKEND_ENTRY, ["--host", host, "--port", String(effectivePort)], {
+  const processHandle = utilityProcess.fork(backendEntryPath(), ["--host", host, "--port", String(effectivePort)], {
     env: {
       ...process.env,
       TWILIO_ACCOUNT_SID: settings.account_sid,

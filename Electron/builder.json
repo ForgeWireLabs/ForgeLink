@@ -21,6 +21,9 @@
     "buildResources": "assets",
     "output": "dist"
   },
+  "asarUnpack": [
+    "backend-dist/**"
+  ],
   "linux": {
     "target": ["AppImage", "deb"],
     "icon": "assets/icon.png",

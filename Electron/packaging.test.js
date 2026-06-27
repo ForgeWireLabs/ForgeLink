@@ -52,6 +52,15 @@ test("win icon is configured", () => {
   assert.equal(builder.win && builder.win.icon, "assets/icon.ico");
 });
 
+test("backend utility process is unpacked for packaged launches", () => {
+  assert.ok(
+    (builder.asarUnpack || []).includes("backend-dist/**"),
+    "backend-dist must be unpacked because utilityProcess.fork cannot launch the backend entry from app.asar"
+  );
+  const mainSource = fs.readFileSync(path.join(__dirname, "main.js"), "utf8");
+  assert.match(mainSource, /app\.asar\.unpacked/);
+});
+
 test("if a build exists, the asar bundles electron-updater and app modules with no source or tests", () => {
   const asarPath = path.join(__dirname, "dist", "win-unpacked", "resources", "app.asar");
   if (!fs.existsSync(asarPath)) return; // no build in this environment
@@ -60,6 +69,10 @@ test("if a build exists, the asar bundles electron-updater and app modules with 
   const entries = asar.listPackage(asarPath).map((e) => e.replace(/\\/g, "/"));
   assert.ok(entries.some((e) => e.includes("node_modules/electron-updater/package.json")), "electron-updater must be bundled");
   assert.ok(entries.some((e) => e === "/main.js" || e.endsWith("/main.js")), "main.js must be bundled");
+  assert.ok(
+    fs.existsSync(path.join(__dirname, "dist", "win-unpacked", "resources", "app.asar.unpacked", "backend-dist", "index.js")),
+    "backend utility process entry must exist outside the asar"
+  );
   assert.equal(entries.some((e) => e.endsWith(".test.js")), false, "no test files in the asar");
   assert.equal(entries.some((e) => e.includes("/backend/src/")), false, "no backend source in the asar");
 });
