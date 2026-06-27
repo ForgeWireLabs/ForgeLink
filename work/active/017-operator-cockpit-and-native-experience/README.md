@@ -107,7 +107,7 @@ The product should optimize for:
 
 ### Phase 0.5: Shared shell alignment before Phase 1
 
-- [ ] **OCX-021 Align cockpit UI with the Tauri 2 shared shell.** Keep the
+- [x] **OCX-021 Align cockpit UI with the Tauri 2 shared shell.** Keep the
   renderer on a ForgeLink-owned bridge boundary and avoid new direct Electron
   assumptions before adding operator modes, presence, and mobile flows.
   - Acceptance: Cockpit UX changes can run through the future Tauri 2 desktop
@@ -322,3 +322,4 @@ Add or update docs for:
 | 2026-06-27 | OCX-001 complete | Desktop IA now starts with Decisions, People, Agents, and Channels: approval requests live in Decisions, People owns the human directory, Agents shows agent/channel health, and Channels keeps Messages, Calls, Signals, and provider readiness reachable without making ordinary conversations the primary surface. `docs/operator-cockpit.md`; renderer build + 25 renderer interaction tests passed. | OCX-001 satisfied (evidence 20260627-ocx001-decision-first-navigation). Next: OCX-002 triage lanes. |
 | 2026-06-27 | OCX-002/003 complete | Decisions now renders seven triage lanes (needs decision, waiting on agent, informational, failed/repair, muted, expired, completed) using existing agent-message status/kind/action/error/expiry/muted-policy fields; People now groups contacts into operator, family, trusted humans, external contacts, agents, systems, unknown, and blocked, with unknown/blocked sections visually distinct. `docs/operator-cockpit.md`; renderer build + 27 renderer interaction tests passed. | OCX-002 and OCX-003 satisfied (evidence 20260627-ocx002-003-triage-relationship-grouping). Next: OCX-004 operator availability modes. |
 | 2026-06-27 | Tauri shared-shell alignment | Operator decision: Phase 2 should target Tauri 2 so ForgeLink can share one cockpit UI across desktop and mobile, retire Electron after parity, and avoid a throwaway mobile companion. Created work item 030 and added OCX-021 as the pre-Phase-1 bridge/alignment gate. | 017 now coordinates mobile UX and distribution criteria with 030; no implementation criterion closed. |
+| 2026-06-27 | OCX-021 complete | Added a ForgeLink-owned renderer shell bridge (`Electron/renderer/src/shell.ts`), moved cockpit native calls in `App.tsx` behind that bridge, exposed `forgeLinkShell` from Electron preload while retaining `desktop` as a compatibility alias, and documented the shared shell boundary in `docs/operator-cockpit.md`; renderer build + 28 renderer interaction tests passed. | OCX-021 satisfied (evidence 20260627-ocx021-shared-shell-bridge). Next: OCX-004 operator availability modes. |

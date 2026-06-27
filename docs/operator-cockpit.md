@@ -19,6 +19,19 @@ agent-channel credential actions.
 This split keeps communication, approvals, agent status, and channel
 configuration visible as distinct product surfaces.
 
+## Shared Shell Boundary
+
+The renderer reaches native desktop/mobile capabilities through the ForgeLink
+shell bridge, not through direct Electron APIs. The current Electron preload
+exposes `forgeLinkShell` and keeps the older `desktop` name only as a
+compatibility alias. Future Tauri desktop and mobile shells should implement the
+same bridge for local service connection, notifications, external links,
+settings/onboarding lifecycle, attention policy, MCP token actions, and agent
+channel credential actions.
+
+This keeps Decisions, People, Agents, and Channels portable across the current
+Electron desktop shell and the Tauri 2 shared shell planned in work item 030.
+
 ## Decision Triage
 
 The Decisions surface is split into lanes:

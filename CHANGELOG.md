@@ -18,6 +18,11 @@ versions tracked in `VERSION` and `Electron/package.json`.
   operator, family, trusted humans, external contacts, agents, systems, unknown,
   and blocked with distinct treatment for unknown and blocked entries
   (OCX-002/003).
+- Shared shell bridge alignment: the cockpit renderer now calls a ForgeLink-owned
+  shell bridge, with Electron exposing `forgeLinkShell` while retaining the
+  legacy `desktop` alias for compatibility, so the Decisions/People/Agents/
+  Channels UI can move toward Tauri 2 without new Electron-only assumptions
+  (OCX-021).
 - Shared provider conformance test kit every SMS/MMS and voice edge adapter must
   pass, with Twilio and Telnyx wired through it (work item 015, CLV-021).
 - Human Cards: resolvable local operator authority by alias (for example

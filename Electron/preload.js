@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-contextBridge.exposeInMainWorld("desktop", {
+const forgeLinkShell = {
   notify: (title, body) => ipcRenderer.invoke("notify", { title, body }),
   notifyEvent: (event) => ipcRenderer.invoke("notify", event),
   attentionPolicy: () => ipcRenderer.invoke("attention-policy"),
@@ -24,4 +24,7 @@ contextBridge.exposeInMainWorld("desktop", {
   revokeAgentChannel: (channelId) => ipcRenderer.invoke("agent-channel-revoke", channelId),
   setAgentChannelEnabled: (channelId, enabled) => ipcRenderer.invoke("agent-channel-enabled", channelId, enabled),
   onServerStatus: (callback) => ipcRenderer.on("server-status", (_, status) => callback(status))
-});
+};
+
+contextBridge.exposeInMainWorld("forgeLinkShell", forgeLinkShell);
+contextBridge.exposeInMainWorld("desktop", forgeLinkShell);

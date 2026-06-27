@@ -1,0 +1,33 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260627-ocx021-shared-shell-bridge",
+  "timestamp": "2026-06-27T14:45:00Z",
+  "work_item": "017",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript build and browser bundle passed after moving cockpit shell calls behind the ForgeLink shell bridge."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "28 renderer interaction tests passed, including a guard that the app prefers window.forgeLinkShell over the legacy Electron-shaped window.desktop bridge."
+    }
+  ],
+  "artifacts": [
+    "Electron/preload.js",
+    "Electron/renderer/src/shell.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/src/types.ts",
+    "docs/operator-cockpit.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "OCX-021: renderer-native capabilities now flow through a ForgeLink-owned shell bridge. Electron exposes forgeLinkShell and keeps desktop as a compatibility alias; Tauri 2 can implement the same bridge without the cockpit taking new direct Electron dependencies."
+  }
+}

@@ -159,8 +159,10 @@
     {
       "id": "OCX-021",
       "text": "Align the operator cockpit UI with the Tauri 2 shared desktop/mobile shell by keeping renderer code behind a ForgeLink-owned bridge boundary and avoiding new direct Electron assumptions before Phase 1 expands modes, presence, and mobile flows.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260627-ocx021-shared-shell-bridge"
+      ]
     }
   ],
   "created": "2026-06-18",

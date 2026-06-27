@@ -124,7 +124,7 @@ beforeEach(() => {
   }));
 });
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); delete window.forgeLinkShell; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 async function selectConversation() {
   render(<App/>);
@@ -135,6 +135,28 @@ async function selectConversation() {
 }
 
 describe("React renderer parity", () => {
+  it("prefers the ForgeLink shell bridge over the legacy Electron preload name", async () => {
+    const legacyStatus = vi.mocked(window.desktop!.getStatus);
+    const shellStatus = vi.fn().mockResolvedValue({
+      running: true,
+      baseUrl: "http://127.0.0.1:5055",
+      configured: true,
+      credential_source: "stored",
+      needs_onboarding: false
+    });
+    window.forgeLinkShell = {
+      ...window.desktop!,
+      getStatus: shellStatus,
+      backendConnection: vi.fn().mockResolvedValue({ baseUrl: "http://127.0.0.1:5055", apiToken: "renderer-api-token" })
+    };
+
+    render(<App/>);
+
+    await screen.findByRole("heading", { name: "Decisions" });
+    expect(shellStatus).toHaveBeenCalled();
+    expect(legacyStatus).not.toHaveBeenCalled();
+  });
+
   it("authenticates every local API request with the per-launch credential", async () => {
     render(<App/>);
     expect(await screen.findByRole("heading", { name: "Decisions" })).toBeTruthy();

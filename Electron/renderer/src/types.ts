@@ -43,30 +43,7 @@ export interface DesktopStatus { running: boolean; baseUrl: string; configured?:
 
 declare global {
   interface Window {
-    desktop?: {
-      notify(title: string, body: string): Promise<void>;
-      notifyEvent(event: AttentionEvent): Promise<AttentionDecision>;
-      attentionPolicy(): Promise<AttentionPolicy>;
-      saveAttentionPolicy(policy: AttentionPolicy): Promise<AttentionPolicy>;
-      openExternal(url: string): Promise<void>;
-      backendConnection(): Promise<BackendConnection>;
-      getStatus(): Promise<DesktopStatus>;
-      validateSettings(settings: Record<string, string | number>): Promise<ValidationResult>;
-      startServer(settings: Record<string, string | number>): Promise<DesktopStatus>;
-      startLocalOnly(settings: Record<string, string | number>): Promise<DesktopStatus>;
-      importEnvironment(): Promise<DesktopStatus>;
-      removeCredentials(): Promise<DesktopStatus>;
-      stopServer(): Promise<DesktopStatus>;
-      mcpStatus(): Promise<McpStatus>;
-      createMcpToken(): Promise<McpStatus>;
-      revokeMcpToken(): Promise<McpStatus>;
-      testMcpBridge(): Promise<McpStatus>;
-      agentChannels(): Promise<AgentChannelStatus[]>;
-      createAgentChannel(payload: { channel_id: string; label: string }): Promise<AgentChannelStatus>;
-      rotateAgentChannel(channelId: string): Promise<AgentChannelStatus>;
-      revokeAgentChannel(channelId: string): Promise<AgentChannelStatus>;
-      setAgentChannelEnabled(channelId: string, enabled: boolean): Promise<AgentChannelStatus>;
-      onServerStatus(callback: (status: DesktopStatus) => void): void;
-    };
+    forgeLinkShell?: import("./shell").ForgeLinkShellBridge;
+    desktop?: import("./shell").ForgeLinkShellBridge;
   }
 }
