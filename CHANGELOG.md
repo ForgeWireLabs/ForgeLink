@@ -23,6 +23,11 @@ versions tracked in `VERSION` and `Electron/package.json`.
   legacy `desktop` alias for compatibility, so the Decisions/People/Agents/
   Channels UI can move toward Tauri 2 without new Electron-only assumptions
   (OCX-021).
+- Operator modes, local presence, and emergency boundaries: Settings now exposes
+  availability modes, visible local presence signals, paired-mobile/DND controls,
+  and emergency policy toggles; notification routing respects modes and
+  presence, and agent emergency claims require governed emergency policy
+  (OCX-004/005/006).
 - Shared provider conformance test kit every SMS/MMS and voice edge adapter must
   pass, with Twilio and Telnyx wired through it (work item 015, CLV-021).
 - Human Cards: resolvable local operator authority by alias (for example

@@ -17,7 +17,7 @@ const signalItem = { id: "sigitem-1", subscription_id: "sigsub-1", source_title:
 const callRow = { id: 1, local_call_id: "call-1", provider_kind: "voice_edge", provider_name: "twilio", provider_call_id: "CA1", direction: "outbound", from_number: "+15550001111", to_number: "+15557654321", contact_id: 7, contact_point_id: 70, status: "in_progress", started_at: "2026-06-20T21:00:00.000Z", answered_at: "2026-06-20T21:00:10.000Z", ended_at: null, duration_seconds: null, redacted_error: "", created_at: "2026-06-20T21:00:00.000Z", updated_at: "2026-06-20T21:00:10.000Z", contact_name: "Grace Hopper", contact_point_label: "primary", contact_point_value: "+15557654321" };
 const mcpStatus = { configured: false, created_at: null, rotated_at: null, revoked_at: null, last_used_at: null, last_test_at: null, last_test_status: null, token_file: "C:\\Users\\test\\.forgelink\\api.token", token_file_present: false, bridge_server: "C:\\Projects\\TWL_phone\\mcp\\forgelink-human\\dist\\server.js", bridge_built: true, base_url: "http://127.0.0.1:5055", install_commands: { vscode: "install vscode", claude: "install claude", codex: "install codex", forgewire: "install forgewire" } };
 const agentChannel = { channel_id: "forgewire", label: "ForgeWire Fabric", enabled: true, configured: true, created_at: "2026-06-15T22:00:00.000Z", rotated_at: "2026-06-15T22:00:00.000Z", revoked_at: null, last_used_at: null, last_rejected_at: null, rejection_count: 2, rate_limited_count: 1, token_file: "C:\\Users\\test\\.forgelink\\channels\\forgewire.token", token_file_present: true };
-const attentionPolicy = { enabled: true, quiet_hours_enabled: false, quiet_hours_start: "22:00", quiet_hours_end: "07:00", quiet_hours_allow_urgent: false, redact_notification_bodies: true, sms_notifications: "all", agent_notifications: "high_and_urgent", signal_notifications: "off", system_notifications: "all", muted_sources: [] };
+const attentionPolicy = { enabled: true, operator_mode: "available", quiet_hours_enabled: false, quiet_hours_start: "22:00", quiet_hours_end: "07:00", quiet_hours_allow_urgent: false, redact_notification_bodies: true, sms_notifications: "all", agent_notifications: "high_and_urgent", signal_notifications: "off", system_notifications: "all", emergency_contact_bypass: true, emergency_agent_requires_policy: true, presence_enabled: true, presence_app_focus: "unknown", presence_input: "unknown", presence_network: "unknown", presence_do_not_disturb: false, presence_paired_mobile: "unknown", muted_sources: [] };
 let messagesFixture: Array<Record<string, unknown>>;
 let olderFixture: Array<Record<string, unknown>>;
 let agentMessagesFixture: Array<Record<string, unknown>>;
@@ -394,12 +394,21 @@ describe("React renderer parity", () => {
     render(<App/>);
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(await screen.findByRole("heading", { name: "Attention policy" })).toBeTruthy();
+    expect(screen.getByLabelText("Local presence snapshot")).toBeTruthy();
+    await userEvent.selectOptions(screen.getByLabelText("Operator mode"), "focus");
     await userEvent.click(screen.getByLabelText("Quiet hours"));
+    await userEvent.click(screen.getByLabelText("Manual do-not-disturb signal"));
+    await userEvent.click(screen.getByLabelText("Emergency contact bypass"));
+    await userEvent.selectOptions(screen.getByLabelText("Paired mobile proximity"), "nearby");
     await userEvent.selectOptions(screen.getByLabelText("Trusted signals"), "all");
     await userEvent.type(screen.getByLabelText("Muted sources or channel IDs"), "forgewire");
     await userEvent.click(screen.getByRole("button", { name: "Save attention policy" }));
     await waitFor(() => expect(window.desktop?.saveAttentionPolicy).toHaveBeenCalledWith(expect.objectContaining({
+      operator_mode: "focus",
       quiet_hours_enabled: true,
+      presence_do_not_disturb: true,
+      presence_paired_mobile: "nearby",
+      emergency_contact_bypass: false,
       signal_notifications: "all",
       muted_sources: ["forgewire"]
     })));

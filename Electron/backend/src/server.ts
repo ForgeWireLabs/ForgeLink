@@ -796,6 +796,12 @@ export function createBackend(options: BackendOptions): { server: Server; databa
           database.markAgentChannelRejected(channelId, urgency, "insufficient_trust_for_urgent");
           return sendJson(response, { error: "Urgent interrupts require a trusted agent.", reason: "insufficient_trust_for_urgent", agent: { id: agentIdentity.id, trust_state: agentIdentity.trust_state } }, 403);
         }
+        const declaredAuthority = String(approval?.required_authority || payload.required_authority || "");
+        const declaredRisk = String(approval?.risk || payload.risk || "");
+        if (payload.emergency === true && declaredAuthority !== "emergency" && declaredRisk !== "emergency" && declaredRisk !== "critical") {
+          database.markAgentChannelRejected(channelId, urgency, "emergency_policy_required");
+          return sendJson(response, { error: "Agent emergency claims require emergency authority or emergency/critical risk policy.", reason: "emergency_policy_required" }, 403);
+        }
         // AGH-002 authority gate: when a request declares a required authority
         // scope, the addressed human (default operator:primary) must hold it, else
         // the request is rejected with escalation targets. Optional and backward

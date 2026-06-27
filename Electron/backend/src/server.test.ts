@@ -452,6 +452,10 @@ test("enforces agent trust states and audits transitions (AGH-004)", async () =>
     // Promote to trusted (audited) -> urgent now allowed.
     assert.equal((await setTrust("trusted")).status, 200);
     assert.equal((await post({ urgency: "urgent" })).status, 201);
+    const ungovernedEmergency = await post({ id: "agent-emergency-claim", urgency: "urgent", emergency: true });
+    assert.equal(ungovernedEmergency.status, 403);
+    assert.equal((await ungovernedEmergency.json() as { reason: string }).reason, "emergency_policy_required");
+    assert.equal((await post({ id: "agent-emergency-policy", urgency: "urgent", emergency: true, required_authority: "emergency", risk: "critical" })).status, 201);
 
     // Mute -> cannot interrupt at all.
     assert.equal((await setTrust("muted")).status, 200);

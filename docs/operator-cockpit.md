@@ -32,6 +32,44 @@ channel credential actions.
 This keeps Decisions, People, Agents, and Channels portable across the current
 Electron desktop shell and the Tauri 2 shared shell planned in work item 030.
 
+## Operator Modes And Presence
+
+Settings includes explicit operator modes:
+
+- Available
+- Focus
+- Driving
+- Sleeping
+- Family
+- Work
+- Emergency-only
+- Offline
+
+The mode is part of the local attention policy. It influences whether an
+interruption is delivered immediately, deferred/batched, redacted, or recorded
+without notification. Focus, family, and work modes allow higher-priority agent
+interruptions; driving, sleeping, emergency-only, and offline are stricter. Any
+non-available mode forces notification redaction even if body previews are
+otherwise enabled.
+
+ForgeLink also shows local presence signals in Settings: app focus, recent input
+activity, network state, manual do-not-disturb, and paired-mobile proximity. The
+signals are operator-visible and configurable. ForgeLink does not collect hidden
+location, calendar, microphone, camera, or background surveillance data for this
+phase.
+
+## Emergency Boundaries
+
+Emergency behavior is policy-gated. Agents cannot turn an ordinary urgent
+request into an emergency by setting an unstructured flag; the backend rejects
+agent emergency claims unless the request also carries emergency authority or
+emergency/critical risk through the governed approval fields. Emergency requests
+can bypass quiet hours and mode suppression only when they satisfy that policy.
+
+Emergency contact bypass is an explicit local attention-policy setting. It does
+not grant agents new authority and does not override contact policy, trust state,
+or approval requirements.
+
 ## Decision Triage
 
 The Decisions surface is split into lanes:

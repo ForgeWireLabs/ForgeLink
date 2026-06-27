@@ -1,0 +1,51 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260627-ocx004-006-operator-modes-presence-emergency",
+  "timestamp": "2026-06-27T15:05:00Z",
+  "work_item": "017",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed after adding emergency-claim policy gating to the agent-channel route."
+    },
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript build and browser bundle passed after adding operator-mode, presence, and emergency controls to Settings."
+    },
+    {
+      "command": "node --test attention.test.js",
+      "exit_code": 0,
+      "summary": "12 attention-policy tests passed, including mode routing/redaction/batching, local presence DND suppression, and agent emergency policy requirements."
+    },
+    {
+      "command": "node --test backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "21 compiled backend server tests passed, including rejection of ungoverned agent emergency claims and acceptance when emergency authority/risk policy is declared."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "28 renderer interaction tests passed, including Settings coverage for operator mode, local presence, DND/mobile proximity, and emergency policy controls."
+    }
+  ],
+  "artifacts": [
+    "Electron/attention.js",
+    "Electron/attention.test.js",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/src/types.ts",
+    "Electron/renderer/styles.css",
+    "docs/operator-cockpit.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "OCX-004/005/006: operator modes are saved in attention policy and influence routing/redaction/batching/escalation; visible local presence signals inform routing without hidden surveillance; emergency behavior is policy-gated and agent emergency claims require governed emergency authority or risk."
+  }
+}

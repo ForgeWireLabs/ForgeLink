@@ -57,20 +57,26 @@
     {
       "id": "OCX-004",
       "text": "Add operator availability modes such as available, focus, driving, sleeping, family, work, emergency-only, and offline that affect routing/redaction/batching/escalation.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260627-ocx004-006-operator-modes-presence-emergency"
+      ]
     },
     {
       "id": "OCX-005",
       "text": "Add privacy-preserving local presence signals such as app focus, idle, battery, network, DND, paired mobile proximity, and approved calendar integration where applicable.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260627-ocx004-006-operator-modes-presence-emergency"
+      ]
     },
     {
       "id": "OCX-006",
       "text": "Add emergency/crisis rules including emergency contact bypass, repeated urgent escalation, agent emergency impersonation prevention, safety-sensitive handling, and local-only fail-safe behavior.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260627-ocx004-006-operator-modes-presence-emergency"
+      ]
     },
     {
       "id": "OCX-007",

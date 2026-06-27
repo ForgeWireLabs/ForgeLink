@@ -117,13 +117,13 @@ The product should optimize for:
 
 ### Phase 1: Operator modes and presence
 
-- [ ] **OCX-004 Add operator availability modes.** Add explicit modes that inform
+- [x] **OCX-004 Add operator availability modes.** Add explicit modes that inform
   attention policy.
   - Suggested modes: available, focus, driving, sleeping, family, work,
     emergency-only, offline.
   - Acceptance: Mode affects routing, redaction, batching, and escalation.
 
-- [ ] **OCX-005 Add local presence signals.** Use privacy-preserving local signals
+- [x] **OCX-005 Add local presence signals.** Use privacy-preserving local signals
   to improve attention routing.
   - Signals may include app focus, keyboard/mouse activity, system idle, battery,
     network, do-not-disturb, paired mobile proximity, and calendar integration if
@@ -131,7 +131,7 @@ The product should optimize for:
   - Acceptance: Presence signals are local and visible/configurable.
   - Acceptance: No hidden surveillance behavior.
 
-- [ ] **OCX-006 Add emergency/crisis rules.** Add hard boundaries for urgent and
+- [x] **OCX-006 Add emergency/crisis rules.** Add hard boundaries for urgent and
   emergency behavior.
   - Include emergency contact bypass, repeated urgent escalation, agent emergency
     impersonation prevention, safety-sensitive language handling, and local-only
@@ -323,3 +323,4 @@ Add or update docs for:
 | 2026-06-27 | OCX-002/003 complete | Decisions now renders seven triage lanes (needs decision, waiting on agent, informational, failed/repair, muted, expired, completed) using existing agent-message status/kind/action/error/expiry/muted-policy fields; People now groups contacts into operator, family, trusted humans, external contacts, agents, systems, unknown, and blocked, with unknown/blocked sections visually distinct. `docs/operator-cockpit.md`; renderer build + 27 renderer interaction tests passed. | OCX-002 and OCX-003 satisfied (evidence 20260627-ocx002-003-triage-relationship-grouping). Next: OCX-004 operator availability modes. |
 | 2026-06-27 | Tauri shared-shell alignment | Operator decision: Phase 2 should target Tauri 2 so ForgeLink can share one cockpit UI across desktop and mobile, retire Electron after parity, and avoid a throwaway mobile companion. Created work item 030 and added OCX-021 as the pre-Phase-1 bridge/alignment gate. | 017 now coordinates mobile UX and distribution criteria with 030; no implementation criterion closed. |
 | 2026-06-27 | OCX-021 complete | Added a ForgeLink-owned renderer shell bridge (`Electron/renderer/src/shell.ts`), moved cockpit native calls in `App.tsx` behind that bridge, exposed `forgeLinkShell` from Electron preload while retaining `desktop` as a compatibility alias, and documented the shared shell boundary in `docs/operator-cockpit.md`; renderer build + 28 renderer interaction tests passed. | OCX-021 satisfied (evidence 20260627-ocx021-shared-shell-bridge). Next: OCX-004 operator availability modes. |
+| 2026-06-27 | OCX-004/005/006 complete | Settings now saves operator mode in attention policy and shows visible local presence signals (app focus, input activity, network, manual DND, paired mobile proximity); attention evaluation uses mode/presence to route, redact, batch, and escalate notifications; backend agent-channel intake rejects ungoverned emergency claims unless the request declares emergency authority or emergency/critical risk. `docs/operator-cockpit.md`; backend build, renderer build, attention tests, compiled server tests, and 28 renderer interaction tests passed. | OCX-004, OCX-005, and OCX-006 satisfied (evidence 20260627-ocx004-006-operator-modes-presence-emergency). Next: OCX-007 Tauri-first mobile decision terminal MVP UX. |

@@ -43,6 +43,33 @@ test("quiet hours suppress notifications unless urgent override is enabled", () 
   assert.equal(urgent.notify, true);
 });
 
+test("operator modes route, redact, and batch interruptions", () => {
+  const focus = evaluateAttention({ ...DEFAULT_ATTENTION_POLICY, operator_mode: "focus", redact_notification_bodies: false }, { kind: "agent", urgency: "normal", title: "Detailed title", body: "Detailed body" });
+  assert.equal(focus.notify, false);
+  assert.equal(focus.reason, "focus_mode");
+  assert.equal(focus.batching, "batch_or_defer");
+  const high = evaluateAttention({ ...DEFAULT_ATTENTION_POLICY, operator_mode: "focus", redact_notification_bodies: false }, { kind: "agent", urgency: "high", title: "Detailed title", body: "Detailed body" });
+  assert.equal(high.notify, true);
+  assert.equal(high.title, "Important agent update");
+  assert.equal(high.escalation, "defer_or_batch");
+});
+
+test("presence signals are explicit and can suppress non-emergency interruptions", () => {
+  const policy = { ...DEFAULT_ATTENTION_POLICY, presence_do_not_disturb: true, agent_notifications: "all" };
+  assert.equal(evaluateAttention(policy, { kind: "agent", urgency: "normal" }).reason, "presence_do_not_disturb");
+  assert.equal(evaluateAttention(policy, { kind: "agent", urgency: "urgent" }).notify, true);
+});
+
+test("agent emergency claims require matching policy", () => {
+  const rejected = evaluateAttention(DEFAULT_ATTENTION_POLICY, { kind: "agent", urgency: "urgent", emergency: true });
+  assert.equal(rejected.notify, false);
+  assert.equal(rejected.reason, "emergency_policy_required");
+  const accepted = evaluateAttention(DEFAULT_ATTENTION_POLICY, { kind: "agent", urgency: "urgent", emergency: true, required_authority: "emergency" });
+  assert.equal(accepted.notify, true);
+  assert.equal(accepted.escalation, "emergency_bypass_enabled");
+  assert.equal(accepted.batching, "send_now");
+});
+
 test("scrubs sensitive values even when notification body text is enabled", () => {
   const policy = { ...DEFAULT_ATTENTION_POLICY, redact_notification_bodies: false };
   const decision = evaluateAttention(policy, {
