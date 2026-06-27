@@ -86,14 +86,14 @@ The product should optimize for:
   - Acceptance: The UI separates communication, approvals, agent status, and
     channel configuration.
 
-- [ ] **OCX-002 Add triage lanes.** Split the operator inbox into meaningful
+- [x] **OCX-002 Add triage lanes.** Split the operator inbox into meaningful
   lanes.
   - Initial lanes: needs decision, waiting on agent, informational, failed/needs
     repair, muted, expired, completed.
   - Acceptance: Agent requests cannot flood the same lane as ordinary human
     messages.
 
-- [ ] **OCX-003 Add relationship-aware grouping.** Present people and systems by
+- [x] **OCX-003 Add relationship-aware grouping.** Present people and systems by
   relationship/trust rather than only alphabetical contact list.
   - Groups: operator, family, trusted humans, external contacts, agents, systems,
     unknown, blocked.
@@ -300,3 +300,4 @@ Add or update docs for:
 | 2026-06-18 | planning | Deep product review identified operator cockpit features needed to make ForgeLink stand out as a state-of-the-art human-boundary app | Created item 017 before implementation starts. |
 | 2026-06-18 | gap review | Roadmap gap review with operator: local-only onboarding, public-tunnel hardening, untrusted agent content, key management, agent-facing contract, conformance/integration testing, migration coordination, and distribution/updates | Added acceptance criteria and fixed README acceptance-criteria numbering to match work-item.json. |
 | 2026-06-27 | OCX-001 complete | Desktop IA now starts with Decisions, People, Agents, and Channels: approval requests live in Decisions, People owns the human directory, Agents shows agent/channel health, and Channels keeps Messages, Calls, Signals, and provider readiness reachable without making ordinary conversations the primary surface. `docs/operator-cockpit.md`; renderer build + 25 renderer interaction tests passed. | OCX-001 satisfied (evidence 20260627-ocx001-decision-first-navigation). Next: OCX-002 triage lanes. |
+| 2026-06-27 | OCX-002/003 complete | Decisions now renders seven triage lanes (needs decision, waiting on agent, informational, failed/repair, muted, expired, completed) using existing agent-message status/kind/action/error/expiry/muted-policy fields; People now groups contacts into operator, family, trusted humans, external contacts, agents, systems, unknown, and blocked, with unknown/blocked sections visually distinct. `docs/operator-cockpit.md`; renderer build + 27 renderer interaction tests passed. | OCX-002 and OCX-003 satisfied (evidence 20260627-ocx002-003-triage-relationship-grouping). Next: OCX-004 operator availability modes. |

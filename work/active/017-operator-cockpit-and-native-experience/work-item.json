@@ -41,14 +41,18 @@
     {
       "id": "OCX-002",
       "text": "Add triage lanes for needs decision, waiting on agent, informational, failed/needs repair, muted, expired, and completed states.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260627-ocx002-003-triage-relationship-grouping"
+      ]
     },
     {
       "id": "OCX-003",
       "text": "Add relationship-aware grouping for operator, family, trusted humans, external contacts, agents, systems, unknown, and blocked entities.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260627-ocx002-003-triage-relationship-grouping"
+      ]
     },
     {
       "id": "OCX-004",

@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 
 const thread = { id: 1, canonical_number: "+15551234567", name: "Ada Lovelace", last_msg_ts: "2026-06-14T18:00:00.000Z", unread_count: 0 };
 const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
+const operatorContact = { id: 8, name: "Primary Operator", number: "+15550000001", trust_level: "operator" };
+const familyContact = { id: 9, name: "Katherine Johnson", number: "+15550000002", tags: "family" };
+const blockedContact = { id: 10, name: "Blocked Sender", number: "+15550000003", trust_level: "blocked" };
 const message = { id: "SM1", direction: "inbound", body: "Hello", ts: "2026-06-14T18:00:00.000Z", status: "received", media_urls: "" };
 const agentMessage = { id: "agent-1", channel_id: "forgewire", source: "forgewire", kind: "approval_request", urgency: "normal", title: "Release approval", body: "ForgeWire wants approval.", actions: JSON.stringify([{ id: "approve", label: "Approve" }]), status: "unread", action_result: "", created_at: "2026-06-14T18:00:00.000Z", expires_at: "2099-01-01T00:00:00.000Z", last_error: "" };
 const signalSubscription = { id: "sigsub-1", title: "Forge Signals", url: "https://example.com/feed.xml", enabled: true, muted: false, fetch_interval_minutes: 60, retention_days: 30, last_fetch_at: "2026-06-15T12:00:00.000Z", last_fetch_status: "ok", last_error: "", created_at: "2026-06-15T10:00:00.000Z", updated_at: "2026-06-15T12:00:00.000Z" };
@@ -18,6 +21,7 @@ const attentionPolicy = { enabled: true, quiet_hours_enabled: false, quiet_hours
 let messagesFixture: Array<Record<string, unknown>>;
 let olderFixture: Array<Record<string, unknown>>;
 let agentMessagesFixture: Array<Record<string, unknown>>;
+let contactsFixture: Array<Record<string, unknown>>;
 let callsFixture: Array<Record<string, unknown>>;
 let signalSubscriptionsFixture: Array<Record<string, unknown>>;
 let signalItemsFixture: Array<Record<string, unknown>>;
@@ -31,6 +35,7 @@ beforeEach(() => {
   messagesFixture = [message];
   olderFixture = [];
   agentMessagesFixture = [agentMessage];
+  contactsFixture = [contact];
   callsFixture = [];
   signalSubscriptionsFixture = [signalSubscription];
   signalItemsFixture = [signalItem];
@@ -101,7 +106,7 @@ beforeEach(() => {
       contactPolicyFixture = { ...contactPolicyFixture, ...JSON.parse(String(init?.body || "{}")) };
       return response(contactPolicyFixture);
     }
-    if (url.includes("/api/contacts")) return response(init?.method === "POST" ? { ok: true } : [contact]);
+    if (url.includes("/api/contacts")) return response(init?.method === "POST" ? { ok: true } : contactsFixture);
     if (url.endsWith("/api/unknown-number/ignore")) return response({ ok: true });
     if (url.endsWith("/api/unknown-number/block")) return response({ ok: true, id: 9 });
     if (url.endsWith("/api/config-status")) return response({ account_sid: true, auth_token: true, phone_number: true, public_base_url: true });
@@ -170,6 +175,18 @@ describe("React renderer parity", () => {
     expect(screen.getByText("Grace Hopper")).toBeTruthy();
     await userEvent.type(screen.getByRole("searchbox", { name: "Search people" }), "missing");
     expect(screen.getByText("No people found")).toBeTruthy();
+  });
+
+  it("groups people by relationship and makes unknown and blocked distinct", async () => {
+    contactsFixture = [operatorContact, familyContact, { ...contact, trust_level: "trusted" }, { id: 11, name: "External Vendor", number: "+15550000004", company: "Example Co" }, { id: 12, name: "Build Agent", number: "+15550000005", tags: "agent" }, { id: 13, name: "Pager System", number: "+15550000006", role: "system" }, { id: 14, name: "Mystery Caller", number: "+15550000007" }, blockedContact];
+    render(<App/>);
+    await userEvent.click(screen.getByRole("button", { name: "People" }));
+    expect(await screen.findByRole("heading", { name: "People" })).toBeTruthy();
+    for (const group of ["Operator", "Family", "Trusted humans", "External contacts", "Agents", "Systems", "Unknown", "Blocked"]) {
+      expect(screen.getByRole("region", { name: group })).toBeTruthy();
+    }
+    expect(within(screen.getByRole("region", { name: "Unknown" })).getByText("Mystery Caller")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Blocked" })).getByText("Blocked Sender")).toBeTruthy();
   });
 
   it("places and ends a voice call from the dialpad (CLV-015)", async () => {
@@ -284,7 +301,29 @@ describe("React renderer parity", () => {
     expect(screen.getByText("ForgeWire wants approval.")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).endsWith("/api/agent-messages/agent-1/actions/approve"))).toBe(true));
-    expect(await screen.findByText("Recent outcomes")).toBeTruthy();
+    expect(within(await screen.findByRole("region", { name: "Completed" })).getByText("Release approval")).toBeTruthy();
+  });
+
+  it("splits agent work into decision triage lanes", async () => {
+    agentMessagesFixture = [
+      agentMessage,
+      { ...agentMessage, id: "waiting-1", title: "Waiting for tool", actions: "[]", status: "read" },
+      { ...agentMessage, id: "info-1", title: "FYI signal", kind: "notice", actions: "[]" },
+      { ...agentMessage, id: "failed-1", title: "Repair request", last_error: "validation failed" },
+      { ...agentMessage, id: "muted-1", title: "Muted agent", source: "muted-source" },
+      { ...agentMessage, id: "expired-1", title: "Expired approval", status: "expired" },
+      { ...agentMessage, id: "done-1", title: "Completed approval", status: "acted" }
+    ];
+    vi.mocked(window.desktop!.attentionPolicy).mockResolvedValueOnce({ ...attentionPolicy, muted_sources: ["muted-source"] } as import("./types").AttentionPolicy);
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Decisions" }));
+    expect(within(await screen.findByRole("region", { name: "Needs decision" })).getByText("Release approval")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Waiting on agent" })).getByText("Waiting for tool")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Informational" })).getByText("FYI signal")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Failed / repair" })).getByText("Repair request")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Muted" })).getByText("Muted agent")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Expired" })).getByText("Expired approval")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Completed" })).getByText("Completed approval")).toBeTruthy();
   });
 
   it("shows trusted signals in a separate quiet reading surface", async () => {

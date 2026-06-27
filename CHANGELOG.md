@@ -12,6 +12,12 @@ versions tracked in `VERSION` and `Electron/package.json`.
   reachable through Channels while approval requests are promoted to the
   Decisions surface and agent health is separate from the approval queue
   (OCX-001).
+- Decision triage lanes and relationship-aware People grouping: the Decisions
+  surface now separates needs-decision, waiting, informational, failed/repair,
+  muted, expired, and completed agent work, while People groups contacts as
+  operator, family, trusted humans, external contacts, agents, systems, unknown,
+  and blocked with distinct treatment for unknown and blocked entries
+  (OCX-002/003).
 - Shared provider conformance test kit every SMS/MMS and voice edge adapter must
   pass, with Twilio and Telnyx wired through it (work item 015, CLV-021).
 - Human Cards: resolvable local operator authority by alias (for example

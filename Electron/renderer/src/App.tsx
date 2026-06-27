@@ -44,6 +44,51 @@ const parseAgentActions = (message: AgentMessage): AgentAction[] => {
   try { return JSON.parse(message.actions || "[]") as AgentAction[]; }
   catch { return []; }
 };
+const expiredAgentMessage = (message: AgentMessage) => message.status === "expired" || Boolean(message.expires_at && new Date(message.expires_at).getTime() <= Date.now());
+const mutedAgentMessage = (message: AgentMessage, policy?: AttentionPolicy) => Boolean(policy?.muted_sources.some(source => source === message.source || source === message.channel_id));
+type DecisionLane = "needs" | "waiting" | "informational" | "failed" | "muted" | "expired" | "completed";
+const decisionLanes: Array<{ id: DecisionLane; label: string }> = [
+  { id: "needs", label: "Needs decision" },
+  { id: "waiting", label: "Waiting on agent" },
+  { id: "informational", label: "Informational" },
+  { id: "failed", label: "Failed / repair" },
+  { id: "muted", label: "Muted" },
+  { id: "expired", label: "Expired" },
+  { id: "completed", label: "Completed" }
+];
+const decisionLaneFor = (message: AgentMessage, policy?: AttentionPolicy): DecisionLane => {
+  if (message.last_error) return "failed";
+  if (mutedAgentMessage(message, policy)) return "muted";
+  if (expiredAgentMessage(message)) return "expired";
+  if (["acted", "dismissed"].includes(message.status)) return "completed";
+  if (message.kind !== "approval_request") return "informational";
+  if (message.status === "read" && parseAgentActions(message).length === 0) return "waiting";
+  return "needs";
+};
+type PeopleGroup = "operator" | "family" | "trusted" | "external" | "agents" | "systems" | "unknown" | "blocked";
+const peopleGroups: Array<{ id: PeopleGroup; label: string }> = [
+  { id: "operator", label: "Operator" },
+  { id: "family", label: "Family" },
+  { id: "trusted", label: "Trusted humans" },
+  { id: "external", label: "External contacts" },
+  { id: "agents", label: "Agents" },
+  { id: "systems", label: "Systems" },
+  { id: "unknown", label: "Unknown" },
+  { id: "blocked", label: "Blocked" }
+];
+const relationshipFor = (contact: Contact): PeopleGroup => {
+  const trust = (contact.trust_level || "").toLowerCase();
+  const tags = (contact.tags || "").toLowerCase();
+  const role = (contact.role || "").toLowerCase();
+  if (trust === "blocked") return "blocked";
+  if (trust === "operator" || tags.includes("operator")) return "operator";
+  if (tags.includes("family") || role.includes("family")) return "family";
+  if (tags.includes("agent") || role.includes("agent")) return "agents";
+  if (tags.includes("system") || role.includes("system")) return "systems";
+  if (trust === "trusted") return "trusted";
+  if (trust === "known" || contact.company || tags.includes("external")) return "external";
+  return "unknown";
+};
 const notify = (event: AttentionEvent) => window.desktop?.notifyEvent ? window.desktop.notifyEvent(event) : window.desktop?.notify(event.title || "ForgeLink", event.body || "");
 const DEFAULT_ATTENTION_POLICY: AttentionPolicy = {
   enabled: true,
@@ -305,7 +350,7 @@ export function App() {
   return <div className="app-shell">
     <Rail view={view} running={status?.running !== false} agentUnreadCount={unreadAgentCount} onView={setView}/>
     {view === "messages" && <ConversationList threads={visibleThreads} selectedId={selectedId} search={search} onSearch={setSearch} onSelect={chooseThread} onNew={() => setModal({ kind: "message" })}/>} 
-    {view === "decisions" ? <DecisionInbox messages={agentMessages} onRead={async id => { try { const result = await api.markAgentMessageRead(id); setAgentMessages(current => current.map(message => message.id === id ? result.message : message)); } catch (cause) { setError(String(cause)); } }} onDismiss={async id => { try { const result = await api.dismissAgentMessage(id); setAgentMessages(current => current.map(message => message.id === id ? result.message : message)); } catch (cause) { setError(String(cause)); } }} onAction={async (id, actionId) => { try { const result = await api.actOnAgentMessage(id, actionId); setAgentMessages(current => current.map(message => message.id === id ? result.message : message)); void notify({ kind: "system", title: "Agent response recorded", body: actionId }); } catch (cause) { setError(String(cause)); } }}/>
+    {view === "decisions" ? <DecisionInbox messages={agentMessages} attentionPolicy={attentionPolicy} onRead={async id => { try { const result = await api.markAgentMessageRead(id); setAgentMessages(current => current.map(message => message.id === id ? result.message : message)); } catch (cause) { setError(String(cause)); } }} onDismiss={async id => { try { const result = await api.dismissAgentMessage(id); setAgentMessages(current => current.map(message => message.id === id ? result.message : message)); } catch (cause) { setError(String(cause)); } }} onAction={async (id, actionId) => { try { const result = await api.actOnAgentMessage(id, actionId); setAgentMessages(current => current.map(message => message.id === id ? result.message : message)); void notify({ kind: "system", title: "Agent response recorded", body: actionId }); } catch (cause) { setError(String(cause)); } }}/>
       : view === "messages" ? <Chat thread={selected} messages={messages} oldestTs={oldestTs} sending={sending} uploading={uploading} attachment={attachment} draft={draft} onDraft={saveSelectedDraft} onRetry={async id => { try { await api.retry(id); if (selectedId) setMessages(await api.messages(selectedId)); } catch (cause) { if (selectedId) setMessages(await api.messages(selectedId)); setError(String(cause)); } }} onNew={() => setModal({ kind: "message" })} onLoadOlder={loadOlder} onSend={send} onUpload={upload} onRemoveAttachment={() => setAttachment("")} onAddContact={() => setModal({ kind: "contact", number: selected?.canonical_number, threadId: selected?.id })} onLink={() => setModal({ kind: "link" })} onIgnore={async () => { if (!selected) return; await api.ignoreUnknownNumber(selected.id); await loadAll(); void notify({ kind: "system", title: "Unknown number ignored", body: selected.canonical_number }); }} onBlock={async () => { if (!selected) return; await api.blockUnknownNumber(selected.id); await loadAll(); void notify({ kind: "system", title: "Unknown number blocked", body: selected.canonical_number }); }}/>
       : view === "calls" ? <CallSurface contacts={contacts} calls={calls} activeCall={activeCall} voiceAvailable={voiceReady(config)} busy={calling} configured={config} onStart={startVoiceCall} onEnd={endVoiceCall}/>
       : view === "agents" ? <AgentStatus messages={agentMessages} channels={agentChannels}/>
@@ -340,10 +385,14 @@ function Chat({ thread, messages, oldestTs, sending, uploading, attachment, draf
   return <main className="content-panel chat-panel"><header className="chat-header"><div className="chat-identity"><Avatar name={displayName(thread)}/><div><h2>{displayName(thread)}</h2><span>{thread.canonical_number}</span></div></div><div className="header-actions">{!thread.name && <><button className="button subtle" onClick={onAddContact}><Icon name="plus" size={16}/>Add contact</button><button className="button subtle" onClick={() => void onIgnore()}>Ignore</button><button className="button danger" onClick={() => void onBlock()}>Block</button></>}<button className="icon-button" aria-label="Link contact" onClick={onLink}><Icon name="more"/></button></div></header><div className="message-log">{oldestTs && messages.length >= 200 && <button className="load-older" onClick={onLoadOlder}>Load earlier messages</button>}{messages.length ? messages.map((message, index) => <React.Fragment key={message.id}>{(index === 0 || messageDay(messages[index - 1].ts) !== messageDay(message.ts)) && <div className="message-day"><span>{messageDay(message.ts)}</span></div>}<MessageBubble message={message} onRetry={onRetry}/></React.Fragment>) : <div className="empty-chat"><strong>This is the beginning</strong><span>Send the first message to {displayName(thread)}.</span></div>}</div><Composer to={thread.canonical_number} sending={sending} uploading={uploading} attachment={attachment} draft={draft} onDraft={onDraft} onSend={onSend} onUpload={onUpload} onRemoveAttachment={onRemoveAttachment}/></main>;
 }
 
-function DecisionInbox({ messages, onRead, onDismiss, onAction }: { messages: AgentMessage[]; onRead(id: string): Promise<void>; onDismiss(id: string): Promise<void>; onAction(id: string, actionId: string): Promise<void> }) {
-  const active = messages.filter(activeAgentMessage);
-  const archived = messages.filter(message => !activeAgentMessage(message)).slice(0, 8);
-  return <main className="content-panel page-panel agent-page"><header className="page-header"><div><span className="eyebrow">Action required</span><h1>Decisions</h1><p>Approval requests and other human-boundary decisions stay out of ordinary conversations.</p></div><span className="count-label">{active.length} active</span></header><div className="agent-grid">{active.length ? active.map(message => <AgentCard key={message.id} message={message} onRead={onRead} onDismiss={onDismiss} onAction={onAction}/>) : <div className="page-empty"><Icon name="alert" size={32}/><h3>No active decisions</h3><p>When a local agent needs human authority, it will appear here.</p></div>}</div>{archived.length > 0 && <section className="agent-history"><h2>Recent outcomes</h2><div className="agent-history-list">{archived.map(message => <div key={message.id} className="agent-history-row"><span>{message.title}</span><strong>{message.status}</strong><time>{formatListTime(message.created_at)}</time></div>)}</div></section>}</main>;
+function DecisionInbox({ messages, attentionPolicy, onRead, onDismiss, onAction }: { messages: AgentMessage[]; attentionPolicy?: AttentionPolicy; onRead(id: string): Promise<void>; onDismiss(id: string): Promise<void>; onAction(id: string, actionId: string): Promise<void> }) {
+  const lanes = new Map<DecisionLane, AgentMessage[]>(decisionLanes.map(lane => [lane.id, []]));
+  messages.forEach(message => lanes.get(decisionLaneFor(message, attentionPolicy))?.push(message));
+  const activeCount = messages.filter(message => ["needs", "waiting", "informational", "failed"].includes(decisionLaneFor(message, attentionPolicy))).length;
+  return <main className="content-panel page-panel agent-page"><header className="page-header"><div><span className="eyebrow">Action required</span><h1>Decisions</h1><p>Approval requests and other human-boundary decisions stay out of ordinary conversations.</p></div><span className="count-label">{activeCount} active</span></header><section className="decision-lanes">{decisionLanes.map(lane => {
+    const laneMessages = lanes.get(lane.id) || [];
+    return <section className={`decision-lane lane-${lane.id}`} key={lane.id} aria-label={lane.label}><div className="section-title"><h2>{lane.label}</h2><span>{laneMessages.length}</span></div>{laneMessages.length ? <div className="decision-lane-list">{laneMessages.map(message => <AgentCard key={message.id} message={message} onRead={onRead} onDismiss={onDismiss} onAction={onAction}/>)}</div> : <div className="lane-empty">No items</div>}</section>;
+  })}</section></main>;
 }
 
 function AgentCard({ message, onRead, onDismiss, onAction }: { message: AgentMessage; onRead(id: string): Promise<void>; onDismiss(id: string): Promise<void>; onAction(id: string, actionId: string): Promise<void> }) {
@@ -422,7 +471,12 @@ function Channels({ threads, calls, signalItems, signalSubscriptions, config, ag
 }
 
 function People({ contacts, search, onSearch, onAdd, onEdit, onMessage }: { contacts: Contact[]; search: string; onSearch(value: string): void; onAdd(): void; onEdit(contact: Contact): void; onMessage(contact: Contact): void }) {
-  return <main className="content-panel page-panel"><header className="page-header"><div><span className="eyebrow">Directory</span><h1>People</h1><p>Keep human relationships separate from channels and agent decisions.</p></div><button className="button primary" onClick={onAdd}><Icon name="plus" size={17}/>Add person</button></header><div className="page-toolbar"><label className="search-box wide"><Icon name="search" size={18}/><input type="search" value={search} aria-label="Search people" placeholder="Search people" onChange={event => onSearch(event.target.value)}/></label><span className="count-label">{contacts.length} people</span></div><div className="contact-grid">{contacts.length ? contacts.map(contact => <article className="contact-card" key={contact.id}><Avatar name={displayName(contact)} size="large"/><div className="contact-info"><h3>{displayName(contact)}</h3><span>{contact.number}</span>{contact.company && <small className="contact-meta">{contact.company}</small>}</div><button className="icon-button" aria-label={`Edit ${displayName(contact)}`} onClick={() => onEdit(contact)}><Icon name="settings" size={17}/></button><button className="icon-button" aria-label={`Message ${displayName(contact)}`} onClick={() => onMessage(contact)}><Icon name="chat" size={18}/></button></article>) : <div className="page-empty"><Icon name="users" size={32}/><h3>No people found</h3><p>Add a person to make your conversations easier to recognize.</p></div>}</div></main>;
+  const grouped = new Map<PeopleGroup, Contact[]>(peopleGroups.map(group => [group.id, []]));
+  contacts.forEach(contact => grouped.get(relationshipFor(contact))?.push(contact));
+  return <main className="content-panel page-panel"><header className="page-header"><div><span className="eyebrow">Directory</span><h1>People</h1><p>Keep human relationships separate from channels and agent decisions.</p></div><button className="button primary" onClick={onAdd}><Icon name="plus" size={17}/>Add person</button></header><div className="page-toolbar"><label className="search-box wide"><Icon name="search" size={18}/><input type="search" value={search} aria-label="Search people" placeholder="Search people" onChange={event => onSearch(event.target.value)}/></label><span className="count-label">{contacts.length} people</span></div>{contacts.length ? <div className="people-groups">{peopleGroups.map(group => {
+    const groupContacts = grouped.get(group.id) || [];
+    return <section className={`people-group group-${group.id}`} key={group.id} aria-label={group.label}><div className="section-title"><h2>{group.label}</h2><span>{groupContacts.length}</span></div>{groupContacts.length ? <div className="contact-grid">{groupContacts.map(contact => <article className={`contact-card relationship-${group.id}`} key={contact.id}><Avatar name={displayName(contact)} size="large"/><div className="contact-info"><h3>{displayName(contact)}</h3><span>{contact.number}</span><small className="relationship-label">{group.label}</small>{contact.company && <small className="contact-meta">{contact.company}</small>}</div><button className="icon-button" aria-label={`Edit ${displayName(contact)}`} onClick={() => onEdit(contact)}><Icon name="settings" size={17}/></button><button className="icon-button" aria-label={`Message ${displayName(contact)}`} onClick={() => onMessage(contact)}><Icon name="chat" size={18}/></button></article>)}</div> : <div className="lane-empty">No people</div>}</section>;
+  })}</div> : <div className="page-empty"><Icon name="users" size={32}/><h3>No people found</h3><p>Add a person to make your conversations easier to recognize.</p></div>}</main>;
 }
 
 function ContactEditModal({ api, contact, onClose, onSaved, onDeleted }: { api: PhoneApi; contact: Contact; onClose(): void; onSaved(name: string): Promise<void>; onDeleted(): Promise<void> }) {

@@ -1,0 +1,31 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260627-ocx002-003-triage-relationship-grouping",
+  "timestamp": "2026-06-27T14:40:00Z",
+  "work_item": "017",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript build and browser bundle passed after adding decision triage lanes and relationship-aware People grouping."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "27 renderer interaction tests passed, including coverage for all seven decision lanes and People grouping for operator, family, trusted, external, agents, systems, unknown, and blocked."
+    }
+  ],
+  "artifacts": [
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/styles.css",
+    "docs/operator-cockpit.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "OCX-002/003: Decisions now uses explicit triage lanes, and People groups contacts by relationship/trust with distinct unknown and blocked treatment."
+  }
+}
