@@ -29,13 +29,13 @@
       "notes": "Completed communications/voice arc; scoped contract retained under completed work."
     },
     {
-      "path": "work/active/016-agent-human-governance",
+      "path": "work/completed/016-agent-human-governance",
       "owner": "planning-agent",
-      "contract": "work/active/016-agent-human-governance/AGENTS.md",
+      "contract": "work/completed/016-agent-human-governance/AGENTS.md",
       "last_reviewed": "2026-06-18",
       "next_review": "2026-09-18",
       "alignment": "current",
-      "notes": "Planning roadmap item; scoped contract under active work."
+      "notes": "Completed agent-human governance arc; scoped contract retained under completed work."
     },
     {
       "path": "work/active/017-operator-cockpit-and-native-experience",

@@ -1,8 +1,8 @@
 ---
 audience: maintainers and implementation agents
-status: active
-last_verified: 2026-06-24
-source_of_truth: work/active/016-agent-human-governance/README.md; work/active/016-agent-human-governance/work-item.json
+status: completed
+last_verified: 2026-06-27
+source_of_truth: work/completed/016-agent-human-governance/README.md; work/completed/016-agent-human-governance/work-item.json
 ---
 
 # Work Item 016: Agent-Human Governance

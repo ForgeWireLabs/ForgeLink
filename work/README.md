@@ -125,12 +125,6 @@ As of the current ledger update, the main active product arcs are:
 Turns the original Twilio Phone / ForgeLink application into a secure, installable, recoverable Windows desktop messaging application with predictable operations and trustworthy releases. Its only remaining baseline gate is release/distribution strategy unless additional evidence is added.
 
 ```text
-016-agent-human-governance
-```
-
-Defines the agent-human governance layer: Human Cards, agent identity, evidence packs, approval templates, risk tiers, decision memory, audit/replay, communication firewall, redaction profiles, external contact consent, untrusted-agent-content handling, key management, and ForgeWire Fabric HITL routing through ForgeLink.
-
-```text
 017-operator-cockpit-and-native-experience
 ```
 
@@ -143,6 +137,12 @@ Completed upstream foundation:
 ```
 
 Defines the ForgeLink-owned communications runtime, provider-neutral channels, telecom edge adapters, rich contact metadata, restored voice capability, mobile companion protocol direction, local-only operation, provider conformance testing, schema-migration coordination, and direct-telecom research. Active governance, cockpit, and adapter work depends on this completed item.
+
+```text
+016-agent-human-governance
+```
+
+Defines the completed agent-human governance layer: Human Cards, agent identity, evidence packs, approval templates, risk tiers, decision memory, audit/replay, communication firewall, redaction profiles, external contact consent, untrusted-agent-content handling, key management, and ForgeWire Fabric HITL routing through ForgeLink.
 
 ## Lifecycle States
 

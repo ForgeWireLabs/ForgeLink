@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/work-item.schema.json",
   "id": "016",
   "title": "Agent-Human Governance",
-  "status": "active",
+  "status": "completed",
   "owner_scope": "work",
   "affected_scopes": [
     "work",
@@ -255,5 +255,5 @@
     }
   ],
   "created": "2026-06-18",
-  "updated": "2026-06-24"
+  "updated": "2026-06-27"
 }
