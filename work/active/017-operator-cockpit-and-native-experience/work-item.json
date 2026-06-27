@@ -33,8 +33,10 @@
     {
       "id": "OCX-001",
       "text": "Define decision-first navigation around Decisions, People, Agents, and Channels so action-required decisions are not buried inside ordinary conversations.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260627-ocx001-decision-first-navigation"
+      ]
     },
     {
       "id": "OCX-002",
@@ -152,5 +154,5 @@
     }
   ],
   "created": "2026-06-18",
-  "updated": "2026-06-18"
+  "updated": "2026-06-27"
 }

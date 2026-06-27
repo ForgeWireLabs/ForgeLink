@@ -123,6 +123,8 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 async function selectConversation() {
   render(<App/>);
+  await userEvent.click(await screen.findByRole("button", { name: "Channels" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Open messages" }));
   await userEvent.click(await screen.findByRole("button", { name: /Ada Lovelace/ }));
   await screen.findByRole("heading", { name: "Ada Lovelace" });
 }
@@ -130,7 +132,8 @@ async function selectConversation() {
 describe("React renderer parity", () => {
   it("authenticates every local API request with the per-launch credential", async () => {
     render(<App/>);
-    expect(await screen.findByText("Ada Lovelace")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Decisions" })).toBeTruthy();
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(0));
     const calls = vi.mocked(fetch).mock.calls;
     expect(calls.length).toBeGreaterThan(0);
     expect(calls.every(([, init]) => new Headers(init?.headers).get("Authorization") === "Bearer renderer-api-token")).toBe(true);
@@ -162,16 +165,17 @@ describe("React renderer parity", () => {
 
   it("switches views and filters contacts", async () => {
     render(<App/>);
-    await userEvent.click(screen.getByRole("button", { name: "Contacts" }));
-    expect(await screen.findByRole("heading", { name: "Contacts" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "People" }));
+    expect(await screen.findByRole("heading", { name: "People" })).toBeTruthy();
     expect(screen.getByText("Grace Hopper")).toBeTruthy();
-    await userEvent.type(screen.getByRole("searchbox", { name: "Search contacts" }), "missing");
-    expect(screen.getByText("No contacts found")).toBeTruthy();
+    await userEvent.type(screen.getByRole("searchbox", { name: "Search people" }), "missing");
+    expect(screen.getByText("No people found")).toBeTruthy();
   });
 
   it("places and ends a voice call from the dialpad (CLV-015)", async () => {
     render(<App/>);
-    await userEvent.click(await screen.findByRole("button", { name: "Calls" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Channels" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open calls" }));
     expect(await screen.findByRole("heading", { name: "Calls" })).toBeTruthy();
     expect(screen.getByText("Voice ready")).toBeTruthy();
     await userEvent.selectOptions(screen.getByLabelText("Selected contact"), "7");
@@ -201,7 +205,8 @@ describe("React renderer parity", () => {
       return response({});
     });
     render(<App/>);
-    await userEvent.click(await screen.findByRole("button", { name: "Calls" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Channels" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open calls" }));
     expect(await screen.findByText("Voice disabled")).toBeTruthy();
     expect(screen.getByText(/Public webhook URL/)).toBeTruthy();
     await userEvent.keyboard("5551234567");
@@ -211,7 +216,7 @@ describe("React renderer parity", () => {
   it("edits and deletes contact metadata (CLV-009)", async () => {
     const fetchMock = vi.mocked(fetch);
     render(<App/>);
-    await userEvent.click(screen.getByRole("button", { name: "Contacts" }));
+    await userEvent.click(screen.getByRole("button", { name: "People" }));
     await screen.findByText("Grace Hopper");
     await userEvent.click(screen.getByRole("button", { name: "Edit Grace Hopper" }));
     await screen.findByText("Contact policy");
@@ -248,7 +253,7 @@ describe("React renderer parity", () => {
   it("adds contact points and handles unknown conversation actions (CLV-010)", async () => {
     const fetchMock = vi.mocked(fetch);
     render(<App/>);
-    await userEvent.click(screen.getByRole("button", { name: "Contacts" }));
+    await userEvent.click(screen.getByRole("button", { name: "People" }));
     await screen.findByText("Grace Hopper");
     await userEvent.click(screen.getByRole("button", { name: "Edit Grace Hopper" }));
     expect(await screen.findByText("+15557654321 · primary")).toBeTruthy();
@@ -263,7 +268,8 @@ describe("React renderer parity", () => {
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/contacts/points/block"))).toBe(true));
 
     await userEvent.click(screen.getByRole("button", { name: "Close" }));
-    await userEvent.click(screen.getByRole("button", { name: "Messages" }));
+    await userEvent.click(screen.getByRole("button", { name: "Channels" }));
+    await userEvent.click(screen.getByRole("button", { name: "Open messages" }));
     await userEvent.click((await screen.findByText("Ada Lovelace")).closest("button")!);
     await userEvent.click(screen.getByRole("button", { name: "Link contact" }));
     await userEvent.click(await screen.findByRole("button", { name: /Grace Hopper/ }));
@@ -272,8 +278,8 @@ describe("React renderer parity", () => {
 
   it("shows agent channel messages without mixing them into SMS conversations", async () => {
     render(<App/>);
-    await userEvent.click(await screen.findByRole("button", { name: "Agents" }));
-    expect(await screen.findByRole("heading", { name: "Agents" })).toBeTruthy();
+    await userEvent.click(await screen.findByRole("button", { name: "Decisions" }));
+    expect(await screen.findByRole("heading", { name: "Decisions" })).toBeTruthy();
     expect(screen.getByText("Release approval")).toBeTruthy();
     expect(screen.getByText("ForgeWire wants approval.")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Approve" }));
@@ -283,7 +289,8 @@ describe("React renderer parity", () => {
 
   it("shows trusted signals in a separate quiet reading surface", async () => {
     render(<App/>);
-    await userEvent.click(await screen.findByRole("button", { name: "Signals" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Channels" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open signals" }));
     expect(await screen.findByRole("heading", { name: "Signals" })).toBeTruthy();
     expect(screen.getAllByText("Forge Signals").length).toBeGreaterThan(0);
     expect(screen.getByText("Build note")).toBeTruthy();
@@ -297,7 +304,8 @@ describe("React renderer parity", () => {
 
   it("adds and controls signal subscriptions without exposing them to message views", async () => {
     render(<App/>);
-    await userEvent.click(await screen.findByRole("button", { name: "Signals" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Channels" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open signals" }));
     await userEvent.click(screen.getByRole("button", { name: "Add feed" }));
     await userEvent.type(screen.getByLabelText("Feed URL"), "https://example.com/feed.xml");
     await userEvent.click(screen.getAllByRole("button", { name: "Add feed" })[1]);
@@ -338,6 +346,8 @@ describe("React renderer parity", () => {
 
   it("opens a modal, closes it with Escape, and restores focus", async () => {
     render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Channels" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open messages" }));
     const trigger = screen.getAllByRole("button", { name: "New message" })[0];
     trigger.focus();
     await userEvent.click(trigger);
@@ -350,6 +360,8 @@ describe("React renderer parity", () => {
 
   it("sends a new message with the expected payload", async () => {
     render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Channels" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open messages" }));
     await userEvent.click(screen.getAllByRole("button", { name: "New message" })[0]);
     await userEvent.type(screen.getByLabelText("Phone number"), "+15551234567");
     await userEvent.type(screen.getByLabelText("Message"), "Testing React");

@@ -7,6 +7,11 @@ versions tracked in `VERSION` and `Electron/package.json`.
 ## [Unreleased]
 
 ### Added
+- Decision-first cockpit navigation: the desktop rail now starts with Decisions,
+  People, Agents, and Channels. Messages, calls, and trusted signals remain
+  reachable through Channels while approval requests are promoted to the
+  Decisions surface and agent health is separate from the approval queue
+  (OCX-001).
 - Shared provider conformance test kit every SMS/MMS and voice edge adapter must
   pass, with Twilio and Telnyx wired through it (work item 015, CLV-021).
 - Human Cards: resolvable local operator authority by alias (for example

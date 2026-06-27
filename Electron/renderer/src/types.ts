@@ -1,4 +1,4 @@
-export type View = "messages" | "calls" | "agents" | "signals" | "contacts" | "settings";
+export type View = "decisions" | "people" | "agents" | "channels" | "messages" | "calls" | "signals" | "settings";
 
 export interface Thread { id: number; canonical_number: string; name?: string; last_msg_ts?: string; unread_count?: number; }
 export interface Contact { id: number; name: string; number: string; company?: string; role?: string; tags?: string; notes?: string; trust_level?: string; pinned?: number; favorite?: number; }

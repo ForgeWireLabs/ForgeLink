@@ -1,0 +1,31 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260627-ocx001-decision-first-navigation",
+  "timestamp": "2026-06-27T14:32:00Z",
+  "work_item": "017",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript build and browser bundle passed after introducing Decisions, People, Agents, and Channels navigation."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "25 renderer interaction tests passed, covering the new decision-first route, People directory, Channels drill-in for messages/calls/signals, and existing message/agent workflows."
+    }
+  ],
+  "artifacts": [
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/src/types.ts",
+    "docs/operator-cockpit.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "OCX-001: primary desktop IA is now Decisions, People, Agents, Channels, with Messages still accessible through Channels."
+  }
+}

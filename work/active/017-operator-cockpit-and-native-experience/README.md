@@ -1,7 +1,7 @@
 ---
 audience: maintainers and implementation agents
 status: active
-last_verified: 2026-06-18
+last_verified: 2026-06-27
 source_of_truth: work/active/017-operator-cockpit-and-native-experience/README.md; work/active/017-operator-cockpit-and-native-experience/work-item.json
 ---
 
@@ -79,7 +79,7 @@ The product should optimize for:
 
 ### Phase 0: Cockpit information architecture
 
-- [ ] **OCX-001 Define decision-first navigation.** Rework the product
+- [x] **OCX-001 Define decision-first navigation.** Rework the product
   information architecture around Decisions, People, Agents, and Channels.
   - Acceptance: Messages remain accessible, but action-required decisions are not
     buried inside ordinary conversations.
@@ -299,3 +299,4 @@ Add or update docs for:
 | --- | --- | --- | --- |
 | 2026-06-18 | planning | Deep product review identified operator cockpit features needed to make ForgeLink stand out as a state-of-the-art human-boundary app | Created item 017 before implementation starts. |
 | 2026-06-18 | gap review | Roadmap gap review with operator: local-only onboarding, public-tunnel hardening, untrusted agent content, key management, agent-facing contract, conformance/integration testing, migration coordination, and distribution/updates | Added acceptance criteria and fixed README acceptance-criteria numbering to match work-item.json. |
+| 2026-06-27 | OCX-001 complete | Desktop IA now starts with Decisions, People, Agents, and Channels: approval requests live in Decisions, People owns the human directory, Agents shows agent/channel health, and Channels keeps Messages, Calls, Signals, and provider readiness reachable without making ordinary conversations the primary surface. `docs/operator-cockpit.md`; renderer build + 25 renderer interaction tests passed. | OCX-001 satisfied (evidence 20260627-ocx001-decision-first-navigation). Next: OCX-002 triage lanes. |
