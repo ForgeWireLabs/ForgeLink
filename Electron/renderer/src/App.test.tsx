@@ -376,6 +376,24 @@ describe("React renderer parity", () => {
     expect(screen.queryByRole("heading", { name: "Ada Lovelace" })).toBeNull();
   });
 
+  it("surfaces the Tauri mobile decision terminal flow without private database replication", async () => {
+    vi.mocked(window.desktop!.attentionPolicy).mockResolvedValueOnce({ ...attentionPolicy, presence_paired_mobile: "nearby" } as import("./types").AttentionPolicy);
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Channels" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open mobile terminal" }));
+    expect(await screen.findByRole("heading", { name: "Mobile Terminal" })).toBeTruthy();
+    expect(screen.getAllByText("Release approval").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("mobile_lock_screen")).toBeTruthy();
+    expect(screen.getByText("No private DB replication")).toBeTruthy();
+    expect(screen.getByText("Tauri mobile signs the decision with the paired device key.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Deny" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Defer" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Request info" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Short reply" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Revoke device" })).toBeTruthy();
+  });
+
   it("backs up, exports, restores, and applies local retention from settings", async () => {
     render(<App/>);
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));

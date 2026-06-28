@@ -70,6 +70,31 @@ Emergency contact bypass is an explicit local attention-policy setting. It does
 not grant agents new authority and does not override contact policy, trust state,
 or approval requirements.
 
+## Tauri Mobile Decision Terminal
+
+The first mobile surface is a Tauri 2 decision terminal, not a chat clone and
+not a private database mirror. It is reached from Channels -> Mobile terminal in
+the shared cockpit UI so the same React/Web surface can move into the Tauri
+desktop/mobile shell owned by work item 030.
+
+The MVP mobile card includes:
+
+- paired device state and local presence signal;
+- redacted alert content using the mobile lock-screen profile;
+- approval-card actions for approve, deny, defer, request more info, and short
+  reply;
+- emergency contact toggle state from the attention policy;
+- explicit device revoke control.
+
+Desktop remains the source of truth for private local data. Mobile receives a
+redacted decision card, signs the selected decision with the paired device key,
+and returns only the decision envelope. Desktop verifies the request hash,
+evidence hash, device trust, and revocation state before recording the decision
+and audit trail.
+
+For the MVP, mobile does not replicate the private communications database,
+contact history, evidence body, local exports, or provider credentials.
+
 ## Decision Triage
 
 The Decisions surface is split into lanes:

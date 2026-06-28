@@ -1,0 +1,45 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260628-ocx007-008-mobile-decision-terminal",
+  "timestamp": "2026-06-28T00:00:00Z",
+  "work_item": "017",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript build and browser bundle passed after adding the shared Mobile terminal view and Tauri-first decision flow."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "Renderer interaction tests passed, including mobile terminal navigation, redacted card state, signed-return flow text, no private DB replication, and mobile decision actions."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact plus ForgeLink local validation passed for the work-item, docs, and evidence updates."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron validation passed: backend build, renderer build, 29 renderer tests, Node test bundle with 138 passing and one live Twilio opt-in skip, and syntax checks."
+    }
+  ],
+  "artifacts": [
+    "Electron/renderer/app.js",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/src/types.ts",
+    "Electron/renderer/styles.css",
+    "docs/operator-cockpit.md",
+    "work/active/017-operator-cockpit-and-native-experience/README.md",
+    "work/active/017-operator-cockpit-and-native-experience/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "OCX-007/008: Tauri-first mobile decision terminal MVP UX and signed return flow are implemented as a shared cockpit surface. The flow covers paired device state, redacted mobile alerts, approval-card actions, short reply, presence, emergency contact toggle, device revoke, desktop as source of truth, and no private database replication. Native emulator/device validation remains under work item 030 once the Tauri mobile shell exists."
+  }
+}

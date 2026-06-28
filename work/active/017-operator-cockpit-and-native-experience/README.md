@@ -140,7 +140,7 @@ The product should optimize for:
 
 ### Phase 2: Tauri 2 mobile decision terminal experience
 
-- [ ] **OCX-007 Define Tauri-first mobile decision terminal MVP UX.** Keep the
+- [x] **OCX-007 Define Tauri-first mobile decision terminal MVP UX.** Keep the
   first mobile surface focused on human decisions rather than full chat, using
   the shared cockpit UI direction from work item 030.
   - Include: paired device, redacted alerts, approval cards, approve/deny, short
@@ -148,7 +148,7 @@ The product should optimize for:
   - Acceptance: Desktop remains source of truth.
   - Acceptance: Locked/mobile notification surfaces use redaction profiles.
 
-- [ ] **OCX-008 Add Tauri mobile decision terminal flow.** Design the flow where
+- [x] **OCX-008 Add Tauri mobile decision terminal flow.** Design the flow where
   a local agent request appears on mobile, receives a signed decision through
   the shared UI/bridge model, and returns to desktop.
   - Acceptance: Flow supports approve, deny, defer, request more info, and short
@@ -324,3 +324,4 @@ Add or update docs for:
 | 2026-06-27 | Tauri shared-shell alignment | Operator decision: Phase 2 should target Tauri 2 so ForgeLink can share one cockpit UI across desktop and mobile, retire Electron after parity, and avoid a throwaway mobile companion. Created work item 030 and added OCX-021 as the pre-Phase-1 bridge/alignment gate. | 017 now coordinates mobile UX and distribution criteria with 030; no implementation criterion closed. |
 | 2026-06-27 | OCX-021 complete | Added a ForgeLink-owned renderer shell bridge (`Electron/renderer/src/shell.ts`), moved cockpit native calls in `App.tsx` behind that bridge, exposed `forgeLinkShell` from Electron preload while retaining `desktop` as a compatibility alias, and documented the shared shell boundary in `docs/operator-cockpit.md`; renderer build + 28 renderer interaction tests passed. | OCX-021 satisfied (evidence 20260627-ocx021-shared-shell-bridge). Next: OCX-004 operator availability modes. |
 | 2026-06-27 | OCX-004/005/006 complete | Settings now saves operator mode in attention policy and shows visible local presence signals (app focus, input activity, network, manual DND, paired mobile proximity); attention evaluation uses mode/presence to route, redact, batch, and escalate notifications; backend agent-channel intake rejects ungoverned emergency claims unless the request declares emergency authority or emergency/critical risk. `docs/operator-cockpit.md`; backend build, renderer build, attention tests, compiled server tests, and 28 renderer interaction tests passed. | OCX-004, OCX-005, and OCX-006 satisfied (evidence 20260627-ocx004-006-operator-modes-presence-emergency). Next: OCX-007 Tauri-first mobile decision terminal MVP UX. |
+| 2026-06-28 | OCX-007/008 complete | Channels now exposes a shared Mobile terminal surface for the Tauri 2 decision-terminal MVP: paired status, redacted `mobile_lock_screen` alert/card, approve/deny/defer/request-more-info/short-reply actions, presence and emergency-contact state, device revoke, signed-return flow, and no private database replication. `docs/operator-cockpit.md`; renderer build, renderer interaction tests, and RepoPact/local validation passed. | OCX-007 and OCX-008 satisfied (evidence 20260628-ocx007-008-mobile-decision-terminal). Next: OCX-009 batch approvals. |
