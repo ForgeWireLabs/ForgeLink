@@ -1,0 +1,44 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260628-ocx009-011-interruption-cost",
+  "timestamp": "2026-06-28T00:00:00Z",
+  "work_item": "017",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript build and browser bundle passed after adding batch approvals, fatigue budget, and advisory agent reputation UI."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "Renderer interaction tests passed, including batch approval selection/action behavior, fatigue budget visibility, and advisory reputation rows."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron validation passed: backend build, renderer build, renderer interactions, Node test bundle, and syntax checks."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact plus ForgeLink local validation passed for work-item, docs, and evidence updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/renderer/app.js",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/styles.css",
+    "docs/operator-cockpit.md",
+    "work/active/017-operator-cockpit-and-native-experience/README.md",
+    "work/active/017-operator-cockpit-and-native-experience/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "OCX-009/010/011: batch approvals are derived from low/medium risk approval requests and still call individual action endpoints; fatigue budget and reputation are derived from local agent-message records. Reputation remains advisory and does not grant authority automatically."
+  }
+}

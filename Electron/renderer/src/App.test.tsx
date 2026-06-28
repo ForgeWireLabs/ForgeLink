@@ -82,6 +82,13 @@ beforeEach(() => {
     if (url.endsWith("/api/agent-messages/agent-1/read")) { agentMessagesFixture = [{ ...agentMessage, status: "read" }]; return response({ ok: true, message: agentMessagesFixture[0] }); }
     if (url.endsWith("/api/agent-messages/agent-1/dismiss")) { agentMessagesFixture = [{ ...agentMessage, status: "dismissed" }]; return response({ ok: true, message: agentMessagesFixture[0] }); }
     if (url.endsWith("/api/agent-messages/agent-1/actions/approve")) { agentMessagesFixture = [{ ...agentMessage, status: "acted", action_result: JSON.stringify({ action_id: "approve" }) }]; return response({ ok: true, message: agentMessagesFixture[0] }); }
+    const actionMatch = url.match(/\/api\/agent-messages\/([^/]+)\/actions\/([^/]+)$/);
+    if (actionMatch) {
+      const [, id, actionId] = actionMatch.map(decodeURIComponent);
+      const next = (agentMessagesFixture.find(item => item.id === id) || agentMessage) as typeof agentMessage;
+      agentMessagesFixture = agentMessagesFixture.map(item => item.id === id ? { ...item, status: "acted", action_result: JSON.stringify({ action_id: actionId, decided_at: new Date().toISOString() }) } : item);
+      return response({ ok: true, message: { ...next, status: "acted", action_result: JSON.stringify({ action_id: actionId, decided_at: new Date().toISOString() }) } });
+    }
     if (url.endsWith("/api/signals/subscriptions")) return response(init?.method === "POST" ? { ok: true, subscription: signalSubscription } : signalSubscriptionsFixture);
     if (url.endsWith("/api/signals/subscriptions/sigsub-1/refresh")) return response({ ok: true, added: 1, deleted: 0, subscription: signalSubscription, items: signalItemsFixture });
     if (url.endsWith("/api/signals/subscriptions/sigsub-1/disable")) { signalSubscriptionsFixture = [{ ...signalSubscription, enabled: false }]; return response({ ok: true, subscription: signalSubscriptionsFixture[0] }); }
@@ -346,6 +353,46 @@ describe("React renderer parity", () => {
     expect(within(screen.getByRole("region", { name: "Muted" })).getByText("Muted agent")).toBeTruthy();
     expect(within(screen.getByRole("region", { name: "Expired" })).getByText("Expired approval")).toBeTruthy();
     expect(within(screen.getByRole("region", { name: "Completed" })).getByText("Completed approval")).toBeTruthy();
+  });
+
+  it("batches low-risk approvals and shows fatigue pressure", async () => {
+    const today = new Date().toISOString();
+    agentMessagesFixture = [
+      { ...agentMessage, id: "batch-1", title: "Patch release", actions: JSON.stringify([{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }]), created_at: today, urgency: "normal", risk: "low" },
+      { ...agentMessage, id: "batch-2", title: "Docs release", actions: JSON.stringify([{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }]), created_at: today, urgency: "low", risk: "medium" },
+      { ...agentMessage, id: "urgent-1", title: "Urgent production change", actions: JSON.stringify([{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }]), created_at: today, urgency: "urgent", risk: "critical" },
+      { ...agentMessage, id: "expired-fatigue", title: "Old request", status: "expired", created_at: "2026-06-20T00:00:00.000Z" },
+      { ...agentMessage, id: "denied-fatigue", title: "Denied request", status: "acted", action_result: JSON.stringify({ action_id: "deny", decided_at: today }), created_at: today }
+    ];
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Decisions" }));
+    expect(await screen.findByRole("region", { name: "Batch approvals" })).toBeTruthy();
+    expect(screen.getByText("2 low or medium risk approvals")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Human fatigue budget" })).toBeTruthy();
+    expect(screen.getByText("Interruptions today")).toBeTruthy();
+    expect(screen.getByText("Denied requests")).toBeTruthy();
+    const batchChecks = screen.getAllByLabelText("Batch item");
+    await userEvent.click(batchChecks[0]);
+    await userEvent.click(screen.getByRole("button", { name: "Approve selected" }));
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).endsWith("/api/agent-messages/batch-1/actions/approve"))).toBe(true));
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes("/api/agent-messages/urgent-1/actions/approve"))).toBe(false);
+  });
+
+  it("shows advisory agent reputation without granting authority", async () => {
+    agentMessagesFixture = [
+      { ...agentMessage, id: "rep-approve", source: "steady-agent", status: "acted", action_result: JSON.stringify({ action_id: "approve" }) },
+      { ...agentMessage, id: "rep-deny", source: "noisy-agent", status: "acted", action_result: JSON.stringify({ action_id: "deny" }) },
+      { ...agentMessage, id: "rep-expired", source: "noisy-agent", status: "expired" },
+      { ...agentMessage, id: "rep-scope", source: "noisy-agent", last_error: "modified scope attempted" },
+      { ...agentMessage, id: "rep-urgent", source: "noisy-agent", urgency: "urgent" }
+    ];
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Agents" }));
+    expect(await screen.findByRole("heading", { name: "Agent reputation" })).toBeTruthy();
+    expect(screen.getByText("Reputation is advisory; it informs review and suggestions but never grants authority automatically.")).toBeTruthy();
+    expect(screen.getAllByText("noisy-agent").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("losing trust")).toBeTruthy();
+    expect(screen.getByText("1 scope flags")).toBeTruthy();
   });
 
   it("shows trusted signals in a separate quiet reading surface", async () => {

@@ -97,20 +97,26 @@
     {
       "id": "OCX-009",
       "text": "Add batch approvals with approve all, approve selected, deny all, and inspect individual items while preserving individual audit/outcome records.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260628-ocx009-011-interruption-cost"
+      ]
     },
     {
       "id": "OCX-010",
       "text": "Add human fatigue budget tracking interruptions, urgent interruptions, denials, expirations, response time, and repeated interruptions by agent to recommend batching/deferring/muting.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260628-ocx009-011-interruption-cost"
+      ]
     },
     {
       "id": "OCX-011",
       "text": "Add agent reputation UI using approvals, denials, expired requests, malformed requests, failed outcomes, modified-scope attempts, and repeated urgent requests without silently granting authority.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260628-ocx009-011-interruption-cost"
+      ]
     },
     {
       "id": "OCX-012",

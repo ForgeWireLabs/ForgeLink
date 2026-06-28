@@ -95,6 +95,33 @@ and audit trail.
 For the MVP, mobile does not replicate the private communications database,
 contact history, evidence body, local exports, or provider credentials.
 
+## Reducing Interruption Cost
+
+The Decisions surface includes a batch approvals panel for low and medium risk
+approval requests. The panel can select all batchable requests, approve all,
+approve selected, or deny all. Individual cards remain visible below the batch
+panel so the operator can inspect requests before acting. Batch actions still
+call each request's existing action endpoint, preserving individual outcome and
+audit records instead of creating a hidden group decision.
+
+The Decisions surface also shows a local fatigue budget derived from existing
+agent-message records:
+
+- interruptions today;
+- urgent or high-priority interruptions today;
+- denied requests;
+- expired requests;
+- average response time where decision timestamps are available;
+- repeated sources that interrupted more than once today.
+
+The fatigue budget can recommend batching, deferring, muting, or reviewing noisy
+agents, but it does not silently suppress or approve work.
+
+The Agents surface includes advisory reputation rows per source. Reputation uses
+approval, denial, expiration, malformed-request, failed/scope-flag, and urgent
+request signals. It is product guidance only: reputation can inform review and
+suggestions, but it never grants authority automatically.
+
 ## Decision Triage
 
 The Decisions surface is split into lanes:

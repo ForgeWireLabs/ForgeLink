@@ -66,6 +66,26 @@ const decisionLaneFor = (message: AgentMessage, policy?: AttentionPolicy): Decis
   if (message.status === "read" && parseAgentActions(message).length === 0) return "waiting";
   return "needs";
 };
+const actionIdFor = (message: AgentMessage, match: "approve" | "deny") => parseAgentActions(message).find(action => action.id.toLowerCase().includes(match) || action.label.toLowerCase().includes(match))?.id;
+const riskRank = (message: AgentMessage) => ({ low: 0, normal: 1, medium: 1, high: 2, urgent: 3, emergency: 4, critical: 4 }[String(message.risk || message.urgency || "normal").toLowerCase()] ?? 1);
+const batchableAgentMessage = (message: AgentMessage, policy?: AttentionPolicy) => decisionLaneFor(message, policy) === "needs" && message.kind === "approval_request" && riskRank(message) <= 1 && Boolean(actionIdFor(message, "approve") && actionIdFor(message, "deny"));
+const parseActionResult = (message: AgentMessage): Record<string, unknown> => {
+  try { return JSON.parse(message.action_result || "{}") as Record<string, unknown>; }
+  catch { return {}; }
+};
+const actionResultText = (message: AgentMessage) => {
+  const result = parseActionResult(message);
+  return String(result.action_id || result.decision || result.action || message.action_result || "").toLowerCase();
+};
+const decidedAt = (message: AgentMessage) => {
+  const result = parseActionResult(message);
+  const value = String(result.decided_at || result.decidedAt || result.at || "");
+  return value ? new Date(value).getTime() : NaN;
+};
+const todayMessages = (messages: AgentMessage[]) => {
+  const today = new Date().toDateString();
+  return messages.filter(message => new Date(message.created_at).toDateString() === today);
+};
 type PeopleGroup = "operator" | "family" | "trusted" | "external" | "agents" | "systems" | "unknown" | "blocked";
 const peopleGroups: Array<{ id: PeopleGroup; label: string }> = [
   { id: "operator", label: "Operator" },
@@ -436,18 +456,50 @@ function Chat({ thread, messages, oldestTs, sending, uploading, attachment, draf
 }
 
 function DecisionInbox({ messages, attentionPolicy, onRead, onDismiss, onAction }: { messages: AgentMessage[]; attentionPolicy?: AttentionPolicy; onRead(id: string): Promise<void>; onDismiss(id: string): Promise<void>; onAction(id: string, actionId: string): Promise<void> }) {
+  const [selectedBatchIds, setSelectedBatchIds] = useState<string[]>([]);
   const lanes = new Map<DecisionLane, AgentMessage[]>(decisionLanes.map(lane => [lane.id, []]));
   messages.forEach(message => lanes.get(decisionLaneFor(message, attentionPolicy))?.push(message));
   const activeCount = messages.filter(message => ["needs", "waiting", "informational", "failed"].includes(decisionLaneFor(message, attentionPolicy))).length;
-  return <main className="content-panel page-panel agent-page"><header className="page-header"><div><span className="eyebrow">Action required</span><h1>Decisions</h1><p>Approval requests and other human-boundary decisions stay out of ordinary conversations.</p></div><span className="count-label">{activeCount} active</span></header><section className="decision-lanes">{decisionLanes.map(lane => {
+  const batchable = messages.filter(message => batchableAgentMessage(message, attentionPolicy));
+  const selectedBatch = batchable.filter(message => selectedBatchIds.includes(message.id));
+  const selectBatch = (id: string, checked: boolean) => setSelectedBatchIds(current => checked ? [...new Set([...current, id])] : current.filter(item => item !== id));
+  const actBatch = async (items: AgentMessage[], kind: "approve" | "deny") => {
+    for (const message of items) {
+      const actionId = actionIdFor(message, kind);
+      if (actionId) await onAction(message.id, actionId);
+    }
+    setSelectedBatchIds(current => current.filter(id => !items.some(message => message.id === id)));
+  };
+  return <main className="content-panel page-panel agent-page"><header className="page-header"><div><span className="eyebrow">Action required</span><h1>Decisions</h1><p>Approval requests and other human-boundary decisions stay out of ordinary conversations.</p></div><span className="count-label">{activeCount} active</span></header><BatchApprovalPanel batchable={batchable} selected={selectedBatch} onSelectAll={() => setSelectedBatchIds(batchable.map(message => message.id))} onClear={() => setSelectedBatchIds([])} onApproveAll={() => void actBatch(batchable, "approve")} onDenyAll={() => void actBatch(batchable, "deny")} onApproveSelected={() => void actBatch(selectedBatch, "approve")}/><FatigueBudget messages={messages}/><section className="decision-lanes">{decisionLanes.map(lane => {
     const laneMessages = lanes.get(lane.id) || [];
-    return <section className={`decision-lane lane-${lane.id}`} key={lane.id} aria-label={lane.label}><div className="section-title"><h2>{lane.label}</h2><span>{laneMessages.length}</span></div>{laneMessages.length ? <div className="decision-lane-list">{laneMessages.map(message => <AgentCard key={message.id} message={message} onRead={onRead} onDismiss={onDismiss} onAction={onAction}/>)}</div> : <div className="lane-empty">No items</div>}</section>;
+    return <section className={`decision-lane lane-${lane.id}`} key={lane.id} aria-label={lane.label}><div className="section-title"><h2>{lane.label}</h2><span>{laneMessages.length}</span></div>{laneMessages.length ? <div className="decision-lane-list">{laneMessages.map(message => <AgentCard key={message.id} message={message} selected={selectedBatchIds.includes(message.id)} batchable={batchable.some(item => item.id === message.id)} onSelect={selectBatch} onRead={onRead} onDismiss={onDismiss} onAction={onAction}/>)}</div> : <div className="lane-empty">No items</div>}</section>;
   })}</section></main>;
 }
 
-function AgentCard({ message, onRead, onDismiss, onAction }: { message: AgentMessage; onRead(id: string): Promise<void>; onDismiss(id: string): Promise<void>; onAction(id: string, actionId: string): Promise<void> }) {
+function BatchApprovalPanel({ batchable, selected, onSelectAll, onClear, onApproveAll, onDenyAll, onApproveSelected }: { batchable: AgentMessage[]; selected: AgentMessage[]; onSelectAll(): void; onClear(): void; onApproveAll(): void; onDenyAll(): void; onApproveSelected(): void }) {
+  return <section className="batch-panel" aria-label="Batch approvals"><div><span className="eyebrow">Batch approvals</span><h2>{batchable.length} low or medium risk approvals</h2><p>Use one surface for related low-friction requests while each approval still keeps its own outcome record.</p></div><div className="batch-actions"><button className="button secondary" disabled={!batchable.length} onClick={onSelectAll}>Select all</button><button className="button subtle" disabled={!selected.length} onClick={onClear}>Clear</button><button className="button primary" disabled={!batchable.length} onClick={onApproveAll}>Approve all</button><button className="button danger" disabled={!batchable.length} onClick={onDenyAll}>Deny all</button><button className="button secondary" disabled={!selected.length} onClick={onApproveSelected}>Approve selected</button></div><div className="batch-hint">Inspect individual items below before batching. Selected: {selected.length}</div></section>;
+}
+
+function FatigueBudget({ messages }: { messages: AgentMessage[] }) {
+  const todays = todayMessages(messages);
+  const urgent = todays.filter(message => ["urgent", "high"].includes(message.urgency)).length;
+  const denied = messages.filter(message => actionResultText(message).includes("deny")).length;
+  const expired = messages.filter(expiredAgentMessage).length;
+  const repeated = new Map<string, number>();
+  todays.forEach(message => repeated.set(message.source, (repeated.get(message.source) || 0) + 1));
+  const responseTimes = messages.filter(message => message.status === "acted").map(message => decidedAt(message) - new Date(message.created_at).getTime()).filter(value => Number.isFinite(value) && value >= 0);
+  const averageMinutes = responseTimes.length ? Math.round(responseTimes.reduce((sum, value) => sum + value, 0) / responseTimes.length / 60000) : null;
+  const recommendation = urgent >= 3 || todays.length >= 8 ? "Recommend batching or deferring non-urgent requests." : denied >= 3 || expired >= 3 ? "Review noisy agents before allowing more interrupts." : "Interruption pressure is within the normal range.";
+  return <section className="fatigue-panel" aria-label="Human fatigue budget"><div><span className="eyebrow">Fatigue budget</span><h2>{recommendation}</h2></div><div className="fatigue-grid"><Metric label="Interruptions today" value={todays.length}/><Metric label="Urgent today" value={urgent}/><Metric label="Denied requests" value={denied}/><Metric label="Expired requests" value={expired}/><Metric label="Average response" value={averageMinutes === null ? "Pending" : `${averageMinutes}m`}/><Metric label="Repeated source" value={Array.from(repeated.values()).filter(count => count > 1).length}/></div></section>;
+}
+
+function Metric({ label, value }: { label: string; value: string | number }) {
+  return <div className="metric"><span>{label}</span><strong>{value}</strong></div>;
+}
+
+function AgentCard({ message, selected = false, batchable = false, onSelect, onRead, onDismiss, onAction }: { message: AgentMessage; selected?: boolean; batchable?: boolean; onSelect?(id: string, checked: boolean): void; onRead(id: string): Promise<void>; onDismiss(id: string): Promise<void>; onAction(id: string, actionId: string): Promise<void> }) {
   const actions = parseAgentActions(message);
-  return <article className={`agent-card urgency-${message.urgency}`}><div className="agent-card-head"><div><span className="agent-source">{message.source} · {message.channel_id}</span><h2>{message.title}</h2></div><span className={`urgency-pill ${message.urgency}`}>{message.urgency}</span></div><p>{message.body}</p><div className="agent-meta"><span>{message.kind}</span><time>{formatListTime(message.created_at)}</time>{message.expires_at && <span>Expires {formatListTime(message.expires_at)}</span>}</div><div className="agent-actions">{message.status === "unread" && <button className="button secondary" onClick={() => void onRead(message.id)}>Mark read</button>}{actions.map(action => <button key={action.id} className="button primary" onClick={() => void onAction(message.id, action.id)}>{action.label}</button>)}<button className="button subtle" onClick={() => void onDismiss(message.id)}>Dismiss</button></div></article>;
+  return <article className={`agent-card urgency-${message.urgency}`}><div className="agent-card-head"><div>{batchable && <label className="batch-select"><input type="checkbox" checked={selected} onChange={event => onSelect?.(message.id, event.target.checked)}/><span>Batch item</span></label>}<span className="agent-source">{message.source} · {message.channel_id}</span><h2>{message.title}</h2></div><span className={`urgency-pill ${message.urgency}`}>{message.urgency}</span></div><p>{message.body}</p><div className="agent-meta"><span>{message.kind}</span><time>{formatListTime(message.created_at)}</time>{message.expires_at && <span>Expires {formatListTime(message.expires_at)}</span>}</div><div className="agent-actions">{message.status === "unread" && <button className="button secondary" onClick={() => void onRead(message.id)}>Mark read</button>}{actions.map(action => <button key={action.id} className="button primary" onClick={() => void onAction(message.id, action.id)}>{action.label}</button>)}<button className="button subtle" onClick={() => void onDismiss(message.id)}>Dismiss</button></div></article>;
 }
 
 function Signals({ subscriptions, items, onAdd, onRefresh, onState, onArchive }: { subscriptions: SignalSubscription[]; items: SignalItem[]; onAdd(): void; onRefresh(id: string): Promise<void>; onState(id: string, action: "enable" | "disable" | "mute" | "unmute"): Promise<void>; onArchive(id: string): Promise<void> }) {
@@ -512,7 +564,19 @@ function AgentStatus({ messages, channels }: { messages: AgentMessage[]; channel
   const active = messages.filter(activeAgentMessage);
   const sources = new Map<string, AgentMessage[]>();
   messages.forEach(message => sources.set(message.source, [...(sources.get(message.source) || []), message]));
-  return <main className="content-panel page-panel agent-page"><header className="page-header"><div><span className="eyebrow">Agent status</span><h1>Agents</h1><p>Local agent identities, channels, and request health are separate from the decision queue.</p></div><span className="count-label">{sources.size} sources</span></header><div className="settings-grid"><section className="settings-card"><h2>Decision pressure</h2><p>{active.length} active requests waiting for operator attention.</p><div className="status-list"><StatusRow label="Decision queue" ready={active.length === 0}/><StatusRow label="Agent channels" ready={channels.some(channel => channel.enabled && channel.configured)}/></div></section><section className="settings-card"><h2>Agent channel health</h2><div className="channel-list">{channels.length ? channels.map(channel => <div className="channel-row" key={channel.channel_id}><div><strong>{channel.label}</strong><span>{channel.channel_id} · {channel.enabled ? "enabled" : "disabled"} · {channel.configured ? "credential configured" : "credential missing"}</span><small>Rejected {channel.rejection_count} · Rate limited {channel.rate_limited_count}</small></div></div>) : <div className="empty-inline">No agent channel credentials yet.</div>}</div></section><section className="settings-card span-two"><h2>Recent sources</h2><div className="agent-history-list">{sources.size ? Array.from(sources.entries()).map(([source, sourceMessages]) => <div className="agent-history-row" key={source}><span>{source}</span><strong>{sourceMessages.length} requests</strong><time>{formatListTime(sourceMessages[0]?.created_at)}</time></div>) : <div className="empty-inline">No agent activity yet.</div>}</div></section></div></main>;
+  return <main className="content-panel page-panel agent-page"><header className="page-header"><div><span className="eyebrow">Agent status</span><h1>Agents</h1><p>Local agent identities, channels, and request health are separate from the decision queue.</p></div><span className="count-label">{sources.size} sources</span></header><div className="settings-grid"><section className="settings-card"><h2>Decision pressure</h2><p>{active.length} active requests waiting for operator attention.</p><div className="status-list"><StatusRow label="Decision queue" ready={active.length === 0}/><StatusRow label="Agent channels" ready={channels.some(channel => channel.enabled && channel.configured)}/></div></section><section className="settings-card"><h2>Agent channel health</h2><div className="channel-list">{channels.length ? channels.map(channel => <div className="channel-row" key={channel.channel_id}><div><strong>{channel.label}</strong><span>{channel.channel_id} · {channel.enabled ? "enabled" : "disabled"} · {channel.configured ? "credential configured" : "credential missing"}</span><small>Rejected {channel.rejection_count} · Rate limited {channel.rate_limited_count}</small></div></div>) : <div className="empty-inline">No agent channel credentials yet.</div>}</div></section><section className="settings-card span-two"><h2>Agent reputation</h2><p>Reputation is advisory; it informs review and suggestions but never grants authority automatically.</p><div className="reputation-list">{sources.size ? Array.from(sources.entries()).map(([source, sourceMessages]) => <ReputationRow key={source} source={source} messages={sourceMessages}/>) : <div className="empty-inline">No agent activity yet.</div>}</div></section><section className="settings-card span-two"><h2>Recent sources</h2><div className="agent-history-list">{sources.size ? Array.from(sources.entries()).map(([source, sourceMessages]) => <div className="agent-history-row" key={source}><span>{source}</span><strong>{sourceMessages.length} requests</strong><time>{formatListTime(sourceMessages[0]?.created_at)}</time></div>) : <div className="empty-inline">No agent activity yet.</div>}</div></section></div></main>;
+}
+
+function ReputationRow({ source, messages }: { source: string; messages: AgentMessage[] }) {
+  const approvals = messages.filter(message => actionResultText(message).includes("approve")).length;
+  const denials = messages.filter(message => actionResultText(message).includes("deny")).length;
+  const expired = messages.filter(expiredAgentMessage).length;
+  const malformed = messages.filter(message => message.last_error || !message.title || !message.kind).length;
+  const urgent = messages.filter(message => ["high", "urgent"].includes(message.urgency)).length;
+  const modifiedScope = messages.filter(message => /scope|authority|modified/i.test(`${message.last_error || ""} ${message.action_result || ""}`)).length;
+  const score = approvals - denials - expired - malformed - modifiedScope - Math.max(0, urgent - 2);
+  const status = score >= 2 ? "earning trust" : score <= -2 ? "losing trust" : "watch";
+  return <article className={`reputation-row ${status.replace(/\s+/g, "-")}`}><div><strong>{source}</strong><span>{status}</span></div><div className="reputation-metrics"><span>{approvals} approvals</span><span>{denials} denials</span><span>{expired} expired</span><span>{malformed} malformed</span><span>{modifiedScope} scope flags</span><span>{urgent} urgent</span></div></article>;
 }
 
 function Channels({ threads, calls, signalItems, signalSubscriptions, config, agentChannels, onView }: { threads: Thread[]; calls: CallRow[]; signalItems: SignalItem[]; signalSubscriptions: SignalSubscription[]; config?: ConfigStatus; agentChannels: AgentChannelStatus[]; onView(view: View): void }) {
