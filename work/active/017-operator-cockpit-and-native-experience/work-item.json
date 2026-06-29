@@ -153,14 +153,18 @@
     {
       "id": "OCX-016",
       "text": "Build a reproducible synthetic killer demo showing a ForgeWire/Codex release approval, evidence pack, mobile redacted alert, operator approval, agent publish, outcome record, and replay.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260629-ocx016-killer-demo"
+      ]
     },
     {
       "id": "OCX-017",
       "text": "Add public-facing screenshots and narrative positioning ForgeLink as human-boundary infrastructure rather than a Twilio app, using synthetic/redacted data.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260629-ocx017-narrative-screenshots"
+      ]
     },
     {
       "id": "OCX-018",

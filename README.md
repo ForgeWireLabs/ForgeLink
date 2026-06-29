@@ -45,6 +45,30 @@ The center is **governed communication state**.
 
 ---
 
+## The Cockpit: Decisions · People · Agents · Channels
+
+ForgeLink's operator experience is organized around intent, not inboxes:
+
+- **Decisions** — the first surface. Approval requests and other action-required
+  agent messages live here, in triage lanes, with their evidence packs, batch
+  review, a fatigue budget, and local thread summaries — never buried in ordinary
+  conversations.
+- **People** — the human directory, grouped by relationship and trust (operator,
+  family, trusted humans, external contacts, agents, systems, unknown, blocked).
+- **Agents** — local agent identity, trust state, channel health, and advisory
+  reputation. It is not the approval queue.
+- **Channels** — the communication edges: messages, voice, signals, the reviewed
+  outbox for agent-drafted external messages, and the mobile cockpit. Telecom
+  providers (Twilio, Telnyx) and other channels are adapters here, not the center.
+
+The same shared cockpit is the target for desktop and mobile (see
+[decision 0017](decisions/0017-mobile-is-a-full-cockpit.md)). For positioning and
+synthetic screenshots see [docs/public-narrative.md](docs/public-narrative.md), and
+to watch the full decision lifecycle end to end run the reproducible
+[killer demo](docs/killer-demo.md) (`cd Electron && npm run demo`).
+
+---
+
 ## What ForgeLink Is
 
 ForgeLink is currently four things working together.

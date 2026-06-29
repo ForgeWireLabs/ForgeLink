@@ -167,6 +167,44 @@ app.whenReady().then(async () => {
   });
   await window.loadFile(path.join(projectRoot, "Electron", "renderer", "index.html"));
   await new Promise((resolve) => setTimeout(resolve, 1000));
+
+  // Public-facing cockpit screenshots (OCX-017): capture the four operator surfaces
+  // from synthetic, body-redacted data. Same click-rail-then-capture pattern as the
+  // existing shots below.
+  const captureSurface = async (label, headingText, file) => {
+    const rect = await window.webContents.executeJavaScript(`
+      (() => {
+        const button = document.querySelector('button[aria-label=' + ${JSON.stringify(JSON.stringify(label))} + ']');
+        if (!button) throw new Error(${JSON.stringify(label + " navigation button was not found.")});
+        const r = button.getBoundingClientRect();
+        return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+      })()
+    `);
+    window.webContents.sendInputEvent({ type: "mouseDown", x: rect.x, y: rect.y, button: "left", clickCount: 1 });
+    window.webContents.sendInputEvent({ type: "mouseUp", x: rect.x, y: rect.y, button: "left", clickCount: 1 });
+    await window.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const deadline = Date.now() + 3000;
+        const check = () => {
+          if ([...document.querySelectorAll("h1")].some((heading) => heading.textContent === ${JSON.stringify(headingText)})) resolve(true);
+          else if (Date.now() > deadline) reject(new Error(${JSON.stringify(headingText + " view did not open.")}));
+          else setTimeout(check, 100);
+        };
+        check();
+      })
+    `);
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const surfaceImage = await window.webContents.capturePage();
+    const surfaceOutput = path.join(projectRoot, "Electron", "dist", file);
+    await fs.mkdir(path.dirname(surfaceOutput), { recursive: true });
+    await fs.writeFile(surfaceOutput, surfaceImage.toPNG());
+    console.log(surfaceOutput);
+  };
+  await captureSurface("Decisions", "Decisions", "ui-cockpit-decisions.png");
+  await captureSurface("People", "People", "ui-cockpit-people.png");
+  await captureSurface("Agents", "Agents", "ui-cockpit-agents.png");
+  await captureSurface("Channels", "Channels", "ui-cockpit-channels.png");
+
   const settingsRect = await window.webContents.executeJavaScript(`
     (() => {
       const button = document.querySelector('button[aria-label="Settings"]');

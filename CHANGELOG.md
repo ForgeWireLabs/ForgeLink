@@ -7,6 +7,16 @@ versions tracked in `VERSION` and `Electron/package.json`.
 ## [Unreleased]
 
 ### Added
+- Reproducible killer demo: `npm run demo` runs a synthetic, credential-free
+  walkthrough of the full decision lifecycle (agent release-approval with evidence
+  pack → Decisions surface → redacted mobile alert → operator approval → agent
+  outcome → audited replay), covered by a test and documented in
+  `docs/killer-demo.md` (OCX-016).
+- Public narrative and synthetic screenshots: the README leads with the
+  Decisions/People/Agents/Channels cockpit (telecom providers as adapters), with
+  `docs/public-narrative.md` for positioning, and the visual-smoke harness now
+  captures the four cockpit surfaces from synthetic, redacted data via
+  `npm run screenshot` (OCX-017).
 - Android/Fabric device health: the mobile cockpit surface now has an advisory,
   read-only "Android / Fabric Device Health" panel that consumes the ROM lab
   `operator-status` bridge payload (typed, fixture-backed, with `ok:false`/malformed
