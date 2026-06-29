@@ -38,13 +38,13 @@
       "notes": "Completed agent-human governance arc; scoped contract retained under completed work."
     },
     {
-      "path": "work/active/017-operator-cockpit-and-native-experience",
+      "path": "work/completed/017-operator-cockpit-and-native-experience",
       "owner": "planning-agent",
-      "contract": "work/active/017-operator-cockpit-and-native-experience/AGENTS.md",
-      "last_reviewed": "2026-06-18",
-      "next_review": "2026-09-18",
+      "contract": "work/completed/017-operator-cockpit-and-native-experience/AGENTS.md",
+      "last_reviewed": "2026-06-29",
+      "next_review": "2026-09-29",
       "alignment": "current",
-      "notes": "Planning roadmap item; scoped contract under active work."
+      "notes": "Completed operator cockpit and native experience arc; all 21 OCX criteria satisfied; scoped contract retained under completed work."
     },
     {
       "path": "work/active/030-tauri-shared-shell-and-electron-retirement",

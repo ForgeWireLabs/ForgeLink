@@ -125,12 +125,6 @@ As of the current ledger update, the main active product arcs are:
 Turns the original Twilio Phone / ForgeLink application into a secure, installable, recoverable Windows desktop messaging application with predictable operations and trustworthy releases. Its only remaining baseline gate is release/distribution strategy unless additional evidence is added.
 
 ```text
-017-operator-cockpit-and-native-experience
-```
-
-Defines the product experience that makes ForgeLink an operator cockpit: Decisions/People/Agents/Channels navigation, triage lanes, operator modes, presence, mobile companion UX, batching, fatigue budget, reputation UI, summaries, scoped MCP resources, sample workspace, public demo, semantic-summary safety, and distribution/update strategy.
-
-```text
 030-tauri-shared-shell-and-electron-retirement
 ```
 
@@ -151,6 +145,12 @@ Defines the ForgeLink-owned communications runtime, provider-neutral channels, t
 ```
 
 Defines the completed agent-human governance layer: Human Cards, agent identity, evidence packs, approval templates, risk tiers, decision memory, audit/replay, communication firewall, redaction profiles, external contact consent, untrusted-agent-content handling, key management, and ForgeWire Fabric HITL routing through ForgeLink.
+
+```text
+017-operator-cockpit-and-native-experience
+```
+
+Defines the completed operator cockpit: Decisions/People/Agents/Channels navigation, triage lanes, operator modes, presence, mobile decision terminal UX (the restricted mode of the full mobile cockpit per decision 0017), batching, fatigue budget, reputation UI, local injection-resistant summaries, scoped MCP resources, reviewed outbox, channel redaction previews, sample workspace, reproducible killer demo, public narrative, and distribution/update strategy. All 21 OCX criteria are satisfied.
 
 ## Lifecycle States
 
