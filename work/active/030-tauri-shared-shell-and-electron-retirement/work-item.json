@@ -76,6 +76,14 @@
       "evidence": [
         "20260629-tauri008-operator-status-consumer"
       ]
+    },
+    {
+      "id": "TAURI-009",
+      "text": "Add a launch-only operator-status transport endpoint (GET /api/device/operator-status) that runs the operator-configured ROM lab wrapper with a strictly-validated request_id through an execFile arg array (no shell string), timeout-bounded, returning the bridge JSON or a degraded ok:false body. Read-only, advisory, not MCP-reachable, with no raw device/shell surface; the mobile cockpit panel uses it for live status.",
+      "state": "satisfied",
+      "evidence": [
+        "20260629-tauri009-operator-status-transport"
+      ]
     }
   ],
   "created": "2026-06-27",

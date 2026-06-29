@@ -1320,3 +1320,49 @@ test("OCX-014/018: schedules reviewed-outbox drafts and loads/clears the sample 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("TAURI-009: serves operator-status through a launch-only transport with safe request ids", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-opstatus-api-"));
+  const seen: string[] = [];
+  const fixture = { ok: true, target: "emulator-only", authority: "readonly-emulator-inspection", mode: "operator-status", bridge_version: "rom_lab.forgelink_operator_status.v1", device: { android_release: "15", sdk: "35", model: "Android SDK built for x86_64", hardware: "ranchu", fingerprint: "fp" }, boot: { completed: true } };
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken, operatorStatus: async (requestId: string) => { seen.push(requestId); return { ...fixture, request_id: requestId }; } });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  try {
+    // Launch surface gets the bridge JSON and the request id is echoed through.
+    const ok = await fetch(`${localUrl}/api/device/operator-status?request_id=forgelink-op-001`, { headers: authorized() }).then((r) => r.json()) as { ok: boolean; request_id: string; mode: string };
+    assert.equal(ok.ok, true);
+    assert.equal(ok.mode, "operator-status");
+    assert.equal(ok.request_id, "forgelink-op-001");
+    // An unsafe request id is replaced with a generated one before reaching the runner.
+    await fetch(`${localUrl}/api/device/operator-status?request_id=${encodeURIComponent("bad id; rm -rf /")}`, { headers: authorized() }).then((r) => r.json());
+    assert.ok(seen.every((id) => /^[A-Za-z0-9_.:-]{1,80}$/.test(id)), "every request id passed to the runner must be safe");
+
+    // The transport is launch-only: an MCP token cannot reach it.
+    const mcpToken = ((await (await fetch(`${localUrl}/api/mcp/token`, { method: "POST", headers: authorized() })).json()) as { token: string }).token;
+    assert.equal((await fetch(`${localUrl}/api/device/operator-status`, { headers: { Authorization: `Bearer ${mcpToken}` } })).status, 401);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("TAURI-009: operator-status reports a degraded status when the bridge is not configured", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-opstatus-unset-"));
+  const previous = process.env.FORGELINK_OPERATOR_STATUS_SCRIPT;
+  delete process.env.FORGELINK_OPERATOR_STATUS_SCRIPT;
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  try {
+    const degraded = await fetch(`${localUrl}/api/device/operator-status`, { headers: authorized() }).then((r) => r.json()) as { ok: boolean; error: string };
+    assert.equal(degraded.ok, false);
+    assert.match(degraded.error, /not configured/);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (previous === undefined) delete process.env.FORGELINK_OPERATOR_STATUS_SCRIPT; else process.env.FORGELINK_OPERATOR_STATUS_SCRIPT = previous;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

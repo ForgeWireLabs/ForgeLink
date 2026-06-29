@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, IncomingMessage, Server, ServerResponse } from "node:http";
+import { promisify } from "node:util";
 import { extname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { AGENT_CONTENT_PROVENANCE, AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, DecisionRecordRow, EvidencePack, FirewallBlockedError, isAuthorityScope, OutboundDraftRow, PhoneDatabase, redactEvidencePack, redactNotification, redactionProfile, REDACTION_PROFILES } from "./database";
@@ -35,6 +37,32 @@ const APPROVAL_TEMPLATES = [
   { id: "provider_setting_change", label: "Provider setting change", required_fields: ["intent", "requested_action", "affected_resources"], minimum_evidence: ["summary", "proposed_operation", "rollback_plan"], default_risk: "high", timeout_behavior: "deny_on_timeout", decision_options: ["approve", "deny"], rollback_required: true, audit_required: true }
 ] as const;
 
+const execFileAsync = promisify(execFile);
+const OPERATOR_STATUS_TIMEOUT_MS = 10_000;
+const SAFE_REQUEST_ID = /^[A-Za-z0-9_.:-]{1,80}$/;
+
+// Android/Fabric operator-status transport (work item 030, TAURI-009). Runs the
+// operator-configured read-only ROM lab wrapper and returns its structured JSON.
+//
+// Safety boundary: launch-only (never agent/MCP reachable); the script path comes
+// only from operator-set env, never from the request; the sole request input is a
+// strictly-validated request_id passed through an execFile arg array (no shell
+// string, so no command injection); the subprocess is timeout- and buffer-bounded;
+// and any failure resolves to a degraded `ok:false` payload rather than throwing.
+// ForgeLink never exposes a raw ADB/Fastboot/shell surface — only this one
+// read-only, advisory call.
+async function defaultOperatorStatus(requestId: string): Promise<unknown> {
+  const script = process.env.FORGELINK_OPERATOR_STATUS_SCRIPT?.trim();
+  if (!script) return { ok: false, mode: "operator-status", request_id: requestId, error: "Android operator-status bridge is not configured. Set FORGELINK_OPERATOR_STATUS_SCRIPT to the wrapper script path." };
+  const shellExe = process.env.FORGELINK_OPERATOR_STATUS_SHELL?.trim() || "powershell";
+  try {
+    const { stdout } = await execFileAsync(shellExe, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-RequestId", requestId], { timeout: OPERATOR_STATUS_TIMEOUT_MS, maxBuffer: 1024 * 1024, windowsHide: true });
+    return JSON.parse(stdout);
+  } catch (error) {
+    return { ok: false, mode: "operator-status", request_id: requestId, error: `Android operator-status bridge failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 200) };
+  }
+}
+
 function sendJson(response: ServerResponse, payload: unknown, status = 200): void {
   const data = Buffer.from(JSON.stringify(payload));
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Content-Length": data.length, "Cache-Control": "no-store", "Access-Control-Allow-Origin": "null" });
@@ -64,7 +92,7 @@ async function readForm(request: IncomingMessage): Promise<Record<string, string
   return Object.fromEntries(params.entries());
 }
 
-export interface BackendOptions { host: string; port: number; dataDir: string; apiToken: string; sendMessage?: typeof sendTwilioMessage; startCall?: typeof startTwilioCall; endCall?: typeof endTwilioCall; }
+export interface BackendOptions { host: string; port: number; dataDir: string; apiToken: string; sendMessage?: typeof sendTwilioMessage; startCall?: typeof startTwilioCall; endCall?: typeof endTwilioCall; operatorStatus?: (requestId: string) => Promise<unknown>; }
 
 function isPrivateRoute(pathname: string): boolean {
   return pathname === "/health" || pathname === "/upload" || pathname.startsWith("/api/");
@@ -313,6 +341,7 @@ export function createBackend(options: BackendOptions): { server: Server; databa
   const sendMessage = options.sendMessage || sendTwilioMessage;
   const startCall = options.startCall || startTwilioCall;
   const endCall = options.endCall || endTwilioCall;
+  const operatorStatus = options.operatorStatus || defaultOperatorStatus;
   // Provider-neutral channel registry (work item 015). Twilio is the first
   // SMS/MMS edge adapter; its send delegates to the injectable sendMessage seam.
   const channels = createChannelRegistry();
@@ -1108,6 +1137,15 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       if (request.method === "POST" && url.pathname === "/api/sample/clear") {
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         return sendJson(response, { ok: true, ...database.clearSampleWorkspace() });
+      }
+      // Android/Fabric operator-status transport (TAURI-009): launch-only, read-only,
+      // advisory. Returns the wrapper's structured JSON (or a degraded ok:false body
+      // on any failure). Not MCP-safe; never exposes a raw device/shell surface.
+      if (request.method === "GET" && url.pathname === "/api/device/operator-status") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const requested = url.searchParams.get("request_id") || "";
+        const requestId = SAFE_REQUEST_ID.test(requested) ? requested : `forgelink-op-${randomUUID()}`;
+        return sendJson(response, await operatorStatus(requestId));
       }
       // External-contact consent ledger (AGH-021): operator-only. Governs whether an
       // agent may directly contact a given external human, with a dry-run evaluation.

@@ -1,0 +1,50 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260629-tauri009-operator-status-transport",
+  "timestamp": "2026-06-29T00:00:00Z",
+  "work_item": "030",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend build passed after adding the launch-only GET /api/device/operator-status transport with an injectable runner and the default execFile-based wrapper invocation."
+    },
+    {
+      "command": "node --test backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Server tests passed, including the operator-status transport: injected runner returns/echoes request_id, unsafe request_id is replaced with a safe generated one before reaching the runner, the route is launch-only (MCP token gets 401), and an unconfigured bridge returns a degraded ok:false body."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "37 renderer tests passed, including the panel's live 'Check device status' path fetching through the transport endpoint and rendering Online."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron validation passed: backend build, renderer build, renderer interactions, Node test bundle, and syntax checks."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact plus ForgeLink local validation passed for the work-item, docs, evidence, and CHANGELOG updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/api.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "CHANGELOG.md",
+    "work/active/030-tauri-shared-shell-and-electron-retirement/README.md",
+    "work/active/030-tauri-shared-shell-and-electron-retirement/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "TAURI-009: GET /api/device/operator-status is launch-only and not MCP-reachable. The script path comes only from FORGELINK_OPERATOR_STATUS_SCRIPT (optional FORGELINK_OPERATOR_STATUS_SHELL, default powershell); the only request input is a request_id validated against ^[A-Za-z0-9_.:-]{1,80}$ and passed through an execFile arg array (no shell string). The subprocess is bounded by a 10s timeout and 1MB buffer. Any failure (unset env, non-zero exit, timeout, non-JSON) resolves to a degraded {ok:false} body that the renderer renders as Degraded. No raw ADB/Fastboot/shell surface is exposed. Disabled by default until the operator sets the script path."
+  }
+}

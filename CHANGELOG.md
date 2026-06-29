@@ -12,6 +12,12 @@ versions tracked in `VERSION` and `Electron/package.json`.
   `operator-status` bridge payload (typed, fixture-backed, with `ok:false`/malformed
   treated as degraded). It is display-only and never grants authority or triggers
   actions (work item 030 TAURI-008, decision 0017).
+- Operator-status transport: a launch-only `GET /api/device/operator-status` runs
+  the operator-configured ROM lab wrapper (`FORGELINK_OPERATOR_STATUS_SCRIPT`) with
+  a validated `request_id` via an `execFile` arg array, timeout-bounded, returning
+  the bridge JSON or a degraded `ok:false` body. The device-health panel uses it for
+  live "Check device status"; disabled until the script path is configured. Not
+  MCP-reachable and exposes no raw device/shell surface (work item 030 TAURI-009).
 - Reviewed outbox: agent-drafted external messages appear in a cockpit outbox
   (Channels → Reviewed outbox) where the operator can review, edit, approve and
   send, deny, or schedule each draft, with pending drafts kept separate from sent

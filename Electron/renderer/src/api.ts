@@ -1,4 +1,4 @@
-import type { AgentMessage, BackendConnection, CallRow, ConfigStatus, Contact, ContactPoint, ContactPolicy, ContactTimelineItem, DataStatus, Message, OutboundDraft, OutboundDraftEvent, RedactionPreview, RedactionProfileSpec, RetentionResult, SampleStatus, SignalItem, SignalSubscription, Thread } from "./types";
+import type { AgentMessage, AndroidOperatorStatus, BackendConnection, CallRow, ConfigStatus, Contact, ContactPoint, ContactPolicy, ContactTimelineItem, DataStatus, Message, OutboundDraft, OutboundDraftEvent, RedactionPreview, RedactionProfileSpec, RetentionResult, SampleStatus, SignalItem, SignalSubscription, Thread } from "./types";
 
 export class PhoneApi {
   constructor(private connection: () => BackendConnection) {}
@@ -65,6 +65,8 @@ export class PhoneApi {
   // Channel redaction previews (OCX-015).
   redactionProfiles = () => this.request<RedactionProfileSpec[]>("/api/redaction-profiles");
   previewRedaction = (profile: string, title: string, body: string) => this.request<RedactionPreview>("/api/redaction-profiles/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile, notification: { title, body } }) });
+  // Android/Fabric operator-status transport (work item 030, TAURI-009).
+  operatorStatus = (requestId?: string) => this.request<AndroidOperatorStatus>(`/api/device/operator-status${requestId ? `?request_id=${encodeURIComponent(requestId)}` : ""}`);
   // First-run sample workspace (OCX-018).
   sampleStatus = () => this.request<SampleStatus>("/api/sample/status");
   loadSample = () => this.request<{ ok: true } & SampleStatus>("/api/sample/load", { method: "POST" });
