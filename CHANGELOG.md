@@ -7,6 +7,22 @@ versions tracked in `VERSION` and `Electron/package.json`.
 ## [Unreleased]
 
 ### Added
+- Local semantic thread summaries: ForgeLink derives an advisory, locally
+  computed summary for any thread (what happened, open decisions, pending
+  replies, last operator action, and agent-relevant constraints). Summaries are
+  derived artifacts produced by a deterministic extractive pass — no model call —
+  and cloud summarization is opt-in only and not enabled. Endpoint
+  `GET /api/threads/:id/summary` (OCX-012).
+- Injection-resistant summaries: thread content is treated as untrusted. Excerpts
+  are sanitized and labeled, summaries carry explicit provenance and an advisory
+  notice, always report `authority: "none"`, and can never grant authority or
+  trigger actions; any future cloud summarizer must use the documented
+  injection-resistant framing (OCX-019).
+- Scoped agent/MCP resources: `get_pending_approvals`, `get_contact_summary`,
+  `get_thread_summary`, and `get_agent_status` expose minimal, redacted, advisory
+  views instead of raw communication history. No dump-all-messages resource
+  exists; the scoped thread summary omits message excerpts, and contact summaries
+  exclude bodies and phone numbers (OCX-013).
 - Decision-first cockpit navigation: the desktop rail now starts with Decisions,
   People, Agents, and Channels. Messages, calls, and trusted signals remain
   reachable through Channels while approval requests are promoted to the

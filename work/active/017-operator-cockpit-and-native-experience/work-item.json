@@ -121,14 +121,18 @@
     {
       "id": "OCX-012",
       "text": "Add local semantic thread summaries for what happened, open decisions, pending replies, last human action, and agent-relevant constraints as derived artifacts.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260629-ocx012-019-013-thread-summaries"
+      ]
     },
     {
       "id": "OCX-013",
       "text": "Add scoped MCP resources such as pending approvals, contact summary, thread summary, and agent status while preventing raw communication dumps by default.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260629-ocx012-019-013-thread-summaries"
+      ]
     },
     {
       "id": "OCX-014",
@@ -163,8 +167,10 @@
     {
       "id": "OCX-019",
       "text": "Make local semantic summaries (OCX-012) injection-resistant: treat thread and agent content as untrusted, use injection-resistant prompting, show clear provenance, keep summaries advisory only, and never let summarized content elevate authority or trigger actions.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260629-ocx012-019-013-thread-summaries"
+      ]
     },
     {
       "id": "OCX-020",
@@ -182,5 +188,5 @@
     }
   ],
   "created": "2026-06-18",
-  "updated": "2026-06-28"
+  "updated": "2026-06-29"
 }

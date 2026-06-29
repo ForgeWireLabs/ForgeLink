@@ -81,6 +81,21 @@ async function withFakeForgeLink(run) {
       message.status = "dismissed";
       return send(200, { ok: true, message });
     }
+    // Scoped, derived resources (OCX-013).
+    if (request.method === "GET" && url.pathname === "/api/pending-approvals") {
+      return send(200, { count: 1, items: [{ id: "a1", title: "Release approval", authority: "none" }], authority: "none" });
+    }
+    if (request.method === "GET" && url.pathname === "/api/contacts/summary") {
+      return send(200, { contact_id: Number(url.searchParams.get("contact_id")), display_name: "Dana Lane", authority: "none" });
+    }
+    if (request.method === "GET" && url.pathname === "/api/agent-status") {
+      return send(200, { agent_id: url.searchParams.get("source"), trust_state: "unknown", authority: "none", reputation: {} });
+    }
+    const threadSummary = url.pathname.match(/^\/api\/threads\/(\d+)\/summary$/);
+    if (request.method === "GET" && threadSummary) {
+      // The agent tool must always request the scoped variant.
+      return send(200, { thread_id: Number(threadSummary[1]), scoped: url.searchParams.get("scope") === "agent", authority: "none", excerpts: undefined });
+    }
     return send(404, { error: "Not found" });
   });
   server.listen(0, "127.0.0.1");
@@ -168,6 +183,39 @@ test("creates and acts on a ForgeLink human approval through MCP", async () => {
 
       const status = await call("tools/call", { name: "channel_status", arguments: {} });
       assert.match(status.result.content[0].text, /"acted": 1/);
+    });
+  });
+});
+
+test("OCX-013: exposes scoped derived resources without raw communication dumps", async () => {
+  await withFakeForgeLink(async (baseUrl) => {
+    await withMcp(baseUrl, async (call) => {
+      const tools = (await call("tools/list")).result.tools.map((tool) => tool.name);
+      for (const name of ["get_pending_approvals", "get_contact_summary", "get_thread_summary", "get_agent_status"]) {
+        assert.ok(tools.includes(name), `expected scoped tool ${name}`);
+      }
+      // No dump-all-messages style tool exists.
+      assert.ok(!tools.some((name) => /dump|all_messages|raw/i.test(name)), "no raw-dump tool may be exposed");
+
+      const pending = JSON.parse((await call("tools/call", { name: "get_pending_approvals", arguments: {} })).result.content[0].text);
+      assert.equal(pending.count, 1);
+      assert.equal(pending.authority, "none");
+
+      const contact = JSON.parse((await call("tools/call", { name: "get_contact_summary", arguments: { contact_id: 5 } })).result.content[0].text);
+      assert.equal(contact.contact_id, 5);
+      assert.equal(contact.authority, "none");
+
+      const thread = JSON.parse((await call("tools/call", { name: "get_thread_summary", arguments: { thread_id: 9 } })).result.content[0].text);
+      assert.equal(thread.scoped, true, "agent thread summary must be scoped");
+      assert.equal(thread.excerpts, undefined);
+
+      const status = JSON.parse((await call("tools/call", { name: "get_agent_status", arguments: { source: "codex" } })).result.content[0].text);
+      assert.equal(status.agent_id, "codex");
+      assert.equal(status.authority, "none");
+
+      // Invalid ids are rejected before any request leaves the tool.
+      const bad = await call("tools/call", { name: "get_thread_summary", arguments: { thread_id: 0 } });
+      assert.match(bad.error.message, /thread_id/);
     });
   });
 });

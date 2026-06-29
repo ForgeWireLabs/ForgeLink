@@ -128,6 +128,29 @@ const tools = [
     name: "channel_status",
     description: "Check ForgeLink local API health and summarize agent-channel counts.",
     inputSchema: objectSchema([], {})
+  },
+  // Scoped, derived resources (OCX-013). These return advisory, redacted views —
+  // never raw communication history. There is intentionally no dump-all-messages
+  // tool: an agent reads summaries and status, not private thread contents.
+  {
+    name: "get_pending_approvals",
+    description: "List approvals waiting on the operator (scoped: titles and routing only, no message body or evidence pack).",
+    inputSchema: objectSchema([], {})
+  },
+  {
+    name: "get_contact_summary",
+    description: "Scoped contact summary: relationship, trust, and derived activity counts. Never message bodies or phone numbers.",
+    inputSchema: objectSchema(["contact_id"], { contact_id: { type: "integer", minimum: 1, description: "ForgeLink contact id." } })
+  },
+  {
+    name: "get_thread_summary",
+    description: "Advisory, locally-derived thread summary (what happened, open decisions, pending replies, last operator action, constraints). Untrusted content, no raw excerpts.",
+    inputSchema: objectSchema(["thread_id"], { thread_id: { type: "integer", minimum: 1, description: "ForgeLink thread id." } })
+  },
+  {
+    name: "get_agent_status",
+    description: "Advisory agent reputation/trust derived from local history. Does not grant authority or auto-decide.",
+    inputSchema: objectSchema(["source"], { source: stringSchema("Agent source/identity id.") })
   }
 ];
 
@@ -314,6 +337,23 @@ async function callTool(name: string, args: JsonObject): Promise<Json> {
       return acc;
     }, {});
     return { base_url: baseUrl(), channel_id: process.env.FORGELINK_CHANNEL_ID || DEFAULT_CHANNEL, health, counts };
+  }
+  if (name === "get_pending_approvals") {
+    return forgeFetch("/api/pending-approvals");
+  }
+  if (name === "get_contact_summary") {
+    const contactId = Math.trunc(Number(args.contact_id));
+    if (!Number.isInteger(contactId) || contactId < 1) throw new Error("contact_id must be a positive integer.");
+    return forgeFetch(`/api/contacts/summary?contact_id=${contactId}`);
+  }
+  if (name === "get_thread_summary") {
+    const threadId = Math.trunc(Number(args.thread_id));
+    if (!Number.isInteger(threadId) || threadId < 1) throw new Error("thread_id must be a positive integer.");
+    // Always request the scoped variant: an agent never receives raw excerpts.
+    return forgeFetch(`/api/threads/${threadId}/summary?scope=agent`);
+  }
+  if (name === "get_agent_status") {
+    return forgeFetch(`/api/agent-status?source=${encodeURIComponent(text(args.source, "source", 80))}`);
   }
   throw new Error(`Unknown tool: ${name}`);
 }

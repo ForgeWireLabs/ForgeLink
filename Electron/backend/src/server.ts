@@ -100,6 +100,12 @@ function isMcpSafeRoute(method: string | undefined, pathname: string): boolean {
   if (method === "POST" && pathname === "/api/mcp/test-message") return true;
   if (method === "GET" && pathname === "/api/agent-messages") return true;
   if (method === "GET" && /^\/api\/agent-messages\/[^/]+\/events$/.test(pathname)) return true;
+  // Scoped, derived resources (OCX-013): agents read advisory summaries instead of
+  // raw communication history. These return redacted/derived views only.
+  if (method === "GET" && /^\/api\/threads\/\d+\/summary$/.test(pathname)) return true;
+  if (method === "GET" && pathname === "/api/contacts/summary") return true;
+  if (method === "GET" && pathname === "/api/agent-status") return true;
+  if (method === "GET" && pathname === "/api/pending-approvals") return true;
   // The submitting agent polls its own request's decision/outcome (AGH-026, redacted).
   if (method === "GET" && /^\/api\/agent-messages\/[^/]+\/status$/.test(pathname)) return true;
   // Fabric/agents auto-detect ForgeLink's governance surface (AGH-028).
@@ -455,6 +461,24 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         return sendJson(response, { enabled: true, status: "available", transport: "lan", relay: "none" });
       }
       if (request.method === "GET" && url.pathname === "/api/threads") return sendJson(response, database.threads());
+      // Local semantic thread summary (OCX-012/019). The operator (launch) surface
+      // gets the full summary with sanitized excerpts; an agent/MCP token — or an
+      // explicit ?scope=agent — gets the scoped summary with no message excerpts.
+      const threadSummaryMatch = url.pathname.match(/^\/api\/threads\/(\d+)\/summary$/);
+      if (request.method === "GET" && threadSummaryMatch) {
+        const scoped = auth === "mcp" || url.searchParams.get("scope") === "agent";
+        return sendJson(response, database.threadSummary(Number(threadSummaryMatch[1]), { scoped }));
+      }
+      // Scoped derived resources (OCX-013): minimal, redacted, advisory views.
+      if (request.method === "GET" && url.pathname === "/api/contacts/summary") {
+        return sendJson(response, database.contactSummary(Number(url.searchParams.get("contact_id") || 0)));
+      }
+      if (request.method === "GET" && url.pathname === "/api/agent-status") {
+        return sendJson(response, database.agentStatusSummary(url.searchParams.get("source") || ""));
+      }
+      if (request.method === "GET" && url.pathname === "/api/pending-approvals") {
+        return sendJson(response, database.pendingApprovals());
+      }
       if (request.method === "GET" && url.pathname === "/api/messages") return sendJson(response, database.messages(Number(url.searchParams.get("thread_id") || 0), url.searchParams.get("before") || undefined));
       if (request.method === "GET" && url.pathname === "/api/draft") return sendJson(response, { body: database.draft(Number(url.searchParams.get("thread_id") || 0)) });
       if (request.method === "GET" && url.pathname === "/api/contacts") return sendJson(response, database.contacts(url.searchParams.get("q") || ""));

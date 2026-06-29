@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
+import { CLOUD_SUMMARY_DISABLED, SUMMARY_CONTENT_TRUST, SUMMARY_NOTICE, SUMMARY_PROVENANCE, summarizeThread, ThreadSummary } from "./summary";
 
 export const CURRENT_SCHEMA_VERSION = 23;
 
@@ -1680,6 +1681,140 @@ export class PhoneDatabase {
       : this.connection.prepare("SELECT * FROM messages WHERE thread_id=? ORDER BY ts DESC LIMIT 200").all(threadId);
     if (!before) this.connection.prepare("UPDATE threads SET unread_count=0 WHERE id=?").run(threadId);
     return [...rows].reverse() as Record<string, unknown>[];
+  }
+
+  // --- Local semantic summaries (work item 017, OCX-012 / OCX-019) ------------
+  // Derived, advisory, injection-resistant views built locally from existing
+  // records — no schema, no cloud. The `scoped` variant omits message excerpts so
+  // it is safe to expose to agents/MCP (OCX-013) without becoming a raw dump.
+
+  threadSummary(threadId: number, options: { scoped?: boolean } = {}): ThreadSummary {
+    const thread = this.connection.prepare(
+      "SELECT t.id, NULLIF(c.name, '') AS name, t.contact_id FROM threads t LEFT JOIN contacts c ON c.id=t.contact_id WHERE t.id=?"
+    ).get(threadId) as { id: number; name: string | null; contact_id: number | null } | undefined;
+    if (!thread) throw new Error("Thread not found.");
+    // Non-mutating read: unlike messages(), this never clears unread_count, so an
+    // agent/MCP summary request can never silently mark a thread as read.
+    const rows = this.connection.prepare(
+      "SELECT direction, body, status, ts FROM messages WHERE thread_id=? ORDER BY ts ASC, id ASC LIMIT 500"
+    ).all(threadId) as Array<{ direction: string; body: string; status: string; ts: string }>;
+    return summarizeThread(
+      { thread_id: thread.id, display_name: thread.name, known_contact: Boolean(thread.contact_id), messages: rows },
+      { scoped: options.scoped }
+    );
+  }
+
+  // Scoped contact summary (OCX-013): relationship/trust and derived activity
+  // counts only. Never message bodies, never phone numbers — the display name is
+  // surfaced only for a saved contact.
+  contactSummary(contactId: number): Record<string, unknown> {
+    const contact = this.connection.prepare(
+      "SELECT id, NULLIF(name, '') AS name, relationship, trust_level, pinned, favorite, last_seen, NULLIF(company, '') AS company, NULLIF(role, '') AS role FROM contacts WHERE id=?"
+    ).get(contactId) as { id: number; name: string | null; relationship: string; trust_level: string; pinned: number; favorite: number; last_seen: string | null; company: string | null; role: string | null } | undefined;
+    if (!contact) throw new Error("Contact not found.");
+    const points = this.connection.prepare("SELECT COUNT(*) AS n FROM contact_points WHERE contact_id=?").get(contactId) as { n: number };
+    const activity = this.connection.prepare(`
+      SELECT COUNT(*) AS n, MAX(m.ts) AS last_ts
+      FROM messages m JOIN threads t ON t.id=m.thread_id
+      WHERE t.contact_id=? OR t.canonical_number IN (SELECT value FROM contact_points WHERE contact_id=? AND kind='phone')
+    `).get(contactId, contactId) as { n: number; last_ts: string | null };
+    return {
+      contact_id: contact.id,
+      display_name: contact.name ? sanitizeAgentText(contact.name, 120) : "Saved contact",
+      relationship: contact.relationship || "unknown",
+      trust_level: contact.trust_level || "unknown",
+      pinned: Boolean(contact.pinned),
+      favorite: Boolean(contact.favorite),
+      role: contact.role ? sanitizeAgentText(contact.role, 120) : "",
+      company: contact.company ? sanitizeAgentText(contact.company, 120) : "",
+      contact_point_count: points.n,
+      message_count: activity.n,
+      last_activity_at: activity.last_ts || contact.last_seen || null,
+      provenance: SUMMARY_PROVENANCE,
+      content_trust: SUMMARY_CONTENT_TRUST,
+      advisory: true,
+      authority: "none",
+      notice: "Scoped contact summary. Excludes message bodies and phone numbers; grants no authority."
+    };
+  }
+
+  // Scoped, advisory agent reputation/status (OCX-013, building on OCX-011). Derived
+  // from this agent's own request/decision/outcome history. Advisory only: it never
+  // grants authority and is not a routing decision.
+  agentStatusSummary(source: string): Record<string, unknown> {
+    const id = String(source || "").trim();
+    if (!id) throw new Error("source is required.");
+    const identity = this.agentIdentity(id);
+    const submitted = (this.connection.prepare(
+      "SELECT urgency, status, kind FROM agent_messages WHERE source=?"
+    ).all(id) as Array<{ urgency: string; status: string; kind: string }>);
+    const approvals = submitted.filter((row) => row.kind === "approval_request");
+    const decisions = this.connection.prepare(
+      "SELECT d.decision FROM decision_records d JOIN agent_messages m ON m.id=d.approval_request_id WHERE m.source=?"
+    ).all(id) as Array<{ decision: string }>;
+    const denied = decisions.filter((row) => DENIAL_DECISIONS.has(String(row.decision || "").toLowerCase())).length;
+    const outcomes = this.connection.prepare(
+      "SELECT o.outcome_state, o.scope_match FROM approval_outcomes o JOIN agent_messages m ON m.id=o.approval_request_id WHERE m.source=?"
+    ).all(id) as Array<{ outcome_state: string; scope_match: number }>;
+    const reputation = {
+      requests_submitted: submitted.length,
+      approval_requests: approvals.length,
+      urgent_requests: submitted.filter((row) => row.urgency === "urgent").length,
+      expired: submitted.filter((row) => row.status === "expired").length,
+      dismissed: submitted.filter((row) => row.status === "dismissed").length,
+      approved: decisions.length - denied,
+      denied,
+      failed_outcomes: outcomes.filter((row) => /fail|error|cancel/.test(String(row.outcome_state || "").toLowerCase())).length,
+      modified_scope_outcomes: outcomes.filter((row) => row.scope_match === 0).length
+    };
+    return {
+      agent_id: id,
+      known: Boolean(identity),
+      trust_state: identity ? identity.trust_state : "unknown",
+      last_seen_at: identity ? identity.last_seen_at : null,
+      reputation,
+      provenance: SUMMARY_PROVENANCE,
+      content_trust: SUMMARY_CONTENT_TRUST,
+      advisory: true,
+      authority: "none",
+      cloud_summarization: CLOUD_SUMMARY_DISABLED,
+      notice: "Advisory agent reputation. Derived from local history; it does not grant authority or auto-decide."
+    };
+  }
+
+  // Scoped pending approvals (OCX-013): the minimum an agent needs to know what is
+  // waiting on the operator. No message body, no evidence pack — never a raw dump.
+  pendingApprovals(): Record<string, unknown> {
+    this.expireAgentMessages();
+    const rows = this.connection.prepare(
+      "SELECT id, source, title, urgency, risk, required_authority, status, created_at, expires_at, decision_options, can_batch FROM agent_messages WHERE kind='approval_request' AND status IN ('unread', 'read') ORDER BY created_at DESC, id DESC LIMIT 200"
+    ).all() as Array<{ id: string; source: string; title: string; urgency: string; risk: string; required_authority: string; status: string; created_at: string; expires_at: string | null; decision_options: string; can_batch: number }>;
+    const items = rows.map((row) => {
+      let decisionOptions: unknown[] = [];
+      try { decisionOptions = JSON.parse(row.decision_options || "[]"); } catch { decisionOptions = []; }
+      return {
+        id: row.id,
+        source: row.source,
+        title: sanitizeAgentText(row.title, 160),
+        urgency: row.urgency,
+        risk: row.risk,
+        required_authority: row.required_authority,
+        status: row.status,
+        created_at: row.created_at,
+        expires_at: row.expires_at,
+        can_batch: Boolean(row.can_batch),
+        decision_options: decisionOptions
+      };
+    });
+    return {
+      count: items.length,
+      items,
+      provenance: SUMMARY_PROVENANCE,
+      content_trust: SUMMARY_CONTENT_TRUST,
+      advisory: true,
+      authority: "none",
+      notice: SUMMARY_NOTICE
+    };
   }
 
   contacts(query = ""): Record<string, unknown>[] {

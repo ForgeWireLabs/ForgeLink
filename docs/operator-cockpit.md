@@ -122,6 +122,59 @@ approval, denial, expiration, malformed-request, failed/scope-flag, and urgent
 request signals. It is product guidance only: reputation can inform review and
 suggestions, but it never grants authority automatically.
 
+## Local Thread Summaries
+
+ForgeLink derives a local, advisory summary for any message thread. The summary
+is built on the desktop from records already in the local database with a
+deterministic, extractive pass — there is no model call, and cloud summarization
+is opt-in only and not enabled in this build. A summary is a derived artifact,
+never a source of truth.
+
+Each summary covers what happened, open decisions (unanswered inbound
+questions), pending replies, the last operator action, and agent-relevant
+constraints. The operator-facing summary includes a few short, sanitized message
+excerpts for context.
+
+Summaries treat all thread content as untrusted (see Summary Safety). They are
+advisory: they carry no authority, change no policy, and never encode an action.
+Endpoint: `GET /api/threads/:id/summary` (operator surface).
+
+## Summary Safety
+
+Thread content is untrusted input. Summaries defend against prompt injection from
+message bodies:
+
+- Every excerpt passes through the agent-content sanitizer, which strips control
+  and bidi characters and defangs lines that impersonate system/operator/ForgeLink
+  prompts.
+- Excerpts are short, length-capped, and explicitly labeled as quoted untrusted
+  content.
+- Each summary carries explicit provenance (`derived_local_summary`), an
+  untrusted-content marker, and an advisory notice; it always reports
+  `authority: "none"`.
+- Nothing in a summarized thread can grant authority, approve a request, or
+  trigger an action.
+- Any future cloud summarizer must be opt-in and must use the injection-resistant
+  framing documented alongside the local summarizer; no cloud path is wired up.
+
+## Scoped Agent Resources
+
+Agents and MCP clients read scoped, derived resources instead of raw
+communication history. There is intentionally no dump-all-messages resource.
+
+- `get_pending_approvals` / `GET /api/pending-approvals` — approvals waiting on
+  the operator, with titles and routing fields only. No message body or evidence
+  pack.
+- `get_contact_summary` / `GET /api/contacts/summary` — relationship, trust, and
+  derived activity counts. Never message bodies or phone numbers.
+- `get_thread_summary` / `GET /api/threads/:id/summary?scope=agent` — the scoped
+  thread summary, which omits all message excerpts.
+- `get_agent_status` / `GET /api/agent-status` — advisory trust and reputation
+  derived from local history; it does not grant authority or auto-decide.
+
+The scoped summary served to agents drops the message excerpts that the operator
+summary includes, so a scoped resource can never become a raw communication dump.
+
 ## Decision Triage
 
 The Decisions surface is split into lanes:

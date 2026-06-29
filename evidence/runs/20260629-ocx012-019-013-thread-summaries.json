@@ -1,0 +1,59 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260629-ocx012-019-013-thread-summaries",
+  "timestamp": "2026-06-29T00:00:00Z",
+  "work_item": "017",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed after adding summary.ts and the threadSummary/contactSummary/agentStatusSummary/pendingApprovals derived views plus their routes."
+    },
+    {
+      "command": "node --test backend-dist/summary.test.js",
+      "exit_code": 0,
+      "summary": "6 summarizer unit tests passed: derived fields, scoped vs full excerpts, advisory/no-authority envelope, and prompt-injection defanging."
+    },
+    {
+      "command": "node --test backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Server integration tests passed, including the new scoped-summary test: operator full summary with excerpts, MCP-safe scoped summary with no excerpts/bodies, contact summary without phone numbers, scoped pending approvals without body/evidence, advisory agent status, and 401 after MCP token revoke."
+    },
+    {
+      "command": "npm test (mcp/forgelink-human)",
+      "exit_code": 0,
+      "summary": "MCP server tests passed: get_pending_approvals, get_contact_summary, get_thread_summary (always scope=agent), and get_agent_status return scoped advisory data; no dump-all tool is exposed; invalid ids are rejected before any request."
+    },
+    {
+      "command": "npm test (Electron)",
+      "exit_code": 0,
+      "summary": "Full Electron validation passed: backend build, renderer build, renderer interactions, Node test bundle (incl. summary.test.js and server.test.js), and syntax checks."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact plus ForgeLink local validation passed for work-item, docs, evidence, and CHANGELOG updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/summary.ts",
+    "Electron/backend/src/summary.test.ts",
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/package.json",
+    "mcp/forgelink-human/src/server.ts",
+    "mcp/forgelink-human/test/server.test.js",
+    "docs/operator-cockpit.md",
+    "CHANGELOG.md",
+    "work/active/017-operator-cockpit-and-native-experience/README.md",
+    "work/active/017-operator-cockpit-and-native-experience/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "OCX-012/019/013: thread summaries are derived locally with a deterministic extractive pass (no model call, no schema change); cloud summarization stays opt-in and disabled. All thread content is treated as untrusted: excerpts are sanitized via sanitizeAgentText and labeled, summaries are advisory with authority 'none', and scoped agent/MCP variants omit message excerpts, bodies, and phone numbers. No dump-all-messages resource is exposed."
+  }
+}
