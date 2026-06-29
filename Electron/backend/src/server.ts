@@ -59,6 +59,13 @@ async function defaultOperatorStatus(requestId: string): Promise<unknown> {
     const { stdout } = await execFileAsync(shellExe, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-RequestId", requestId], { timeout: OPERATOR_STATUS_TIMEOUT_MS, maxBuffer: 1024 * 1024, windowsHide: true });
     return JSON.parse(stdout);
   } catch (error) {
+    // Tightened wrapper contract (ROM lab 95021ca): the wrapper exits 0 whenever it
+    // emits a status document — a degraded bridge state is carried by an ok:false
+    // body, not the exit code — and exits non-zero only on an actual invocation
+    // failure. Prefer any JSON the wrapper still wrote to stdout so the bridge's own
+    // operator-facing message survives; synthesize an error only when there is none.
+    const stdout = typeof (error as { stdout?: unknown }).stdout === "string" ? (error as { stdout: string }).stdout : "";
+    if (stdout.trim()) { try { return JSON.parse(stdout); } catch { /* fall through to synthesized error */ } }
     return { ok: false, mode: "operator-status", request_id: requestId, error: `Android operator-status bridge failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 200) };
   }
 }
