@@ -1,7 +1,7 @@
 ---
 audience: maintainers and implementation agents
 status: active
-last_verified: 2026-06-27
+last_verified: 2026-06-29
 source_of_truth: work/active/030-tauri-shared-shell-and-electron-retirement/README.md; work/active/030-tauri-shared-shell-and-electron-retirement/work-item.json
 ---
 
@@ -20,8 +20,13 @@ move toward:
 - Rust-native shell logic through Tauri 2;
 - platform-specific Swift/Kotlin plugins only where mobile or OS integration
   requires them;
-- desktop as the source of truth for private local data;
-- mobile as a paired, redacted, signed decision terminal;
+- desktop as the source of truth for private local data *at the current stage*
+  (the backend/database runs there) — not a permanent ceiling on what mobile may
+  present;
+- mobile as a **full operator cockpit** in a mobile/responsive layout, with the
+  redacted, signed **decision terminal preserved as a restricted mode/profile**
+  rather than the whole mobile product (see
+  [decision 0017](../../../decisions/0017-mobile-is-a-full-cockpit.md));
 - Electron as a temporary compatibility shell until Tauri reaches parity.
 
 ## Scope
@@ -29,8 +34,11 @@ move toward:
 - Tauri 2 architecture and migration plan.
 - Shared renderer app-bridge boundary.
 - Tauri desktop shell scaffold alongside Electron.
-- Tauri mobile decision-terminal scaffold for Android/iOS.
+- Tauri mobile cockpit scaffold for Android/iOS (full cockpit, mobile layout),
+  with the decision terminal as a restricted mode/profile.
 - Secure storage, notification, deep-link, updater, and distribution boundaries.
+- A cross-device read-only device/Fabric `operator-status` bridge contract that
+  the mobile cockpit consumes (see "Planned operator-status bridge" below).
 - Electron retirement criteria and rollback plan.
 
 ## Relationship to Other Work
@@ -49,8 +57,12 @@ move toward:
 ## Non-Goals
 
 - Do not remove Electron before Tauri reaches the explicit parity gate.
-- Do not fork the UI into separate desktop and mobile products.
-- Do not make the mobile app a private database mirror.
+- Do not fork the UI into separate desktop and mobile products (one shared cockpit;
+  shells and layout differ, the product does not).
+- Do not reduce the mobile app to a companion / approval-cards-only terminal by
+  default; the decision terminal is a restricted mode, not the ceiling.
+- Do not make the mobile app a replicated private database mirror; it reads the
+  operator's data as an authenticated client of the local connection.
 - Do not bypass existing local API authentication, redaction profiles, device-key
   handling, or governance audit requirements.
 - Do not publish unsigned or unauthenticated update channels.
@@ -58,14 +70,19 @@ move toward:
 ## Priority Order
 
 - [ ] **TAURI-001 Record Tauri 2 target architecture.** One shared React/Web UI,
-  Rust-native shell logic, platform plugins where needed, desktop source of
-  truth, mobile decision terminal, Electron temporary.
+  Rust-native shell logic, platform plugins where needed, desktop source of truth
+  at this stage, a **full mobile cockpit** (mobile layout) with the decision
+  terminal as a restricted mode, and Electron temporary (per
+  [decision 0017](../../../decisions/0017-mobile-is-a-full-cockpit.md)).
 - [ ] **TAURI-002 Add shared app bridge.** Renderer code should depend on a
   narrow ForgeLink bridge, not direct Electron APIs, for shell services.
 - [ ] **TAURI-003 Scaffold Tauri desktop shell.** Run the existing cockpit UI in
   Tauri 2 alongside Electron with startup and local API smoke coverage.
-- [ ] **TAURI-004 Build Tauri mobile decision terminal.** Android/iOS app focused
-  on paired, redacted, signed decisions without database replication.
+- [ ] **TAURI-004 Build Tauri mobile cockpit.** Android/iOS app running the shared
+  cockpit in a mobile layout — a full operator control surface where the platform
+  reasonably allows it, as an authenticated client of the operator's local data
+  (not a replicated private database). The paired, redacted, signed decision
+  terminal is preserved as a restricted mode/profile, not the whole app.
 - [ ] **TAURI-005 Define Electron retirement gate.** Remove Electron only after
   Tauri covers current desktop workflows and release-critical OS integrations.
 - [ ] **TAURI-006 Define Tauri distribution/update strategy.** Coordinate signed
@@ -73,11 +90,65 @@ move toward:
 - [ ] **TAURI-007 Add validation and rollback evidence.** Automated bridge/shell
   tests plus mobile emulator/device evidence before closing.
 
+## Planned operator-status bridge
+
+The future custom-Android-OS / ForgeWire ROM work (Moto One Hyper ROM lab) exposes
+a read-only device/Fabric status bridge that the mobile cockpit consumes. ForgeLink
+defines the desired first contract here so the Android side can implement against a
+stable shape. ForgeLink treats every field as **untrusted, advisory, read-only
+device status** — it is displayed, never used to grant authority or trigger
+actions (same trust posture as the OCX-013/019 scoped resources).
+
+Request (ForgeLink → bridge):
+
+```json
+{ "mode": "operator-status", "request_id": "<uuid>" }
+```
+
+Response (bridge → ForgeLink):
+
+```json
+{
+  "ok": true,
+  "target": "emulator-only",
+  "authority": "readonly-emulator-inspection",
+  "mode": "operator-status",
+  "request_id": "<echoed>",
+  "generated_at": "<iso8601>",
+  "bridge_version": "<string>",
+  "device": { "android_release": "", "sdk": "", "model": "", "hardware": "", "fingerprint": "" },
+  "boot": { "completed": true },
+  "network": { "summary": "" },
+  "storage": { "summary": "" },
+  "activity": { "current_user": "", "top_activity": "" },
+  "packages": { "summary": "", "count": 0 }
+}
+```
+
+Rules ForgeLink relies on:
+
+- `authority` must always describe a read-only inspection tier; the bridge never
+  exposes a mutation mode through this contract.
+- All values are sanitized/coarse summaries — no secrets, no full package dumps, no
+  raw logs; `summary` strings carry counts/state, not contents.
+- A failure is `{ "ok": false, "mode": "operator-status", "request_id": "...",
+  "error": "<reason>" }`; ForgeLink renders it as a degraded status, never a crash.
+- Later modes (`fabric-service-status`, `forgelink-service-status`,
+  `operator-session-status`, `local-agent-status`, `mobile-cockpit-health`) follow
+  the same envelope (`ok`/`mode`/`request_id`/`authority`) and trust posture.
+
+First ForgeLink consumer: a device/Fabric health panel on the mobile cockpit
+surface (the surface currently shipping as the restricted decision terminal),
+mirrored as a compact read under the desktop **Agents** view. A dedicated ForgeLink
+work item will own the consumer UI once the bridge mode lands; ForgeLink builds no
+consumer until the Android side provides the `operator-status` payload.
+
 ## Security and Privacy Constraints
 
-- The shared UI must keep surface-specific capabilities explicit. Mobile can show
-  redacted decision state; it must not receive a full private communication
-  mirror.
+- The shared UI must keep surface-specific capabilities explicit. The decision
+  terminal is a restricted mode that shows redacted decision state; the full mobile
+  cockpit reads the operator's data as an authenticated client and must not receive
+  a replicated private communication database.
 - All shell bridges must be least-privilege and auditable.
 - Secrets stay in OS-backed storage appropriate to the platform and must never be
   exposed to renderer logs, diagnostics, screenshots, exports, or public assets.

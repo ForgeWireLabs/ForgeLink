@@ -17,9 +17,12 @@ private data off the device.
 1. **Desktop cockpit** — the current Electron desktop app and its eventual Tauri 2
    replacement (work item 030). Same product surface (Decisions, People, Agents,
    Channels), distributed as a signed installer with an auto-update channel.
-2. **Mobile decision terminal** — the Tauri 2 paired decision terminal
-   (OCX-007/008). A separate signed build/update path for iOS/Android that ships
-   only the redacted decision-terminal surface, never a private-data mirror.
+2. **Mobile cockpit** — the Tauri 2 mobile app (work item 030,
+   [decision 0017](../decisions/0017-mobile-is-a-full-cockpit.md)). A separate signed
+   build/update path for iOS/Android that ships the shared cockpit in a mobile
+   layout as a full operator surface, with the redacted decision terminal as a
+   restricted mode. It reads the operator's data as an authenticated client of the
+   local connection, never as a replicated private-data mirror.
 
 ## Desktop: code-signed releases and auto-update
 
@@ -60,9 +63,11 @@ work item 030 TAURI-006 and this item. Requirements:
   self-hosted feed. Over-the-air content updates, if ever added, must not bypass
   store review for native capability changes and must keep the
   redacted-decision-only boundary.
-- **Pairing, not replication.** A mobile build only ever receives redacted
-  decision cards and returns signed decision envelopes (OCX-007/008). No build,
-  release, or update path may turn the mobile terminal into a private-data mirror.
+- **Client, not replication.** The mobile cockpit reaches the operator's data over
+  the authenticated local connection; no build, release, or update path turns it
+  into a replicated on-device private database. Its restricted decision-terminal
+  mode goes further, receiving only redacted decision cards and returning signed
+  decision envelopes (OCX-007/008).
 
 ## Shipping gates
 

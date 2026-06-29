@@ -29,7 +29,7 @@
   "acceptance_criteria": [
     {
       "id": "TAURI-001",
-      "text": "Record the Tauri 2 target architecture: one shared React/Web UI for desktop and mobile, Rust-native shell logic, platform plugins where needed, desktop as source of truth, and Electron treated as a temporary compatibility shell.",
+      "text": "Record the Tauri 2 target architecture: one shared React/Web UI for desktop and a full mobile cockpit (mobile layout), Rust-native shell logic, platform plugins where needed, desktop as source of truth at this stage, the decision terminal as a restricted mobile mode/profile (decision 0017), and Electron treated as a temporary compatibility shell.",
       "state": "pending",
       "evidence": []
     },
@@ -47,7 +47,7 @@
     },
     {
       "id": "TAURI-004",
-      "text": "Define and implement the Tauri 2 mobile decision-terminal path for Android/iOS: paired device, redacted alerts, approval cards, signed approve/deny/defer/request-more-info/short-reply decisions, presence signal, emergency toggle, and device revoke without private database replication.",
+      "text": "Define and implement the Tauri 2 mobile cockpit for Android/iOS: the shared cockpit in a mobile layout as a full operator control surface where the platform reasonably allows it, reading the operator's data as an authenticated client (not a replicated private database), with the paired/redacted/signed decision terminal (alerts, approval cards, approve/deny/defer/request-more-info/short-reply, presence, emergency toggle, device revoke) preserved as a restricted mode/profile rather than the whole app (decision 0017).",
       "state": "pending",
       "evidence": []
     },
@@ -71,5 +71,5 @@
     }
   ],
   "created": "2026-06-27",
-  "updated": "2026-06-27"
+  "updated": "2026-06-29"
 }

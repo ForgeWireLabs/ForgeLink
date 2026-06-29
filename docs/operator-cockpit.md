@@ -70,14 +70,21 @@ Emergency contact bypass is an explicit local attention-policy setting. It does
 not grant agents new authority and does not override contact policy, trust state,
 or approval requirements.
 
-## Tauri Mobile Decision Terminal
+## Mobile Cockpit (and the Decision-Terminal Mode)
 
-The first mobile surface is a Tauri 2 decision terminal, not a chat clone and
-not a private database mirror. It is reached from Channels -> Mobile terminal in
-the shared cockpit UI so the same React/Web surface can move into the Tauri
-desktop/mobile shell owned by work item 030.
+The product direction is a full mobile cockpit: ForgeLink mobile and desktop are
+the same product, built from the same shared React/Web cockpit, differing mainly
+by shell/platform integration and a responsive mobile layout. Mobile is intended
+to do what desktop does where Android/iOS reasonably allow it — not a chat clone
+and not a replicated private database, but a first-class operator control surface
+(see [decision 0017](../decisions/0017-mobile-is-a-full-cockpit.md) and work item
+030).
 
-The MVP mobile card includes:
+What ships today is the **restricted decision-terminal mode** of that cockpit,
+reached from Channels -> Mobile terminal. It is the safe/lock-screen profile, not
+the whole mobile product; the full mobile cockpit is built under work item 030.
+
+The shipped decision-terminal mode includes:
 
 - paired device state and local presence signal;
 - redacted alert content using the mobile lock-screen profile;
@@ -86,14 +93,17 @@ The MVP mobile card includes:
 - emergency contact toggle state from the attention policy;
 - explicit device revoke control.
 
-Desktop remains the source of truth for private local data. Mobile receives a
-redacted decision card, signs the selected decision with the paired device key,
-and returns only the decision envelope. Desktop verifies the request hash,
-evidence hash, device trust, and revocation state before recording the decision
-and audit trail.
+In the decision-terminal mode, desktop is the source of truth for private local
+data (the backend/database runs there at this stage). Mobile receives a redacted
+decision card, signs the selected decision with the paired device key, and returns
+only the decision envelope. Desktop verifies the request hash, evidence hash,
+device trust, and revocation state before recording the decision and audit trail.
 
-For the MVP, mobile does not replicate the private communications database,
-contact history, evidence body, local exports, or provider credentials.
+This mode does not replicate the private communications database, contact history,
+evidence body, local exports, or provider credentials onto the device. That
+no-replication boundary is permanent; the companion-only ceiling is not. The full
+mobile cockpit (work item 030) presents the operator's data as an authenticated
+client of the local connection rather than a second on-device database.
 
 ## Reducing Interruption Cost
 
