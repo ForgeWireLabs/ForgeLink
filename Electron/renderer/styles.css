@@ -472,3 +472,6 @@ h1, h2, h3, p { margin: 0; }
 .redaction-channel { color: var(--muted-bright); font-weight: 650; }
 .redaction-shown { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+/* Android/Fabric device health (work item 030, decision 0017) */
+.device-health-empty { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }

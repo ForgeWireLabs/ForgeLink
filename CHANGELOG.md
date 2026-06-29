@@ -7,6 +7,11 @@ versions tracked in `VERSION` and `Electron/package.json`.
 ## [Unreleased]
 
 ### Added
+- Android/Fabric device health: the mobile cockpit surface now has an advisory,
+  read-only "Android / Fabric Device Health" panel that consumes the ROM lab
+  `operator-status` bridge payload (typed, fixture-backed, with `ok:false`/malformed
+  treated as degraded). It is display-only and never grants authority or triggers
+  actions (work item 030 TAURI-008, decision 0017).
 - Reviewed outbox: agent-drafted external messages appear in a cockpit outbox
   (Channels → Reviewed outbox) where the operator can review, edit, approve and
   send, deny, or schedule each draft, with pending drafts kept separate from sent

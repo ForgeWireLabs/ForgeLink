@@ -44,6 +44,26 @@ export interface AttentionEvent { kind: "sms" | "agent" | "signal" | "system"; t
 export interface AttentionDecision { notify: boolean; reason: string; title?: string; body?: string; }
 export interface DesktopStatus { running: boolean; baseUrl: string; configured?: boolean; credential_source?: "none" | "environment" | "stored"; environment_import_available?: boolean; onboarding_complete?: boolean; needs_onboarding?: boolean; configured_port?: number; effective_port?: number; backend_restarts?: number; last_exit_code?: number | null; recovery_message?: string; settings?: DesktopSettings & { attention_policy?: AttentionPolicy }; validation?: ValidationResult; }
 export interface PresenceSnapshot { app_focus: "focused" | "unfocused"; input: "active" | "idle"; network: "online" | "offline"; do_not_disturb: boolean; paired_mobile: "nearby" | "away" | "unknown"; updated_at: string; }
+// Read-only Android/Fabric device status from the Moto One Hyper ROM lab bridge
+// (work item 030, decision 0017). Untrusted, advisory, display-only: it never
+// grants authority or triggers actions. Shape mirrors the bridge operator-status
+// contract; all sub-objects are optional so a degraded payload still renders.
+export interface AndroidOperatorStatus {
+  ok: boolean;
+  target?: "emulator-only" | string;
+  authority?: "readonly-emulator-inspection" | string;
+  mode: "operator-status";
+  request_id: string;
+  generated_at?: string;
+  bridge_version?: string;
+  device?: { android_release: string; sdk: string; model: string; hardware: string; fingerprint: string };
+  boot?: { completed: boolean };
+  network?: { summary: string };
+  storage?: { summary: string };
+  activity?: { current_user: string; top_activity: string };
+  packages?: { summary: string; count: number };
+  error?: string;
+}
 
 declare global {
   interface Window {

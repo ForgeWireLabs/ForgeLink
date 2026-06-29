@@ -68,6 +68,14 @@
       "text": "Add automated validation for the shared-shell bridge and Tauri targets, including renderer interaction tests, desktop shell smoke tests, mobile decision-flow tests or documented emulator/device evidence, and rollback notes.",
       "state": "pending",
       "evidence": []
+    },
+    {
+      "id": "TAURI-008",
+      "text": "Add the Android/Fabric operator-status consumer for the mobile cockpit path: a typed AndroidOperatorStatus payload, a fixture captured from the live ROM lab bridge, a pure parse/normalize client that treats ok:false and malformed payloads as degraded, and an advisory read-only 'Android / Fabric Device Health' panel that never grants authority or triggers actions.",
+      "state": "satisfied",
+      "evidence": [
+        "20260629-tauri008-operator-status-consumer"
+      ]
     }
   ],
   "created": "2026-06-27",

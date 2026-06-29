@@ -89,6 +89,12 @@ move toward:
   desktop and mobile release paths with 011 PR-014 and 017 OCX-020.
 - [ ] **TAURI-007 Add validation and rollback evidence.** Automated bridge/shell
   tests plus mobile emulator/device evidence before closing.
+- [x] **TAURI-008 Add the Android/Fabric operator-status consumer.** Type the
+  read-only `operator-status` payload, capture a fixture from the live bridge,
+  parse/normalize it (treating `ok:false`/malformed as degraded), and render an
+  advisory "Android / Fabric Device Health" panel on the mobile cockpit path that
+  never grants authority or triggers actions. (First consumer of the planned
+  bridge above; runs in the current renderer regardless of shell.)
 
 ## Planned operator-status bridge
 
@@ -161,4 +167,11 @@ Evidence must include architecture notes, bridge contract tests, renderer
 interaction tests, Tauri desktop smoke evidence, mobile decision-flow evidence
 from emulator/device or a documented waiver, distribution/update notes, rollback
 notes, and `python .local/validate_system.py`.
+
+## Evidence log
+
+| date | item | evidence | result |
+| --- | --- | --- | --- |
+| 2026-06-29 | direction reframed | Recorded [decision 0017](../../../decisions/0017-mobile-is-a-full-cockpit.md): mobile is a full cockpit, decision terminal is a restricted mode. Reframed goal/scope/non-goals and TAURI-001/004, and added the planned read-only `operator-status` device/Fabric bridge contract. | No criterion closed; direction reframing recorded. |
+| 2026-06-29 | TAURI-008 complete | Added the Android/Fabric operator-status consumer for the mobile cockpit path: `AndroidOperatorStatus` type, a fixture captured from the live ROM lab bridge (`rom_lab.forgelink_operator_status.v1`), a pure `parseOperatorStatus` client that neutralizes untrusted text and treats `ok:false`/malformed as degraded, and an advisory read-only "Android / Fabric Device Health" panel on the mobile surface (`AndroidDeviceHealth`) that grants no authority and triggers no actions. `Electron/renderer/src/operatorStatus.ts`, `App.tsx`, `types.ts`; renderer build and 36 renderer interaction tests (incl. panel render + parser online/degraded) passed; full Electron suite and RepoPact/local validation passed. | TAURI-008 satisfied (evidence 20260629-tauri008-operator-status-consumer). Consumer ships in the current renderer; live data awaits a bridge transport. |
 

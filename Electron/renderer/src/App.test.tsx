@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
+import { parseOperatorStatus } from "./operatorStatus";
 
 const thread = { id: 1, canonical_number: "+15551234567", name: "Ada Lovelace", last_msg_ts: "2026-06-14T18:00:00.000Z", unread_count: 0 };
 const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
@@ -670,5 +671,31 @@ describe("React renderer parity", () => {
     expect(window.desktop?.notify).toBeDefined();
     await userEvent.click(await screen.findByRole("button", { name: "Clear sample workspace" }));
     await waitFor(() => expect(screen.queryByText(/Sample workspace active/)).toBeNull());
+  });
+
+  it("renders the advisory Android/Fabric device health panel from a bridge status (030/0017)", async () => {
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Channels" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open mobile terminal" }));
+    await screen.findByRole("heading", { name: "Android / Fabric Device Health" });
+    // Advisory framing is shown and no live transport exists yet.
+    expect(screen.getByText(/advisory and cannot grant authority/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Show sample status" }));
+    expect(await screen.findByText("Status: Online")).toBeTruthy();
+    expect(screen.getByText("15 / SDK 35")).toBeTruthy();
+    expect(screen.getByText("QuickstepLauncher")).toBeTruthy();
+    expect(screen.getByText("ranchu")).toBeTruthy();
+  });
+});
+
+describe("Android operator-status parsing", () => {
+  it("classifies a complete ok payload as online", () => {
+    const parsed = parseOperatorStatus({ ok: true, mode: "operator-status", request_id: "r1", device: { android_release: "15", sdk: "35", model: "m", hardware: "h", fingerprint: "f" } });
+    expect(parsed.health).toBe("online");
+  });
+  it("treats ok:false and malformed payloads as degraded without throwing", () => {
+    expect(parseOperatorStatus({ ok: false, mode: "operator-status", request_id: "r2", error: "bridge offline" }).health).toBe("degraded");
+    expect(parseOperatorStatus(null).health).toBe("degraded");
+    expect(parseOperatorStatus({ ok: true, mode: "operator-status", request_id: "r3" }).health).toBe("degraded");
   });
 });
