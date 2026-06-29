@@ -1,0 +1,51 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260629-email-001-003-008-outbound-adapter",
+  "timestamp": "2026-06-29T00:00:00Z",
+  "work_item": "018",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend build passed after adding the email adapter (email.ts), the email_send/inbound_email capabilities, registration, and the email_configured diagnostic."
+    },
+    {
+      "command": "node --test backend-dist/email.test.js",
+      "exit_code": 0,
+      "summary": "12 email tests passed: address/attachment validation, MIME plain+multipart assembly, retryable vs permanent error classification, inbound normalization, capability advertisement, and the send matrix (success, redacted provider rejection, transient retryable, missing credentials, invalid recipient, attachment bounds)."
+    },
+    {
+      "command": "node --test backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Server tests passed with the email adapter registered when configured and the redacted email_configured diagnostic."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron validation passed including the new email test file."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact plus ForgeLink local validation passed for the work-item, docs, evidence, and CHANGELOG updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/email.ts",
+    "Electron/backend/src/email.test.ts",
+    "Electron/backend/src/channels.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/package.json",
+    "docs/email-channel.md",
+    "CHANGELOG.md",
+    "work/active/018-email-channel-adapter/README.md",
+    "work/active/018-email-channel-adapter/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "EMAIL-001/003/008. Provider-neutral email adapter; outbound SMTP send behind the channel registry, registered only when FORGELINK_SMTP_HOST/USER/PASS/FROM are set. Deterministic tests use an injected fake transport; the default sendSmtpEmail submission client (implicit TLS or STARTTLS, AUTH LOGIN) is operator-verified live, analogous to the opt-in live-Twilio test. Credentials/addresses/bodies are never logged or surfaced; diagnostics expose only a boolean. Deferred to later EMAIL criteria: secure-storage UI (002), inbound ingest (004), configuration/contact UI (005), signed quick-actions (006), and full backup/export/retention participation (007)."
+  }
+}

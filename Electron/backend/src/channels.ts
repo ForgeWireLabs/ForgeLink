@@ -21,7 +21,9 @@ export type Capability =
   | "voice_end"
   | "voice_status"
   | "inbound_call"
-  | "media";
+  | "media"
+  | "email_send"
+  | "inbound_email";
 
 export interface ChannelCapabilities {
   kind: ChannelKind;

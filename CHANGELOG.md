@@ -7,6 +7,12 @@ versions tracked in `VERSION` and `Electron/package.json`.
 ## [Unreleased]
 
 ### Added
+- Email channel (outbound): a provider-neutral SMTP email adapter behind the
+  channel registry, registered when `FORGELINK_SMTP_*` is configured. Outbound send
+  with attachment bounds, MIME assembly, and redacted retryable/permanent failure
+  classification; `/api/diagnostics` exposes only an `email_configured` boolean.
+  Inbound ingest, configuration UI, and signed quick-actions are deferred. See
+  `docs/email-channel.md` (work item 018, EMAIL-001/003/008).
 - Release preflight: `npm run release:check` automates the non-signing release
   gates (VERSION/package.json sync, `[Unreleased]` notes, the electron-updater
   dependency, `builder.json` publish/asarUnpack/files config, referenced icon

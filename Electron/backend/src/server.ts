@@ -11,6 +11,7 @@ import { fetchTrustedSignalFeed } from "./signals";
 import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, loadTwilioConfig, sendTwilioMessage, startTwilioCall, validateTwilioSignature } from "./twilio";
 import { createChannelRegistry, PLANNED_PROVIDERS } from "./channels";
 import { createTelnyxAdapter, validateTelnyxSignature } from "./telnyx";
+import { createEmailAdapter, emailConfigured } from "./email";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const ALLOWED_UPLOADS = new Set([".gif", ".jpeg", ".jpg", ".pdf", ".png", ".txt", ".webp"]);
@@ -372,6 +373,11 @@ export function createBackend(options: BackendOptions): { server: Server; databa
   // The adapter's pure normalization is used by the webhook regardless of registration.
   const telnyxAdapter = createTelnyxAdapter();
   if (process.env.TELNYX_API_KEY && process.env.TELNYX_PHONE_NUMBER) channels.register(telnyxAdapter);
+  // Email internet channel (work item 018, EMAIL-003): registered only when SMTP is
+  // configured. Provider-neutral; a fallback/long-form channel, never the default
+  // approval loop.
+  const emailAdapter = createEmailAdapter();
+  if (emailConfigured()) channels.register(emailAdapter);
   // Mobile companion (CLV-006): planned, authenticated, disabled unless explicitly
   // enabled, and never any public relay.
   const companionEnabled = process.env.FORGELINK_COMPANION_ENABLED === "1";
@@ -488,7 +494,9 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         local_only: !Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER),
         channels: channels.list(),
         planned_channels: PLANNED_PROVIDERS,
-        companion: companionEnabled ? "enabled" : "planned"
+        companion: companionEnabled ? "enabled" : "planned",
+        // Redacted by design (EMAIL-007): boolean only — never the SMTP host, address, or credentials.
+        email_configured: emailConfigured()
       });
       if (url.pathname === "/api/companion/pair" || url.pathname === "/api/companion/status") {
         // CLV-006 planning gate: disabled by default, authenticated (under /api/),
