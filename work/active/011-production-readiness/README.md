@@ -1,7 +1,7 @@
 ---
 audience: maintainers and implementation agents
 status: active
-last_verified: 2026-06-17
+last_verified: 2026-06-29
 source_of_truth: AGENTS.md; work/active/011-production-readiness/_audit/alignment-report.md
 ---
 
@@ -55,10 +55,16 @@ in [`work-item.json`](work-item.json); this is the human summary.
   metadata, release notes (`CHANGELOG.md`), a reproducible release checklist
   (`docs/release-checklist.md`), and auto-update *wiring* (tested helper + guarded
   main-process check + GitHub publish config + electron-updater dependency) are
-  done. electron-updater is now **bundled into the asar** (verified). **Remaining
-  (keeps PR-014 pending):** a code-signing certificate (operator-provided) and a
-  published auto-update feed (`latest.yml`), which is held until signing so the
-  channel is not unauthenticated. A manual-download release is fine now. Overlaps
+  done. electron-updater is now **bundled into the asar** (verified). The
+  non-signing release gates are now automated as `npm run release:check`
+  (`scripts/release-preflight.js`, covered by `release-preflight.test.js`):
+  VERSION/package.json sync, `[Unreleased]` notes, the electron-updater dependency,
+  `builder.json` publish/asarUnpack/files config, referenced icon assets, and the
+  auto-update guard. **Remaining (keeps PR-014 pending):** a code-signing
+  certificate (operator-provided) and a published auto-update feed (`latest.yml`),
+  which is held until signing so the channel is not unauthenticated. Everything that
+  does not require the certificate is now done; a manual-download release is fine
+  now. Overlaps
   017 OCX-020. Work item 030 is now the long-term shell strategy: PR-014 should
   preserve the current Electron baseline for near-term desktop releases, but
   should not deepen Electron-only assumptions that make Tauri 2 migration harder.
@@ -189,3 +195,4 @@ in [`work-item.json`](work-item.json); this is the human summary.
 | 2026-06-18 | PR-013 | Installer/packaging completeness tests + opt-in live Twilio test; pyramid layers (backend HTTP, renderer, lifecycle, security) confirmed green | Closed PR-013 with evidence 20260618-pr013-test-pyramid. |
 | 2026-06-18 | PR-014 (partial) | Version metadata, release notes (CHANGELOG), reproducible release checklist (docs), and auto-update wiring; packaging test caught + fixed a missing-module regression | Unblocked items landed (evidence 20260618-pr014-release-unblocked); PR-014 stays pending on signing, electron-updater asar bundling, and a published feed. |
 | 2026-06-27 | shell strategy alignment | Operator decision: Tauri 2 is the long-term shared desktop/mobile shell. Work item 030 owns the migration and Electron retirement gate. | PR-014 remains pending for current desktop release/signing work, but future release planning must coordinate with 030 and avoid deepening Electron-only assumptions. |
+| 2026-06-29 | PR-014 (preflight automation) | Automated the non-signing release gates as `npm run release:check` (`scripts/release-preflight.js`): VERSION/package.json sync, `[Unreleased]` notes, electron-updater dependency, `builder.json` publish/asarUnpack/files config, referenced icon assets, and the auto-update guard; covered by `release-preflight.test.js` (in `npm test`) and wired into `docs/release-checklist.md`. All non-cert PR-014 work is now done. Evidence `20260629-pr014-release-preflight`. | PR-014 stays pending only on the operator-provided code-signing certificate and the signing-gated `latest.yml` feed. |

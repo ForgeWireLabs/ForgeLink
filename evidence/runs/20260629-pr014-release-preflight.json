@@ -1,0 +1,42 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260629-pr014-release-preflight",
+  "timestamp": "2026-06-29T00:00:00Z",
+  "work_item": "011",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "node scripts/release-preflight.js",
+      "exit_code": 0,
+      "summary": "Release preflight passed all non-signing gates: VERSION/package.json sync (2.0.3), electron-updater dependency, CHANGELOG [Unreleased] present, builder.json publish provider + backend asarUnpack + files config, referenced icon assets exist, and the auto-update guard."
+    },
+    {
+      "command": "node --test release-preflight.test.js",
+      "exit_code": 0,
+      "summary": "Preflight test passed: result.ok is true and the core gates are exercised."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron validation passed including the new release-preflight test."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact plus ForgeLink local validation passed for the work-item, docs, and evidence updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/scripts/release-preflight.js",
+    "Electron/release-preflight.test.js",
+    "Electron/package.json",
+    "docs/release-checklist.md",
+    "work/active/011-production-readiness/README.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "PR-014 progress (does not close the criterion). The non-signing release gates are now automated and tested via `npm run release:check`. PR-014 remains pending on two operator/cert-gated steps that cannot be done without a code-signing certificate: Authenticode/notarization signing of the installer, and publishing the signed `latest.yml` auto-update feed (held until signing so clients are never on an unauthenticated channel). Distribution strategy is coordinated with 017 OCX-020 and 030 TAURI-006."
+  }
+}

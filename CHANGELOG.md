@@ -7,6 +7,11 @@ versions tracked in `VERSION` and `Electron/package.json`.
 ## [Unreleased]
 
 ### Added
+- Release preflight: `npm run release:check` automates the non-signing release
+  gates (VERSION/package.json sync, `[Unreleased]` notes, the electron-updater
+  dependency, `builder.json` publish/asarUnpack/files config, referenced icon
+  assets, and the auto-update guard), tested and wired into the release checklist
+  (work item 011, PR-014).
 - Reproducible killer demo: `npm run demo` runs a synthetic, credential-free
   walkthrough of the full decision lifecycle (agent release-approval with evidence
   pack → Decisions surface → redacted mobile alert → operator approval → agent

@@ -15,6 +15,11 @@ pending until one is provisioned.
 
 ## 2. Verify
 - [ ] `cd Electron && npm ci`
+- [ ] `npm run release:check` — automated preflight for the non-signing gates
+      (VERSION/package.json sync, `[Unreleased]` notes present, `electron-updater`
+      dependency, `builder.json` publish/asarUnpack/files config, referenced icon
+      assets exist, and the auto-update guard). Also covered by
+      `release-preflight.test.js` in `npm test`.
 - [ ] `npm test` (renderer + node suites + checks; the live-Twilio test stays
       skipped unless `FORGELINK_LIVE_TWILIO=1`).
 - [ ] `npm run scan:secrets` (repo is clean of committed secrets).
