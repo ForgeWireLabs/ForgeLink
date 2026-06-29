@@ -1,8 +1,8 @@
 ---
 audience: maintainers and implementation agents
-status: active
+status: completed
 last_verified: 2026-06-29
-source_of_truth: work/active/017-operator-cockpit-and-native-experience/README.md; work/active/017-operator-cockpit-and-native-experience/work-item.json
+source_of_truth: work/completed/017-operator-cockpit-and-native-experience/README.md; work/completed/017-operator-cockpit-and-native-experience/work-item.json
 ---
 
 # Work Item 017: Operator Cockpit and Native Experience
@@ -332,3 +332,53 @@ Add or update docs for:
 | 2026-06-29 | mobile direction reframed | Operator correction: mobile ForgeLink is a full cockpit (same product as desktop, mobile layout), not a companion/decision-terminal-only app. Recorded [decision 0017](../../../decisions/0017-mobile-is-a-full-cockpit.md) and reframed work item 030 (TAURI-001/004, goal, non-goals, plus a planned `operator-status` device/Fabric bridge contract); `docs/operator-cockpit.md` and `docs/distribution-and-update-strategy.md` updated. The shipped OCX-007/008 mobile decision terminal is reinterpreted as the restricted mode/profile and its satisfied criteria are left unchanged. | No 017 criterion changed; direction reframing lives in decision 0017 and work item 030. |
 | 2026-06-29 | OCX-020 complete | Defined the distribution and update strategy in `docs/distribution-and-update-strategy.md`: code-signed desktop releases with an electron-updater auto-update channel (operator opt-out, packaged-only) and a signed Tauri 2 mobile build/update path (store-distributed, pairing-not-replication), with the gates required before shipping the mobile surface (OCX-007/008) and the public demo (OCX-016). Coordinates with item 011 PR-014 (desktop signing/feed) and item 030 TAURI-006 (Tauri distribution + Electron retirement). Strategy/definition deliverable; no shipped behavior claimed beyond what PR-014 has landed. RepoPact/local validation passed. | OCX-020 satisfied (evidence 20260629-ocx020-distribution-strategy). Phase 5 and Phase 7 distribution complete; remaining: OCX-016 killer demo and OCX-017 public screenshots. |
 | 2026-06-29 | OCX-012/019/013 complete | New backend `summary.ts` derives local, advisory thread summaries (what happened, open decisions, pending replies, last operator action, agent-relevant constraints) with a deterministic extractive pass — no model call, cloud summarization opt-in only and not enabled. Summaries treat thread content as untrusted: excerpts are sanitized and labeled, summaries carry provenance and an advisory notice, always report `authority: "none"`, and never grant authority or trigger actions (a documented injection-resistant prompt scaffold gates any future cloud path). New scoped resources `GET /api/threads/:id/summary`, `/api/contacts/summary`, `/api/agent-status`, `/api/pending-approvals` and MCP tools `get_thread_summary`/`get_contact_summary`/`get_agent_status`/`get_pending_approvals` expose redacted, derived views only; the scoped thread summary drops excerpts, contact summaries omit bodies and phone numbers, and no dump-all-messages resource exists. `docs/operator-cockpit.md`; backend build, 6 summarizer unit tests, compiled server tests (incl. scoped/MCP-safe access), MCP server tests, full Electron test suite, and RepoPact/local validation passed. | OCX-012, OCX-019, and OCX-013 satisfied (evidence 20260629-ocx012-019-013-thread-summaries). Phase 4 complete; next: OCX-014 reviewed outbox. |
+
+## Closeout
+
+Completed 2026-06-29. All 21 acceptance criteria (OCX-001 through OCX-021) are
+satisfied; none waived.
+
+**Delivered**
+
+- Decision-first navigation and triage lanes; relationship/trust People grouping
+  (OCX-001/002/003).
+- Operator availability modes, local presence signals, and emergency boundaries
+  (OCX-004/005/006).
+- Tauri-2 mobile decision terminal MVP UX and signed decision flow — now the
+  restricted mode of the full mobile cockpit per
+  [decision 0017](../../../decisions/0017-mobile-is-a-full-cockpit.md) (OCX-007/008).
+- Batch approvals, human fatigue budget, and advisory agent reputation
+  (OCX-009/010/011).
+- Local semantic thread summaries, injection-resistant and advisory, plus scoped
+  MCP resources with no raw-dump surface (OCX-012/013/019).
+- Reviewed outbox with scheduling and channel redaction previews (OCX-014/015).
+- Reproducible synthetic killer demo and public human-boundary narrative
+  (OCX-016/017).
+- First-run sample workspace (OCX-018).
+- Distribution and update strategy (OCX-020), and shared-shell bridge alignment
+  (OCX-021).
+
+**Evidence:** the run records named in the evidence log above
+(`evidence/runs/20260627-*` through `evidence/runs/20260629-*`).
+
+**Commands:** `npm run backend:build`, `npm run renderer:build`, `npm test`
+(renderer interaction + Node backend suites), `npm run demo`, and
+`python .local/validate_system.py` — all green at closeout.
+
+**Documentation:** `docs/operator-cockpit.md`, `docs/killer-demo.md`,
+`docs/public-narrative.md`, `docs/distribution-and-update-strategy.md`, and the
+root `README.md` cockpit section.
+
+**Limitations / remaining risks**
+
+- OCX-017 public screenshot **binaries** are produced by `npm run screenshot` on a
+  desktop session (Electron `capturePage` needs a display); the narrative and the
+  reproducible synthetic/redacted capture pipeline are in-repo.
+- The full Tauri 2 mobile cockpit (beyond the restricted decision-terminal mode)
+  and the live `operator-status` transport wiring are owned by work item 030.
+- Distribution (OCX-020) is a strategy definition; signed-release execution remains
+  with work item 011 PR-014.
+
+**Rollback:** all changes are additive feature work behind the existing local API
+and renderer; reverting the relevant commits removes the surfaces with no data
+migration to undo (schema v24's `scheduled_at` column is additive and nullable).
