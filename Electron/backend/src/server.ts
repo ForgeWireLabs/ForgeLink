@@ -1060,6 +1060,55 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const sent = await performDraftSend(draft, false);
         return sendJson(response, { ok: !sent.error, draft: sent.draft, error: sent.error }, sent.error ? 502 : 200);
       }
+      // Scheduled sends for the reviewed outbox (OCX-014): hold an approved draft
+      // with a send time, cancel a hold, or sweep due scheduled drafts. The sweep
+      // dispatches each due draft through the channel registry; there is no
+      // background timer, so the renderer calls dispatch-due on outbox refresh.
+      const draftScheduleMatch = url.pathname.match(/^\/api\/outbound-drafts\/([^/]+)\/schedule$/);
+      if (request.method === "POST" && draftScheduleMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const scheduledAt = optionalIso(payload.scheduled_at);
+        if (!scheduledAt) return sendJson(response, { error: "scheduled_at is required." }, 400);
+        const draft = database.scheduleOutboundDraft(decodeURIComponent(draftScheduleMatch[1]), scheduledAt, decisionMetadata(payload).operator_alias || "operator:primary");
+        return sendJson(response, { ok: true, draft });
+      }
+      const draftUnscheduleMatch = url.pathname.match(/^\/api\/outbound-drafts\/([^/]+)\/cancel-schedule$/);
+      if (request.method === "POST" && draftUnscheduleMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, { ok: true, draft: database.cancelOutboundDraftSchedule(decodeURIComponent(draftUnscheduleMatch[1])) });
+      }
+      if (request.method === "POST" && url.pathname === "/api/outbound-drafts/dispatch-due") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const results: Array<{ id: string; status: string; error?: string }> = [];
+        for (const due of database.dueScheduledDrafts()) {
+          const evaluation = database.evaluateCommunicationFirewall(due.agent_id, due.channel_kind, due.contact_id);
+          if (evaluation.decision === "block") {
+            const denied = database.denyOutboundDraft(due.id, "firewall_blocked_at_dispatch");
+            results.push({ id: due.id, status: denied.status, error: "firewall_blocked" });
+            continue;
+          }
+          if (!evaluation.sendable) { results.push({ id: due.id, status: due.status, error: "channel_not_sendable" }); continue; }
+          const sent = await performDraftSend(due, false);
+          results.push({ id: due.id, status: sent.draft.status, error: sent.error });
+        }
+        return sendJson(response, { ok: true, dispatched: results.length, results });
+      }
+      // First-run sample workspace (OCX-018): operator-only synthetic data so a new
+      // user can explore the cockpit without real credentials. Clearly labeled and
+      // fully reversible.
+      if (request.method === "GET" && url.pathname === "/api/sample/status") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, database.sampleStatus());
+      }
+      if (request.method === "POST" && url.pathname === "/api/sample/load") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, { ok: true, ...database.loadSampleWorkspace() });
+      }
+      if (request.method === "POST" && url.pathname === "/api/sample/clear") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, { ok: true, ...database.clearSampleWorkspace() });
+      }
       // External-contact consent ledger (AGH-021): operator-only. Governs whether an
       // agent may directly contact a given external human, with a dry-run evaluation.
       if (request.method === "GET" && url.pathname === "/api/consent") {

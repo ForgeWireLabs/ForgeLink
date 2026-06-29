@@ -1281,3 +1281,42 @@ test("OCX-012/013/019: serves scoped, advisory summaries to agents without raw d
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("OCX-014/018: schedules reviewed-outbox drafts and loads/clears the sample workspace", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-outbox-sample-api-"));
+  const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  try {
+    // Sample workspace: load, observe synthetic records, then clear.
+    const loaded = await fetch(`${localUrl}/api/sample/load`, { method: "POST", headers: authorized() }).then((r) => r.json()) as { loaded: boolean; counts: { approvals: number } };
+    assert.equal(loaded.loaded, true);
+    assert.ok(loaded.counts.approvals >= 1);
+    const status = await fetch(`${localUrl}/api/sample/status`, { headers: authorized() }).then((r) => r.json()) as { loaded: boolean };
+    assert.equal(status.loaded, true);
+    const withSample = await fetch(`${localUrl}/api/agent-messages`, { headers: authorized() }).then((r) => r.json()) as Array<{ id: string }>;
+    assert.ok(withSample.some((message) => message.id === "sample-approval-deploy"));
+    const cleared = await fetch(`${localUrl}/api/sample/clear`, { method: "POST", headers: authorized() }).then((r) => r.json()) as { loaded: boolean };
+    assert.equal(cleared.loaded, false);
+    const afterClear = await fetch(`${localUrl}/api/agent-messages`, { headers: authorized() }).then((r) => r.json()) as Array<{ id: string }>;
+    assert.equal(afterClear.some((message) => message.id.startsWith("sample-")), false);
+
+    // Reviewed-outbox scheduling: seed a draft, schedule it, then cancel.
+    const { draft } = database.createOutboundDraft({ agent_id: "codex", channel_id: "forgewire", channel_kind: "sms", to: "+15557654321", body: "Hello (draft)" });
+    const scheduled = await fetch(`${localUrl}/api/outbound-drafts/${draft.id}/schedule`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ scheduled_at: "2099-01-01T00:00:00.000Z" }) }).then((r) => r.json()) as { draft: { status: string } };
+    assert.equal(scheduled.draft.status, "scheduled");
+    const dispatched = await fetch(`${localUrl}/api/outbound-drafts/dispatch-due`, { method: "POST", headers: authorized() }).then((r) => r.json()) as { dispatched: number };
+    assert.equal(dispatched.dispatched, 0);
+    const canceled = await fetch(`${localUrl}/api/outbound-drafts/${draft.id}/cancel-schedule`, { method: "POST", headers: authorized() }).then((r) => r.json()) as { draft: { status: string } };
+    assert.equal(canceled.draft.status, "draft");
+
+    // Sample/outbox routes are launch-only: an MCP token cannot reach them.
+    const mcpToken = ((await (await fetch(`${localUrl}/api/mcp/token`, { method: "POST", headers: authorized() })).json()) as { token: string }).token;
+    assert.equal((await fetch(`${localUrl}/api/sample/status`, { headers: { Authorization: `Bearer ${mcpToken}` } })).status, 401);
+    assert.equal((await fetch(`${localUrl}/api/outbound-drafts/dispatch-due`, { method: "POST", headers: { Authorization: `Bearer ${mcpToken}` } })).status, 401);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

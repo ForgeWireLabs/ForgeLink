@@ -450,3 +450,25 @@ h1, h2, h3, p { margin: 0; }
   .composer-hint, .attachment-chip { margin-left: 4px; }
   .bubble { max-width: 82%; }
 }
+
+/* Reviewed outbox (OCX-014) and channel redaction previews (OCX-015) */
+.toast.sample { color: #ffe6b8; border: 1px solid rgba(255,196,84,.32); background: #2c2415; grid-template-columns: 20px 1fr; }
+.outbox-lanes { display: flex; flex-direction: column; gap: 18px; padding: 18px 24px; overflow-y: auto; }
+.outbox-list { display: flex; flex-direction: column; gap: 10px; }
+.outbox-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-raised); }
+.outbox-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.outbox-card .badge { padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; border: 1px solid var(--line-strong); color: var(--muted-bright); }
+.outbox-card .agent-meta { color: var(--muted); font-size: 11px; }
+.outbox-body { color: var(--text); font-size: 13px; }
+.outbox-edit { width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); }
+.outbox-meta { display: flex; flex-wrap: wrap; gap: 10px; color: var(--muted); font-size: 11px; }
+.outbox-meta .error-text { color: #ffb0bc; }
+.outbox-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.outbox-schedule { display: inline-flex; align-items: center; gap: 6px; }
+.outbox-schedule input { padding: 5px 7px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font-size: 12px; }
+.button.small { padding: 5px 10px; font-size: 12px; }
+.redaction-preview { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px dashed var(--line-strong); border-radius: 10px; background: rgba(255,255,255,.02); }
+.redaction-row { display: grid; grid-template-columns: 150px 1fr auto; gap: 10px; align-items: center; font-size: 12px; }
+.redaction-channel { color: var(--muted-bright); font-weight: 650; }
+.redaction-shown { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }

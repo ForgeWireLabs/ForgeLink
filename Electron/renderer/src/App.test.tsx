@@ -18,6 +18,9 @@ const callRow = { id: 1, local_call_id: "call-1", provider_kind: "voice_edge", p
 const mcpStatus = { configured: false, created_at: null, rotated_at: null, revoked_at: null, last_used_at: null, last_test_at: null, last_test_status: null, token_file: "C:\\Users\\test\\.forgelink\\api.token", token_file_present: false, bridge_server: "C:\\Projects\\TWL_phone\\mcp\\forgelink-human\\dist\\server.js", bridge_built: true, base_url: "http://127.0.0.1:5055", install_commands: { vscode: "install vscode", claude: "install claude", codex: "install codex", forgewire: "install forgewire" } };
 const agentChannel = { channel_id: "forgewire", label: "ForgeWire Fabric", enabled: true, configured: true, created_at: "2026-06-15T22:00:00.000Z", rotated_at: "2026-06-15T22:00:00.000Z", revoked_at: null, last_used_at: null, last_rejected_at: null, rejection_count: 2, rate_limited_count: 1, token_file: "C:\\Users\\test\\.forgelink\\channels\\forgewire.token", token_file_present: true };
 const attentionPolicy = { enabled: true, operator_mode: "available", quiet_hours_enabled: false, quiet_hours_start: "22:00", quiet_hours_end: "07:00", quiet_hours_allow_urgent: false, redact_notification_bodies: true, sms_notifications: "all", agent_notifications: "high_and_urgent", signal_notifications: "off", system_notifications: "all", emergency_contact_bypass: true, emergency_agent_requires_policy: true, presence_enabled: true, presence_app_focus: "unknown", presence_input: "unknown", presence_network: "unknown", presence_do_not_disturb: false, presence_paired_mobile: "unknown", muted_sources: [] };
+const outboundDraft = { id: "draft-1", agent_id: "forgewire", channel_id: "forgewire", channel_kind: "sms", to_number: "+15557654321", contact_id: 7, body: "Hi from the agent. (draft)", media_urls: "", status: "draft", firewall_decision: "require_approval", reason: "needs_review", provider_message_id: "", last_error: "", created_at: "2026-06-20T20:00:00.000Z", updated_at: "2026-06-20T20:00:00.000Z", decided_at: null, scheduled_at: null };
+let outboundDraftsFixture: Array<Record<string, unknown>>;
+let sampleStatusFixture: Record<string, unknown>;
 let messagesFixture: Array<Record<string, unknown>>;
 let olderFixture: Array<Record<string, unknown>>;
 let agentMessagesFixture: Array<Record<string, unknown>>;
@@ -32,6 +35,8 @@ let contactTimelineFixture: Array<Record<string, unknown>>;
 function response(payload: unknown, ok = true): Promise<Response> { return Promise.resolve({ ok, status: ok ? 200 : 400, json: async () => payload } as Response); }
 
 beforeEach(() => {
+  outboundDraftsFixture = [outboundDraft];
+  sampleStatusFixture = { loaded: false, counts: { contacts: 0, agents: 0, approvals: 0, outcomes: 0, channels: 0 } };
   messagesFixture = [message];
   olderFixture = [];
   agentMessagesFixture = [agentMessage];
@@ -95,6 +100,17 @@ beforeEach(() => {
     if (url.endsWith("/api/signals/subscriptions/sigsub-1/mute")) { signalSubscriptionsFixture = [{ ...signalSubscription, muted: true }]; return response({ ok: true, subscription: signalSubscriptionsFixture[0] }); }
     if (url.endsWith("/api/signals/items?limit=50")) return response(signalItemsFixture);
     if (url.endsWith("/api/signals/items/sigitem-1/archive")) { signalItemsFixture = []; return response({ ok: true, item: { ...signalItem, status: "archived" } }); }
+    if (url.endsWith("/api/outbound-drafts/dispatch-due")) return response({ ok: true, dispatched: 0, results: [] });
+    if (url.endsWith("/api/outbound-drafts/draft-1/approve-send")) { outboundDraftsFixture = [{ ...outboundDraft, status: "sent", provider_message_id: "SM-OUT", decided_at: "2026-06-20T20:05:00.000Z" }]; return response({ ok: true, draft: outboundDraftsFixture[0] }); }
+    if (url.endsWith("/api/outbound-drafts/draft-1/deny")) { outboundDraftsFixture = [{ ...outboundDraft, status: "denied", reason: "denied" }]; return response({ ok: true, draft: outboundDraftsFixture[0] }); }
+    if (url.endsWith("/api/outbound-drafts/draft-1/edit")) { const body = JSON.parse(String(init?.body || "{}")); outboundDraftsFixture = [{ ...outboundDraft, body: body.body }]; return response({ ok: true, draft: outboundDraftsFixture[0] }); }
+    if (url.endsWith("/api/outbound-drafts/draft-1/schedule")) { const body = JSON.parse(String(init?.body || "{}")); outboundDraftsFixture = [{ ...outboundDraft, status: "scheduled", scheduled_at: body.scheduled_at }]; return response({ ok: true, draft: outboundDraftsFixture[0] }); }
+    if (url.endsWith("/api/outbound-drafts/draft-1/cancel-schedule")) { outboundDraftsFixture = [outboundDraft]; return response({ ok: true, draft: outboundDraftsFixture[0] }); }
+    if (url.includes("/api/outbound-drafts")) return response(outboundDraftsFixture);
+    if (url.endsWith("/api/redaction-profiles/preview")) { const body = JSON.parse(String(init?.body || "{}")); const profile = String(body.profile || ""); const full = profile === "desktop_full"; const note = body.notification || {}; return response({ profile: { id: profile, label: profile }, notification: { title: note.title || "", body: full ? note.body || "" : "", redaction_profile: profile, redacted: !full } }); }
+    if (url.endsWith("/api/sample/status")) return response(sampleStatusFixture);
+    if (url.endsWith("/api/sample/load")) { sampleStatusFixture = { loaded: true, counts: { contacts: 3, agents: 3, approvals: 4, outcomes: 1, channels: 1 } }; return response({ ok: true, ...sampleStatusFixture }); }
+    if (url.endsWith("/api/sample/clear")) { sampleStatusFixture = { loaded: false, counts: { contacts: 0, agents: 0, approvals: 0, outcomes: 0, channels: 0 } }; return response({ ok: true, ...sampleStatusFixture }); }
     if (url.endsWith("/api/threads")) return response([thread]);
     if (url.includes("/api/contacts/points?")) return response(contactPointsFixture);
     if (url.includes("/api/contacts/timeline?")) return response(url.includes("include_agent_details=1") ? contactTimelineFixture.map(item => item.id === "agent:agent-private" ? { ...item, detail: "Deploy approval: Private body", redacted: false } : item) : contactTimelineFixture);
@@ -628,5 +644,31 @@ describe("React renderer parity", () => {
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
     await userEvent.click(await screen.findByRole("button", { name: "Import environment credentials securely" }));
     expect(window.desktop?.importEnvironment).toHaveBeenCalled();
+  });
+
+  it("reviews an agent-drafted external message, previews channel redaction, and denies it (OCX-014/015)", async () => {
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Channels" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open reviewed outbox" }));
+    await screen.findByRole("heading", { name: "Reviewed outbox" });
+    // The draft is visible and clearly separated as pending review.
+    expect(screen.getByText("Hi from the agent. (draft)")).toBeTruthy();
+    // Channel redaction preview shows what each channel reveals before dispatch.
+    await userEvent.click(screen.getByRole("button", { name: "Preview redaction across channels" }));
+    expect(await screen.findByText("Mobile lock screen")).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByText(/body hidden on this channel/).length).toBeGreaterThan(0));
+    // Denying the draft removes the pending send action.
+    await userEvent.click(screen.getByRole("button", { name: "Deny" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Approve & send" })).toBeNull());
+  });
+
+  it("loads and clears the first-run sample workspace with a synthetic-data banner (OCX-018)", async () => {
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Load sample workspace" }));
+    expect(await screen.findByText(/Sample workspace active/)).toBeTruthy();
+    expect(window.desktop?.notify).toBeDefined();
+    await userEvent.click(await screen.findByRole("button", { name: "Clear sample workspace" }));
+    await waitFor(() => expect(screen.queryByText(/Sample workspace active/)).toBeNull());
   });
 });

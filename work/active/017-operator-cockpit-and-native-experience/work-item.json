@@ -137,14 +137,18 @@
     {
       "id": "OCX-014",
       "text": "Add reviewed outbox for agent-drafted external messages with review, edit, approve, deny, schedule, and send behavior.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260629-ocx014-015-018-outbox-sample"
+      ]
     },
     {
       "id": "OCX-015",
       "text": "Add channel redaction previews so operators can see what each channel will reveal before dispatch.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260629-ocx014-015-018-outbox-sample"
+      ]
     },
     {
       "id": "OCX-016",
@@ -161,8 +165,10 @@
     {
       "id": "OCX-018",
       "text": "Add optional first-run sample workspace with fake contacts, fake agents, fake approvals, fake outcomes, and fake channel states that cannot be confused with real data.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260629-ocx014-015-018-outbox-sample"
+      ]
     },
     {
       "id": "OCX-019",
@@ -175,8 +181,10 @@
     {
       "id": "OCX-020",
       "text": "Define the distribution and update strategy for the expanded surface: code-signed desktop releases with an auto-update channel and a signed build/update path for the Tauri 2 mobile decision terminal, as a prerequisite for shipping the mobile surface (OCX-007/008) and the public demo; coordinate with item 011 PR-014 and item 030 TAURI-006.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260629-ocx020-distribution-strategy"
+      ]
     },
     {
       "id": "OCX-021",

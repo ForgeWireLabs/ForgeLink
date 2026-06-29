@@ -79,6 +79,7 @@ the table is the single place that says who owns what.
 | v21 | 016 AGH-019/020 | `communication_firewall_rules`, `agent_outbound_drafts`, `outbound_draft_events` (firewall policy + draft-don't-send reviewed outbox) | shipped |
 | v22 | 016 AGH-021 | `consent_ledger` (external-contact consent: allowed topics/channels/hours, review requirement, source, last review) | shipped |
 | v23 | 016 AGH-025 | `device_keys` (decision/audit device identity registry: public-key refs, trust state, rotation, revocation) | shipped |
+| v24 | 017 OCX-014 | `agent_outbound_drafts.scheduled_at` (scheduled sends for the reviewed outbox) | unreleased |
 
 Future allocations are appended to this table as they land. 015's dependent
 channel-adapter items (018–024) and the governance/cockpit items (016/017) all

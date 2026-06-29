@@ -195,13 +195,13 @@ The product should optimize for:
 
 ### Phase 5: External communication UX
 
-- [ ] **OCX-014 Add reviewed outbox.** Provide a visible outbox for agent-drafted
+- [x] **OCX-014 Add reviewed outbox.** Provide a visible outbox for agent-drafted
   external messages.
   - Acceptance: Drafts can be reviewed, edited, approved, denied, scheduled, or
     sent.
   - Acceptance: The UI clearly distinguishes drafts from sent messages.
 
-- [ ] **OCX-015 Add channel redaction previews.** Show what will be visible on
+- [x] **OCX-015 Add channel redaction previews.** Show what will be visible on
   each channel before dispatch.
   - Acceptance: Desktop, mobile, SMS, email, Discord/status, and other channels
     can preview their redacted payloads.
@@ -223,7 +223,7 @@ The product should optimize for:
   - Acceptance: README/docs describe Decisions, People, Agents, Channels rather
     than leading with Twilio.
 
-- [ ] **OCX-018 Add first-run sample workspace.** Provide an optional synthetic
+- [x] **OCX-018 Add first-run sample workspace.** Provide an optional synthetic
   sample mode so new users can understand the product without real credentials.
   - Acceptance: Sample mode includes fake contacts, fake agents, fake approvals,
     fake outcomes, and fake channel states.
@@ -232,7 +232,7 @@ The product should optimize for:
 ### Phase 7: Summary safety and distribution (added 2026-06-18 gap review)
 
 - [x] **OCX-019 Make local summaries injection-resistant.** Treat thread/agent content as untrusted, use injection-resistant prompting, show provenance, keep summaries advisory, and never let summarized content elevate authority or trigger actions.
-- [ ] **OCX-020 Define distribution and update strategy.** Code-signed desktop releases + auto-update channel, and a signed build/update path for the Tauri 2 mobile decision terminal, as a prerequisite for shipping the mobile surface (OCX-007/008) and the public demo; coordinate with 011 PR-014 and 030 TAURI-006.
+- [x] **OCX-020 Define distribution and update strategy.** Code-signed desktop releases + auto-update channel, and a signed build/update path for the Tauri 2 mobile decision terminal, as a prerequisite for shipping the mobile surface (OCX-007/008) and the public demo; coordinate with 011 PR-014 and 030 TAURI-006.
 
 ## Suggested UI structure
 
@@ -326,4 +326,6 @@ Add or update docs for:
 | 2026-06-27 | OCX-004/005/006 complete | Settings now saves operator mode in attention policy and shows visible local presence signals (app focus, input activity, network, manual DND, paired mobile proximity); attention evaluation uses mode/presence to route, redact, batch, and escalate notifications; backend agent-channel intake rejects ungoverned emergency claims unless the request declares emergency authority or emergency/critical risk. `docs/operator-cockpit.md`; backend build, renderer build, attention tests, compiled server tests, and 28 renderer interaction tests passed. | OCX-004, OCX-005, and OCX-006 satisfied (evidence 20260627-ocx004-006-operator-modes-presence-emergency). Next: OCX-007 Tauri-first mobile decision terminal MVP UX. |
 | 2026-06-28 | OCX-007/008 complete | Channels now exposes a shared Mobile terminal surface for the Tauri 2 decision-terminal MVP: paired status, redacted `mobile_lock_screen` alert/card, approve/deny/defer/request-more-info/short-reply actions, presence and emergency-contact state, device revoke, signed-return flow, and no private database replication. `docs/operator-cockpit.md`; renderer build, renderer interaction tests, and RepoPact/local validation passed. | OCX-007 and OCX-008 satisfied (evidence 20260628-ocx007-008-mobile-decision-terminal). Next: OCX-009 batch approvals. |
 | 2026-06-28 | OCX-009/010/011 complete | Decisions now includes a low/medium-risk batch approvals panel with select all, approve all, approve selected, deny all, and visible individual inspection; Decisions also shows a local fatigue budget for interruptions today, urgent interruptions, denials, expirations, average response time, and repeated sources; Agents now shows advisory per-source reputation using approval, denial, expired, malformed, scope-flag, and urgent-request signals without granting authority. `docs/operator-cockpit.md`; renderer build, renderer interaction tests, full Electron test suite, and RepoPact/local validation passed. | OCX-009, OCX-010, and OCX-011 satisfied (evidence 20260628-ocx009-011-interruption-cost). Next: OCX-012 local semantic thread summaries. |
+| 2026-06-29 | OCX-014/015/018 complete | New cockpit reviewed outbox (Channels → Reviewed outbox) lists agent-drafted external messages in pending/scheduled/sent/denied/failed lanes with review, edit, approve-and-send, deny, and schedule actions backed by the AGH-020 draft-don't-send engine; scheduled sends add schema v24 (`agent_outbound_drafts.scheduled_at`) and dispatch on outbox refresh. Each draft can preview its redacted payload across desktop/mobile/email/SMS/Discord profiles before dispatch (OCX-015). A first-run sample workspace (Settings) seeds clearly-synthetic contacts, agents, approvals, an outcome, and a channel state (reserved +1 202 555-0100 numbers, `sample-` ids), shows a persistent banner, and clears cleanly without touching real data or the audit chain. `docs/operator-cockpit.md`; backend build, summarizer/server/database tests (incl. scheduling, sample load/clear, v24 migration column), 33 renderer interaction tests, full Electron suite, and RepoPact/local validation passed. | OCX-014, OCX-015, and OCX-018 satisfied (evidence 20260629-ocx014-015-018-outbox-sample). |
+| 2026-06-29 | OCX-020 complete | Defined the distribution and update strategy in `docs/distribution-and-update-strategy.md`: code-signed desktop releases with an electron-updater auto-update channel (operator opt-out, packaged-only) and a signed Tauri 2 mobile build/update path (store-distributed, pairing-not-replication), with the gates required before shipping the mobile surface (OCX-007/008) and the public demo (OCX-016). Coordinates with item 011 PR-014 (desktop signing/feed) and item 030 TAURI-006 (Tauri distribution + Electron retirement). Strategy/definition deliverable; no shipped behavior claimed beyond what PR-014 has landed. RepoPact/local validation passed. | OCX-020 satisfied (evidence 20260629-ocx020-distribution-strategy). Phase 5 and Phase 7 distribution complete; remaining: OCX-016 killer demo and OCX-017 public screenshots. |
 | 2026-06-29 | OCX-012/019/013 complete | New backend `summary.ts` derives local, advisory thread summaries (what happened, open decisions, pending replies, last operator action, agent-relevant constraints) with a deterministic extractive pass — no model call, cloud summarization opt-in only and not enabled. Summaries treat thread content as untrusted: excerpts are sanitized and labeled, summaries carry provenance and an advisory notice, always report `authority: "none"`, and never grant authority or trigger actions (a documented injection-resistant prompt scaffold gates any future cloud path). New scoped resources `GET /api/threads/:id/summary`, `/api/contacts/summary`, `/api/agent-status`, `/api/pending-approvals` and MCP tools `get_thread_summary`/`get_contact_summary`/`get_agent_status`/`get_pending_approvals` expose redacted, derived views only; the scoped thread summary drops excerpts, contact summaries omit bodies and phone numbers, and no dump-all-messages resource exists. `docs/operator-cockpit.md`; backend build, 6 summarizer unit tests, compiled server tests (incl. scoped/MCP-safe access), MCP server tests, full Electron test suite, and RepoPact/local validation passed. | OCX-012, OCX-019, and OCX-013 satisfied (evidence 20260629-ocx012-019-013-thread-summaries). Phase 4 complete; next: OCX-014 reviewed outbox. |

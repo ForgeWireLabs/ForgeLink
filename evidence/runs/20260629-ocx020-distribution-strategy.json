@@ -1,0 +1,26 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260629-ocx020-distribution-strategy",
+  "timestamp": "2026-06-29T00:00:00Z",
+  "work_item": "017",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact plus ForgeLink local validation passed, including markdown link and last_verified checks for the new distribution-and-update-strategy doc."
+    }
+  ],
+  "artifacts": [
+    "docs/distribution-and-update-strategy.md",
+    "CHANGELOG.md",
+    "work/active/017-operator-cockpit-and-native-experience/README.md",
+    "work/active/017-operator-cockpit-and-native-experience/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "OCX-020 is a strategy/definition deliverable. The doc defines code-signed desktop releases with an electron-updater auto-update channel (operator opt-out via FORGELINK_DISABLE_UPDATES, packaged-only via updates.js) and a signed Tauri 2 mobile build/update path, plus the gates before shipping the mobile surface and public demo. Concrete desktop signing/feed work stays owned by item 011 PR-014 and Tauri distribution by item 030 TAURI-006; no unshipped behavior is described as shipped."
+  }
+}

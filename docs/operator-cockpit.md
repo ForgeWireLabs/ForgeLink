@@ -175,6 +175,40 @@ communication history. There is intentionally no dump-all-messages resource.
 The scoped summary served to agents drops the message excerpts that the operator
 summary includes, so a scoped resource can never become a raw communication dump.
 
+## Reviewed Outbox
+
+Agent-drafted external messages do not send silently. They land in a reviewed
+outbox (Channels → Reviewed outbox) where the operator can review, edit, approve
+and send, deny, or schedule each draft. Pending drafts are kept in a separate lane
+from sent, scheduled, denied, and failed messages so a draft is never mistaken for
+something already delivered.
+
+The outbox is backed by the draft-don't-send firewall: the firewall is re-checked
+at send time, and every draft keeps its own lifecycle audit. Scheduling holds an
+approved draft with a send time; ForgeLink dispatches due scheduled drafts when the
+outbox is refreshed (there is no background timer), and a scheduled draft can be
+returned to the pending lane before it sends.
+
+## Channel Redaction Previews
+
+Before an external message is dispatched, the operator can preview exactly what
+each channel will reveal. The preview renders the draft through the canonical
+redaction profiles — desktop (full), mobile lock screen, email summary, SMS
+fallback, and Discord/status — and marks each as full or redacted. This makes the
+redaction boundary visible at the moment of sending rather than only in settings.
+
+## Sample Workspace
+
+A new operator can load an optional first-run sample workspace (Settings → Sample
+workspace) to explore the cockpit without real credentials or data. It seeds
+synthetic contacts, agents across trust states, approvals, an outcome, and a
+channel state. Every sample record is unmistakably synthetic: names are suffixed
+"(sample)", contact numbers use the reserved +1 (202) 555-0100 fictional range,
+and agents/approvals are prefixed `sample-`. A persistent banner marks sample mode
+while it is active, and clearing the workspace removes only the synthetic records —
+real data is never touched. Sample approvals are illustrative and are deliberately
+kept out of the tamper-evident audit chain.
+
 ## Decision Triage
 
 The Decisions surface is split into lanes:

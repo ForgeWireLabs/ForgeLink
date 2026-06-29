@@ -6,7 +6,7 @@ import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 import { CLOUD_SUMMARY_DISABLED, SUMMARY_CONTENT_TRUST, SUMMARY_NOTICE, SUMMARY_PROVENANCE, summarizeThread, ThreadSummary } from "./summary";
 
-export const CURRENT_SCHEMA_VERSION = 23;
+export const CURRENT_SCHEMA_VERSION = 24;
 
 export interface ThreadRow {
   id: number;
@@ -318,6 +318,15 @@ export interface DecisionRecordRow {
 // approve, or a custom approval option) is treated as granting the request's
 // required authority.
 const DENIAL_DECISIONS = new Set(["deny", "dismiss", "reject", "decline", "cancel"]);
+
+// First-run sample workspace (work item 017, OCX-018). Every sample record is
+// unmistakably synthetic: contact numbers live in the reserved +1 (202) 555-0100
+// fictional range, and agents, channels, approvals, outcomes, and decisions are
+// prefixed "sample-". Sample approvals are deliberately written straight to the
+// tables and never into the tamper-evident audit chain, so the workspace can be
+// removed cleanly and never pollutes the real governance log.
+const SAMPLE_NUMBER_PREFIX = "+1202555010";
+const SAMPLE_PREFIX = "sample-";
 
 // Tamper-evident local audit chain (work item 016, AGH-016): an append-only,
 // hash-linked log of governance records (approval requests, evidence packs,
@@ -649,7 +658,7 @@ export interface OutboundDraftRow {
   contact_id: number | null;
   body: string;
   media_urls: string;
-  status: string;              // draft | sent | denied | failed
+  status: string;              // draft | scheduled | sent | denied | failed
   firewall_decision: string;
   reason: string;
   provider_message_id: string;
@@ -657,6 +666,7 @@ export interface OutboundDraftRow {
   created_at: string;
   updated_at: string;
   decided_at: string | null;
+  scheduled_at: string | null;
 }
 
 export interface OutboundDraftEventRow {
@@ -1385,6 +1395,17 @@ export class PhoneDatabase {
         version = 23;
         this.connection.exec("PRAGMA user_version=23");
       }
+      if (version === 23) {
+        // Scheduled sends for the reviewed outbox (work item 017, OCX-014; schema
+        // v24 per decision 0011). An approved draft can be held with a send time;
+        // ForgeLink dispatches it when due. Append-only column on the existing
+        // reviewed-outbox table; existing drafts keep scheduled_at NULL.
+        this.connection.exec(`
+          ALTER TABLE agent_outbound_drafts ADD COLUMN scheduled_at TEXT;
+        `);
+        version = 24;
+        this.connection.exec("PRAGMA user_version=24");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -1482,6 +1503,115 @@ export class PhoneDatabase {
       }
     }
     return names;
+  }
+
+  // --- First-run sample workspace (work item 017, OCX-018) --------------------
+
+  sampleStatus(): { loaded: boolean; counts: { contacts: number; agents: number; approvals: number; outcomes: number; channels: number } } {
+    const count = (sql: string, arg: string): number => (this.connection.prepare(sql).get(arg) as { n: number }).n;
+    const counts = {
+      contacts: count("SELECT COUNT(*) AS n FROM contacts WHERE number LIKE ?", `${SAMPLE_NUMBER_PREFIX}%`),
+      agents: count("SELECT COUNT(*) AS n FROM agent_identities WHERE id LIKE ?", `${SAMPLE_PREFIX}%`),
+      approvals: count("SELECT COUNT(*) AS n FROM agent_messages WHERE id LIKE ?", `${SAMPLE_PREFIX}%`),
+      outcomes: count("SELECT COUNT(*) AS n FROM approval_outcomes WHERE approval_request_id LIKE ?", `${SAMPLE_PREFIX}%`),
+      channels: count("SELECT COUNT(*) AS n FROM agent_channels WHERE channel_id LIKE ?", `${SAMPLE_PREFIX}%`)
+    };
+    return { loaded: Object.values(counts).some((value) => value > 0), counts };
+  }
+
+  // Direct insert of a sample agent message. Bypasses addAgentMessage on purpose so
+  // sample approvals never enter the audit chain and can be deleted cleanly.
+  private insertSampleAgentMessage(row: { id: string; source: string; kind: string; urgency: string; title: string; body: string; status: AgentMessageStatus; created_at: string; expires_at?: string | null; risk?: string; required_authority?: string; decision_options?: AgentAction[]; evidence_pack?: Record<string, unknown> }): void {
+    this.connection.prepare(`
+      INSERT INTO agent_messages(
+        id, channel_id, source, kind, urgency, title, body, actions, status, action_result, created_at, expires_at,
+        intent, requested_action, reason_for_interrupt, risk, required_authority, to_human,
+        affected_resources, timeout_behavior, deny_behavior, decision_options, template_id, evidence_pack,
+        interruption_policy, escalation_behavior, expected_response_time, no_response_behavior, can_batch, can_wait_until, last_error
+      ) VALUES(?, 'sample-demo', ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, 'operator:primary', '[]', ?, ?, ?, ?, ?, '', '', '', '', 0, NULL, '')
+    `).run(
+      row.id, row.source, row.kind, row.urgency, row.title, row.body,
+      JSON.stringify(row.decision_options || []), row.status, row.created_at, row.expires_at || null,
+      row.kind === "approval_request" ? row.title : "", row.kind === "approval_request" ? "Synthetic sample action." : "",
+      row.kind === "approval_request" ? "Sample request for the demo workspace." : "",
+      row.risk || "", row.required_authority || "",
+      row.kind === "approval_request" ? "deny_on_timeout" : "", row.kind === "approval_request" ? "do_not_run" : "",
+      JSON.stringify(row.decision_options || []), row.kind === "approval_request" ? "file_write" : "",
+      JSON.stringify(row.evidence_pack || {})
+    );
+  }
+
+  // Optional first-run synthetic workspace so a new operator can see the product
+  // without real credentials or data. Idempotent: loading twice is a no-op.
+  loadSampleWorkspace(): ReturnType<PhoneDatabase["sampleStatus"]> {
+    if (this.sampleStatus().loaded) return this.sampleStatus();
+    const now = utcNow();
+    const anHourAgo = new Date(Date.now() - 3_600_000).toISOString();
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString();
+    // No outer transaction: the helpers below (upsertContact, addMessage, ...) each
+    // open their own, and node:sqlite forbids nested transactions. Partial loads are
+    // detectable via sampleStatus() and fully removable via clearSampleWorkspace().
+    {
+      const dana = this.upsertContact("Dana Rivers (sample)", `${SAMPLE_NUMBER_PREFIX}0`);
+      this.updateContact(dana, { relationship: "family", trust_level: "trusted", tags: "sample" });
+      const vendor = this.upsertContact("Acme Vendor (sample)", `${SAMPLE_NUMBER_PREFIX}1`);
+      this.updateContact(vendor, { relationship: "external", trust_level: "unknown", company: "Acme (sample)", tags: "sample" });
+      const caller = this.upsertContact("Unverified Caller (sample)", `${SAMPLE_NUMBER_PREFIX}2`);
+      this.updateContact(caller, { relationship: "unknown", trust_level: "unknown", tags: "sample" });
+
+      this.addMessage({ id: "sample-sms-1", number: `${SAMPLE_NUMBER_PREFIX}0`, direction: "inbound", body: "Are we still on for dinner Friday? (sample)", status: "received", ts: anHourAgo });
+      this.addMessage({ id: "sample-sms-2", number: `${SAMPLE_NUMBER_PREFIX}0`, direction: "outbound", body: "Yes - 7pm works. (sample)", status: "delivered", ts: now });
+
+      this.upsertAgentIdentity({ id: "sample-codex", display_name: "Codex (sample)", source_kind: "mcp", trust_state: "trusted" });
+      this.upsertAgentIdentity({ id: "sample-forgewire", display_name: "ForgeWire (sample)", source_kind: "fabric", trust_state: "unknown" });
+      this.upsertAgentIdentity({ id: "sample-rogue", display_name: "Noisy Bot (sample)", source_kind: "mcp", trust_state: "muted" });
+
+      this.setAgentChannelCredential("sample-demo", "Sample channel", createHash("sha256").update("sample-demo-credential").digest("hex"));
+
+      const evidence = { summary: "Deploy build 482 to staging. (sample)", affected_resources: ["service:web (sample)"], diff_summary: "12 files changed (sample).", proposed_operation: "Promote build 482 to staging.", checks: ["tests passed (sample)"], rollback_plan: "Redeploy previous build (sample).", links: ["local://sample-evidence"], limitations: "Synthetic sample only.", redaction_profile: "desktop_full" };
+      const options: AgentAction[] = [{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }];
+      this.insertSampleAgentMessage({ id: "sample-approval-deploy", source: "sample-codex", kind: "approval_request", urgency: "normal", title: "Approve staging deploy (sample)", body: "Codex requests approval to deploy build 482 to staging. (sample)", status: "unread", created_at: now, risk: "normal", required_authority: "general_approval", decision_options: options, evidence_pack: evidence });
+      this.insertSampleAgentMessage({ id: "sample-approval-release", source: "sample-forgewire", kind: "approval_request", urgency: "high", title: "Publish GitHub release (sample)", body: "ForgeWire requests approval to publish release v2.1.0. (sample)", status: "acted", created_at: anHourAgo, risk: "high", required_authority: "general_approval", decision_options: options, evidence_pack: { ...evidence, summary: "Publish release v2.1.0. (sample)" } });
+      this.insertSampleAgentMessage({ id: "sample-note", source: "sample-codex", kind: "status_update", urgency: "low", title: "Nightly build finished (sample)", body: "All checks green. No action needed. (sample)", status: "read", created_at: anHourAgo });
+      this.insertSampleAgentMessage({ id: "sample-approval-expired", source: "sample-rogue", kind: "approval_request", urgency: "normal", title: "Expired request (sample)", body: "This sample request expired before a decision. (sample)", status: "expired", created_at: yesterday, expires_at: yesterday, risk: "normal", required_authority: "general_approval", decision_options: options, evidence_pack: evidence });
+
+      this.connection.prepare("INSERT INTO approval_outcomes(id, approval_request_id, source, outcome_state, outcome_summary, scope_match, reported_resources, reported_at) VALUES(?, ?, ?, ?, ?, 1, ?, ?)")
+        .run("sample-outcome-release", "sample-approval-release", "sample-forgewire", "succeeded", "Release v2.1.0 published. (sample)", JSON.stringify(["service:web (sample)"]), now);
+      this.connection.prepare("INSERT INTO decision_records(id, approval_request_id, operator_alias, device_id, decision, selected_options, decision_comment, authority_grant, request_hash, evidence_hash, decision_hash, decided_at) VALUES(?, ?, 'operator:primary', '', 'approve', ?, 'Sample decision.', 'general_approval', 'sample', 'sample', 'sample', ?)")
+        .run("sample-decision-release", "sample-approval-release", JSON.stringify(["approve"]), anHourAgo);
+    }
+    return this.sampleStatus();
+  }
+
+  // Remove every sample record. Scoped strictly to the synthetic markers, so real
+  // operator data is untouched.
+  clearSampleWorkspace(): ReturnType<PhoneDatabase["sampleStatus"]> {
+    const numberLike = `${SAMPLE_NUMBER_PREFIX}%`;
+    const prefix = `${SAMPLE_PREFIX}%`;
+    this.connection.exec("BEGIN IMMEDIATE");
+    try {
+      this.connection.prepare("DELETE FROM agent_message_events WHERE message_id LIKE ?").run(prefix);
+      this.connection.prepare("DELETE FROM approval_outcomes WHERE approval_request_id LIKE ?").run(prefix);
+      this.connection.prepare("DELETE FROM decision_records WHERE approval_request_id LIKE ?").run(prefix);
+      this.connection.prepare("DELETE FROM agent_messages WHERE id LIKE ?").run(prefix);
+      this.connection.prepare("DELETE FROM agent_trust_events WHERE agent_id LIKE ?").run(prefix);
+      this.connection.prepare("DELETE FROM agent_identities WHERE id LIKE ?").run(prefix);
+      this.connection.prepare("DELETE FROM agent_channel_events WHERE channel_id LIKE ?").run(prefix);
+      this.connection.prepare("DELETE FROM agent_channels WHERE channel_id LIKE ?").run(prefix);
+      this.connection.prepare("DELETE FROM outbound_draft_events WHERE draft_id LIKE ?").run(prefix);
+      this.connection.prepare("DELETE FROM agent_outbound_drafts WHERE id LIKE ?").run(prefix);
+      this.connection.prepare("DELETE FROM drafts WHERE thread_id IN (SELECT id FROM threads WHERE canonical_number LIKE ?)").run(numberLike);
+      this.connection.prepare("DELETE FROM messages WHERE thread_id IN (SELECT id FROM threads WHERE canonical_number LIKE ?)").run(numberLike);
+      this.connection.prepare("DELETE FROM threads WHERE canonical_number LIKE ?").run(numberLike);
+      this.connection.prepare("DELETE FROM contact_points WHERE contact_id IN (SELECT id FROM contacts WHERE number LIKE ?)").run(numberLike);
+      this.connection.prepare("DELETE FROM contact_policy WHERE contact_id IN (SELECT id FROM contacts WHERE number LIKE ?)").run(numberLike);
+      this.connection.prepare("DELETE FROM contacts WHERE number LIKE ?").run(numberLike);
+      this.connection.exec("COMMIT");
+    } catch (error) {
+      this.connection.exec("ROLLBACK");
+      throw error;
+    }
+    return this.sampleStatus();
   }
 
   close(): void { this.connection.close(); }
@@ -2721,6 +2851,40 @@ export class PhoneDatabase {
     this.connection.prepare("UPDATE agent_outbound_drafts SET status='denied', reason=?, decided_at=?, updated_at=? WHERE id=?").run(String(reason || "denied").slice(0, 500), now, now, id);
     this.recordDraftEvent(id, "draft_denied", { reason: String(reason || "") }, now);
     return this.outboundDraft(id)!;
+  }
+
+  // Hold an approved draft for a future send (OCX-014). Records the operator's
+  // authorization now and parks the draft as `scheduled`; dueScheduledDrafts()
+  // surfaces it for dispatch once the time arrives.
+  scheduleOutboundDraft(id: string, scheduledAt: string, operatorAlias = "operator:primary"): OutboundDraftRow {
+    const draft = this.outboundDraft(id);
+    if (!draft) throw new Error("Outbound draft not found.");
+    if (draft.status !== "draft") throw new Error("Only pending drafts can be scheduled.");
+    const when = new Date(scheduledAt).getTime();
+    if (!Number.isFinite(when)) throw new Error("scheduled_at must be an ISO timestamp.");
+    const iso = new Date(when).toISOString();
+    const now = utcNow();
+    this.connection.prepare("UPDATE agent_outbound_drafts SET status='scheduled', scheduled_at=?, updated_at=? WHERE id=?").run(iso, now, id);
+    this.recordDraftEvent(id, "draft_scheduled", { operator_alias: operatorAlias, scheduled_at: iso }, now);
+    return this.outboundDraft(id)!;
+  }
+
+  // Return a scheduled draft to the pending (draft) lane (OCX-014).
+  cancelOutboundDraftSchedule(id: string): OutboundDraftRow {
+    const draft = this.outboundDraft(id);
+    if (!draft) throw new Error("Outbound draft not found.");
+    if (draft.status !== "scheduled") throw new Error("Only scheduled drafts can be unscheduled.");
+    const now = utcNow();
+    this.connection.prepare("UPDATE agent_outbound_drafts SET status='draft', scheduled_at=NULL, updated_at=? WHERE id=?").run(now, id);
+    this.recordDraftEvent(id, "draft_schedule_canceled", {}, now);
+    return this.outboundDraft(id)!;
+  }
+
+  // Scheduled drafts whose send time has arrived. The server sweeps these and
+  // dispatches each through the channel registry (no background timer; the sweep
+  // runs when the operator opens or refreshes the reviewed outbox).
+  dueScheduledDrafts(nowValue = utcNow()): OutboundDraftRow[] {
+    return this.connection.prepare("SELECT * FROM agent_outbound_drafts WHERE status='scheduled' AND scheduled_at IS NOT NULL AND scheduled_at <= ? ORDER BY scheduled_at ASC, id ASC").all(nowValue) as unknown as OutboundDraftRow[];
   }
 
   markOutboundDraftSent(id: string, providerMessageId: string, viaAllowRule = false): OutboundDraftRow {

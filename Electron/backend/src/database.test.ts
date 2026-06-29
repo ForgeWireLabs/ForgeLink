@@ -146,6 +146,8 @@ test("upgrades a version-seven (pre-015) database to the current schema without 
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='consent_ledger'").get() as { name: string } | undefined)?.name, "consent_ledger");
     // v23 (016 AGH-025) adds the decision/audit device key registry.
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='device_keys'").get() as { name: string } | undefined)?.name, "device_keys");
+    // v24 (017 OCX-014) adds the scheduled-send column to the reviewed outbox.
+    assert.equal(new Set((database.connection.prepare("PRAGMA table_info(agent_outbound_drafts)").all() as Array<{ name: string }>).map((column) => column.name)).has("scheduled_at"), true);
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -1249,5 +1251,57 @@ test("builds contact timeline while redacting private agent details by default (
     const revealedAgent = revealed.find(item => item.kind === "agent")!;
     assert.equal(revealedAgent.redacted, false);
     assert.match(revealedAgent.detail, /Private approval body/);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// First-run sample workspace (work item 017, OCX-018): synthetic, clearly-labeled,
+// reversible.
+test("loads and clears a synthetic sample workspace without touching real data (OCX-018)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-sample-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    // A real contact and a real agent message must survive sample load/clear.
+    const realContact = database.upsertContact("Real Person", "+15551112222");
+    database.addMessage({ id: "real-sms", number: "+15551112222", direction: "inbound", body: "real", status: "received" });
+
+    assert.equal(database.sampleStatus().loaded, false);
+    const loaded = database.loadSampleWorkspace();
+    assert.equal(loaded.loaded, true);
+    assert.ok(loaded.counts.contacts >= 3 && loaded.counts.agents >= 3 && loaded.counts.approvals >= 4);
+    // Sample approvals exist but never entered the tamper-evident audit chain.
+    assert.ok(database.agentMessages().some((message) => message.id === "sample-approval-deploy"));
+    assert.equal(database.auditChain("sample-approval-deploy").length, 0);
+    // Loading twice is idempotent.
+    const reload = database.loadSampleWorkspace();
+    assert.equal(reload.counts.approvals, loaded.counts.approvals);
+
+    const cleared = database.clearSampleWorkspace();
+    assert.equal(cleared.loaded, false);
+    assert.equal(database.agentMessages().filter((message) => message.id.startsWith("sample-")).length, 0);
+    // Real data is untouched.
+    assert.ok(database.contacts().some((contact) => contact.id === realContact));
+    assert.equal(database.messages(database.threads().find((thread) => thread.canonical_number === "+15551112222")!.id)[0].body, "real");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// Scheduled sends for the reviewed outbox (work item 017, OCX-014).
+test("schedules, surfaces due, and cancels reviewed-outbox sends (OCX-014)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-schedule-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const { draft } = database.createOutboundDraft({ agent_id: "codex", channel_id: "forgewire", channel_kind: "sms", to: "+15557654321", body: "Hello (draft)" });
+    assert.equal(draft.status, "draft");
+    const past = new Date(Date.now() - 60_000).toISOString();
+    const scheduled = database.scheduleOutboundDraft(draft.id, past);
+    assert.equal(scheduled.status, "scheduled");
+    assert.equal(scheduled.scheduled_at, past);
+    // A due scheduled draft is surfaced for dispatch.
+    assert.ok(database.dueScheduledDrafts().some((row) => row.id === draft.id));
+    // A future draft is not due yet.
+    const future = database.createOutboundDraft({ agent_id: "codex", channel_id: "forgewire", channel_kind: "sms", to: "+15557654321", body: "Later (draft)" }).draft;
+    database.scheduleOutboundDraft(future.id, "2099-01-01T00:00:00.000Z");
+    assert.equal(database.dueScheduledDrafts().some((row) => row.id === future.id), false);
+    // Cancelling returns a draft to the pending lane.
+    assert.equal(database.cancelOutboundDraftSchedule(draft.id).status, "draft");
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });

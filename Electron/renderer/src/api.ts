@@ -1,4 +1,4 @@
-import type { AgentMessage, BackendConnection, CallRow, ConfigStatus, Contact, ContactPoint, ContactPolicy, ContactTimelineItem, DataStatus, Message, RetentionResult, SignalItem, SignalSubscription, Thread } from "./types";
+import type { AgentMessage, BackendConnection, CallRow, ConfigStatus, Contact, ContactPoint, ContactPolicy, ContactTimelineItem, DataStatus, Message, OutboundDraft, OutboundDraftEvent, RedactionPreview, RedactionProfileSpec, RetentionResult, SampleStatus, SignalItem, SignalSubscription, Thread } from "./types";
 
 export class PhoneApi {
   constructor(private connection: () => BackendConnection) {}
@@ -53,4 +53,20 @@ export class PhoneApi {
   restoreLatestBackup = () => this.request<{ ok: true; name: string }>("/api/data/restore-latest", { method: "POST" });
   exportData = () => this.request<{ ok: true; name: string }>("/api/data/export", { method: "POST" });
   applyRetention = (days: number) => this.request<RetentionResult>("/api/data/retention", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ days }) });
+  // Reviewed outbox for agent-drafted external messages (OCX-014).
+  outboundDrafts = (status?: string) => this.request<OutboundDraft[]>(`/api/outbound-drafts${status ? `?status=${encodeURIComponent(status)}` : ""}`);
+  outboundDraftEvents = (id: string) => this.request<OutboundDraftEvent[]>(`/api/outbound-drafts/${encodeURIComponent(id)}/events`);
+  editOutboundDraft = (id: string, body: string, mediaUrls: string[] = []) => this.request<{ ok: true; draft: OutboundDraft }>(`/api/outbound-drafts/${encodeURIComponent(id)}/edit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body, media_urls: mediaUrls }) });
+  denyOutboundDraft = (id: string, reason = "denied") => this.request<{ ok: true; draft: OutboundDraft }>(`/api/outbound-drafts/${encodeURIComponent(id)}/deny`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
+  approveSendOutboundDraft = (id: string) => this.request<{ ok: boolean; draft: OutboundDraft; error?: string }>(`/api/outbound-drafts/${encodeURIComponent(id)}/approve-send`, { method: "POST" });
+  scheduleOutboundDraft = (id: string, scheduledAt: string) => this.request<{ ok: true; draft: OutboundDraft }>(`/api/outbound-drafts/${encodeURIComponent(id)}/schedule`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scheduled_at: scheduledAt }) });
+  cancelOutboundDraftSchedule = (id: string) => this.request<{ ok: true; draft: OutboundDraft }>(`/api/outbound-drafts/${encodeURIComponent(id)}/cancel-schedule`, { method: "POST" });
+  dispatchDueDrafts = () => this.request<{ ok: true; dispatched: number; results: Array<{ id: string; status: string; error?: string }> }>("/api/outbound-drafts/dispatch-due", { method: "POST" });
+  // Channel redaction previews (OCX-015).
+  redactionProfiles = () => this.request<RedactionProfileSpec[]>("/api/redaction-profiles");
+  previewRedaction = (profile: string, title: string, body: string) => this.request<RedactionPreview>("/api/redaction-profiles/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile, notification: { title, body } }) });
+  // First-run sample workspace (OCX-018).
+  sampleStatus = () => this.request<SampleStatus>("/api/sample/status");
+  loadSample = () => this.request<{ ok: true } & SampleStatus>("/api/sample/load", { method: "POST" });
+  clearSample = () => this.request<{ ok: true } & SampleStatus>("/api/sample/clear", { method: "POST" });
 }

@@ -7,6 +7,23 @@ versions tracked in `VERSION` and `Electron/package.json`.
 ## [Unreleased]
 
 ### Added
+- Reviewed outbox: agent-drafted external messages appear in a cockpit outbox
+  (Channels → Reviewed outbox) where the operator can review, edit, approve and
+  send, deny, or schedule each draft, with pending drafts kept separate from sent
+  messages. Scheduled sends are held with a send time and dispatched on outbox
+  refresh (schema v24 adds the scheduled-send column) (OCX-014).
+- Channel redaction previews: before dispatch, the outbox can preview what each
+  channel (desktop, mobile lock screen, email, SMS fallback, Discord/status) will
+  reveal, marking each as full or redacted (OCX-015).
+- First-run sample workspace: an optional synthetic workspace (Settings → Sample
+  workspace) seeds clearly-labeled fake contacts, agents, approvals, an outcome,
+  and a channel state so a new operator can explore the cockpit without real
+  credentials. A banner marks sample mode and clearing removes only synthetic
+  records (OCX-018).
+- Distribution and update strategy: documented the code-signed desktop release +
+  auto-update model and the signed Tauri 2 mobile build/update path, with the
+  gates required before shipping the mobile surface and public demo; coordinates
+  with item 011 PR-014 and item 030 TAURI-006 (OCX-020).
 - Local semantic thread summaries: ForgeLink derives an advisory, locally
   computed summary for any thread (what happened, open decisions, pending
   replies, last operator action, and agent-relevant constraints). Summaries are

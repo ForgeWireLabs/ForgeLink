@@ -1,4 +1,4 @@
-export type View = "decisions" | "people" | "agents" | "channels" | "messages" | "calls" | "signals" | "mobile" | "settings";
+export type View = "decisions" | "people" | "agents" | "channels" | "messages" | "calls" | "signals" | "mobile" | "outbox" | "settings";
 
 export interface Thread { id: number; canonical_number: string; name?: string; last_msg_ts?: string; unread_count?: number; }
 export interface Contact { id: number; name: string; number: string; company?: string; role?: string; tags?: string; notes?: string; trust_level?: string; pinned?: number; favorite?: number; }
@@ -19,7 +19,9 @@ export interface ReplayStep { step: "request_received" | "risk_classified" | "ev
 export interface ApprovalReplay { approval_request_id: string; redaction_profile: string; redacted: boolean; decided: boolean; final_state: string; steps: ReplayStep[]; audit: AuditChainEntry[]; audit_verification: AuditChainVerification; }
 export interface CommunicationFirewallRule { id: string; agent_id: string; contact_id: number | null; channel_kind: string; rule_kind: string; policy_json: string; enabled: number; created_at: string; updated_at: string; }
 export interface FirewallEvaluation { decision: "block" | "draft_only" | "require_approval" | "allow"; matched_rule_id: string | null; reason: string; sendable: boolean; }
-export interface OutboundDraft { id: string; agent_id: string; channel_id: string; channel_kind: string; to_number: string; contact_id: number | null; body: string; media_urls: string; status: string; firewall_decision: string; reason: string; provider_message_id: string; last_error: string; created_at: string; updated_at: string; decided_at: string | null; }
+export interface OutboundDraft { id: string; agent_id: string; channel_id: string; channel_kind: string; to_number: string; contact_id: number | null; body: string; media_urls: string; status: string; firewall_decision: string; reason: string; provider_message_id: string; last_error: string; created_at: string; updated_at: string; decided_at: string | null; scheduled_at: string | null; }
+export interface SampleStatus { loaded: boolean; counts: { contacts: number; agents: number; approvals: number; outcomes: number; channels: number }; }
+export interface RedactionPreview { profile: RedactionProfileSpec; notification: { title: string; body: string; redaction_profile: string; redacted: boolean } | null; }
 export interface OutboundDraftEvent { id: number; draft_id: string; event_type: string; detail: string; created_at: string; }
 export interface ContactConsent { id: string; contact_id: number; agent_id: string; allowed_topics: string; allowed_channels: string; allowed_hours: string; requires_review: number; consent_source: string; last_reviewed_at: string | null; created_at: string; updated_at: string; }
 export interface ContactConsentDecision { allowed: boolean; reason: string; requires_review: boolean; has_record: boolean; consent_id: string | null; }
