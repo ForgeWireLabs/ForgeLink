@@ -1,0 +1,35 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260629-tauri009-operator-status-live-smoke",
+  "timestamp": "2026-06-29T23:43:12Z",
+  "work_item": "030",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "node backend-dist/index.js --host 127.0.0.1 --port 5099 (env: FORGELINK_API_TOKEN, FORGELINK_DATA_DIR=temp, FORGELINK_OPERATOR_STATUS_SCRIPT=C:\\Projects\\moto-one-hyper\\scripts\\show_forgelink_operator_status.ps1)",
+      "exit_code": 0,
+      "summary": "ForgeLink backend started; /health returned 200 on port 5099."
+    },
+    {
+      "command": "GET http://127.0.0.1:5099/api/device/operator-status?request_id=manual-forgelink-smoke-001 (Bearer launch token)",
+      "exit_code": 0,
+      "summary": "HTTP 200 with ok:true LIVE payload: bridge_version rom_lab.forgelink_operator_status.v1, device Android 15 / SDK 35 / ranchu, boot.completed true, packages.count 40, request_id echoed, generated_at 2026-06-29T23:43:12Z (distinct from the sample fixture's 18:29:13Z, confirming live emulator data through the wrapper)."
+    },
+    {
+      "command": "esbuild renderer/src/operatorStatus.ts --bundle --format=cjs && node panel-check.js (feed the live payload through parseOperatorStatus)",
+      "exit_code": 0,
+      "summary": "The panel's parseOperatorStatus classified the live payload health=online -> 'Status: Online', Android '15 / SDK 35', top activity 'QuickstepLauncher', packages 40, bridge rom_lab.forgelink_operator_status.v1. The Device Health panel renders Online from live data, not the sample fixture."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/server.ts",
+    "Electron/renderer/src/operatorStatus.ts",
+    "Electron/renderer/src/App.tsx"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "Live end-to-end smoke of the TAURI-009 transport against the proven-healthy moto-one-hyper emulator bridge. Seam exercised: ForgeLink GET /api/device/operator-status (launch-only) -> FORGELINK_OPERATOR_STATUS_SCRIPT (show_forgelink_operator_status.ps1) -> live emulator operator-status JSON -> Android/Fabric Device Health panel Online. No code changed; this is a runtime verification. Read-only/advisory throughout; the payload grants no authority. To reproduce: set FORGELINK_OPERATOR_STATUS_SCRIPT, start the backend with a launch token, GET the endpoint with that bearer token."
+  }
+}
