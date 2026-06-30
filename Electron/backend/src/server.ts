@@ -12,6 +12,7 @@ import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, loadTwili
 import { createChannelRegistry, PLANNED_PROVIDERS } from "./channels";
 import { createTelnyxAdapter, validateTelnyxSignature } from "./telnyx";
 import { createEmailAdapter, EmailTransport, emailConfigured, emailInboundConfigured, emailQuickActionConfigured, validateEmailWebhookSignature, verifyQuickActionToken } from "./email";
+import { createPushAdapter, PushTransport, pushConfigured } from "./push";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const ALLOWED_UPLOADS = new Set([".gif", ".jpeg", ".jpg", ".pdf", ".png", ".txt", ".webp"]);
@@ -100,7 +101,7 @@ async function readForm(request: IncomingMessage): Promise<Record<string, string
   return Object.fromEntries(params.entries());
 }
 
-export interface BackendOptions { host: string; port: number; dataDir: string; apiToken: string; sendMessage?: typeof sendTwilioMessage; startCall?: typeof startTwilioCall; endCall?: typeof endTwilioCall; operatorStatus?: (requestId: string) => Promise<unknown>; emailTransport?: EmailTransport; }
+export interface BackendOptions { host: string; port: number; dataDir: string; apiToken: string; sendMessage?: typeof sendTwilioMessage; startCall?: typeof startTwilioCall; endCall?: typeof endTwilioCall; operatorStatus?: (requestId: string) => Promise<unknown>; emailTransport?: EmailTransport; pushTransport?: PushTransport; }
 
 function isPrivateRoute(pathname: string): boolean {
   return pathname === "/health" || pathname === "/upload" || pathname.startsWith("/api/");
@@ -378,6 +379,11 @@ export function createBackend(options: BackendOptions): { server: Server; databa
   // approval loop.
   const emailAdapter = createEmailAdapter(options.emailTransport);
   if (emailConfigured()) channels.register(emailAdapter);
+  // Push notification channel (work item 019, PUSH-002): registered only when a
+  // provider topic is configured. Notification-only and redacted (lock-screen-safe
+  // by default); never carries private communication state or approval authority.
+  const pushAdapter = createPushAdapter(options.pushTransport);
+  if (pushConfigured()) channels.register(pushAdapter);
   // Mobile companion (CLV-006): planned, authenticated, disabled unless explicitly
   // enabled, and never any public relay.
   const companionEnabled = process.env.FORGELINK_COMPANION_ENABLED === "1";

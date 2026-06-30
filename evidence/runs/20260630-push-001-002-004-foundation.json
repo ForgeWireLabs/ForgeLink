@@ -1,0 +1,44 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260630-push-001-002-004-foundation",
+  "timestamp": "2026-06-30T00:00:00Z",
+  "work_item": "019",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend build passed after adding the push_send capability, the provider-neutral push module (contracts, redaction profiles, ntfy default transport, adapter), and registering the push adapter behind pushConfigured() in server.ts."
+    },
+    {
+      "command": "node --test backend-dist/push.test.js",
+      "exit_code": 0,
+      "summary": "12 push tests passed: ntfy defaults + disabled-by-default posture, lock-screen-safe default never emits caller content, full-profile control-char/header-injection stripping + length clamp, fallback-to-safe on empty/unknown profile, ref sanitization, send success through injected transport, disabled-when-unconfigured, provider-failure mapped to a caller-safe retryable error, and registry selection by the push_send capability."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron validation passed (backend node --test across all *.test.js + renderer vitest), including the new push suite; no regression from the server.ts adapter registration."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact plus ForgeLink local validation passed for the 019 criteria-state update, docs, evidence, and CHANGELOG."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/channels.ts",
+    "Electron/backend/src/push.ts",
+    "Electron/backend/src/push.test.ts",
+    "Electron/backend/src/server.ts",
+    "docs/push-channel.md",
+    "work/active/019-push-notification-channel/README.md",
+    "work/active/019-push-notification-channel/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "Foundation slice for work item 019. Satisfies PUSH-001 (provider-neutral push contracts incl. the optional signed action-response shape), PUSH-002 (ntfy provider strategy documented for the local-first boundary), and PUSH-004 (lock-screen-safe-default redaction profiles; full content only when explicitly selected). Push is notification-only and disabled by default. No secrets are stored or logged in this slice (PUSH-003 credential/device-token storage is deferred); no push action authority exists (PUSH-005 deferred). PUSH-007 remains pending: delivery/redaction/missing-creds/provider-outage are tested, but stale-token, duplicate-action-tap, and diagnostics-exclusion tests depend on the deferred storage/actions/diagnostics slices. Default ntfy transport live verification is deferred; all relied-on logic is unit-tested with an injected transport. No effect on work items 011 or 030."
+  }
+}

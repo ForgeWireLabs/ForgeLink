@@ -23,7 +23,8 @@ export type Capability =
   | "inbound_call"
   | "media"
   | "email_send"
-  | "inbound_email";
+  | "inbound_email"
+  | "push_send";
 
 export interface ChannelCapabilities {
   kind: ChannelKind;
