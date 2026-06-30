@@ -81,6 +81,7 @@ the table is the single place that says who owns what.
 | v23 | 016 AGH-025 | `device_keys` (decision/audit device identity registry: public-key refs, trust state, rotation, revocation) | shipped |
 | v24 | 017 OCX-014 | `agent_outbound_drafts.scheduled_at` (scheduled sends for the reviewed outbox) | unreleased |
 | v25 | 018 EMAIL-007 | `email_messages` (email channel messages as private communication data; participates in backup/export/retention) | unreleased |
+| v26 | 018 EMAIL-006 | `consumed_email_actions` (single-use anti-replay store for signed email quick-action nonces) | unreleased |
 
 Future allocations are appended to this table as they land. 015's dependent
 channel-adapter items (018–024) and the governance/cockpit items (016/017) all

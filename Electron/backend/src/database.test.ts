@@ -150,6 +150,8 @@ test("upgrades a version-seven (pre-015) database to the current schema without 
     assert.equal(new Set((database.connection.prepare("PRAGMA table_info(agent_outbound_drafts)").all() as Array<{ name: string }>).map((column) => column.name)).has("scheduled_at"), true);
     // v25 (018 EMAIL-007) adds the email_messages table.
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='email_messages'").get() as { name: string } | undefined)?.name, "email_messages");
+    // v26 (018 EMAIL-006) adds the quick-action anti-replay table.
+    assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='consumed_email_actions'").get() as { name: string } | undefined)?.name, "consumed_email_actions");
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -1335,5 +1337,16 @@ test("records email messages that participate in export and retention (EMAIL-007
     assert.equal(result.deletedEmailMessages, 1);
     assert.equal(database.emailMessageCount(), 1);
     assert.ok(database.emailMessages().every((m) => m.id !== old.id));
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// Anti-replay for signed email quick-actions (work item 018, EMAIL-006).
+test("consumes an email quick-action nonce exactly once (EMAIL-006)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-email-action-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    assert.equal(database.consumeEmailAction("nonce-1", "agent-1", "approve"), true);
+    assert.equal(database.consumeEmailAction("nonce-1", "agent-1", "approve"), false, "a replayed nonce must be rejected");
+    assert.equal(database.consumeEmailAction("nonce-2", "agent-1", "deny"), true);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });

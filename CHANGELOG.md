@@ -14,6 +14,14 @@ versions tracked in `VERSION` and `Electron/package.json`.
   Health metric grid (work item 030 groundwork, decision 0017).
 
 ### Added
+- Email channel (secure storage, inbound, quick-actions) — completes work item 018:
+  SMTP and inbound/quick-action secrets are stored OS-encrypted (Electron
+  safeStorage) in the main process and entered via a Settings form, never exposed to
+  the renderer/logs/diagnostics/exports (EMAIL-002); inbound email arrives through a
+  signed, disabled-by-default provider webhook with dedup, contact resolution, and
+  bounded handling (EMAIL-004); and signed email quick-action links enforce
+  signature, expiry, a real pending request, agent trust, and single-use anti-replay
+  before recording an operator decision (EMAIL-006).
 - Email channel (configuration + data safety): a Settings "Email channel" card
   showing redacted status (configured/host/from booleans + recorded count) and
   setup guidance, framing email as a fallback that grants no approval privileges;

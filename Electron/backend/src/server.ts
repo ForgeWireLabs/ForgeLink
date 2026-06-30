@@ -11,7 +11,7 @@ import { fetchTrustedSignalFeed } from "./signals";
 import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, loadTwilioConfig, sendTwilioMessage, startTwilioCall, validateTwilioSignature } from "./twilio";
 import { createChannelRegistry, PLANNED_PROVIDERS } from "./channels";
 import { createTelnyxAdapter, validateTelnyxSignature } from "./telnyx";
-import { createEmailAdapter, EmailTransport, emailConfigured } from "./email";
+import { createEmailAdapter, EmailTransport, emailConfigured, emailInboundConfigured, emailQuickActionConfigured, validateEmailWebhookSignature, verifyQuickActionToken } from "./email";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const ALLOWED_UPLOADS = new Set([".gif", ".jpeg", ".jpg", ".pdf", ".png", ".txt", ".webp"]);
@@ -1524,6 +1524,46 @@ export function createBackend(options: BackendOptions): { server: Server; databa
           if (update.providerMessageId) database.updateDeliveryStatus(update.providerMessageId, update.status);
         }
         return sendJson(response, { ok: true });
+      }
+      // Inbound email via a signed provider webhook (work item 018, EMAIL-004).
+      // Disabled unless an inbound secret is configured; HMAC-signed over the raw
+      // body. Normalizes, dedups by provider message id, and resolves the contact.
+      if (request.method === "POST" && url.pathname === "/webhooks/email") {
+        if (!emailInboundConfigured()) return sendJson(response, { error: "Inbound email is not configured." }, 503);
+        const raw = (await readBody(request)).toString("utf8");
+        const signature = String(request.headers["x-forgelink-email-signature"] || "");
+        if (!validateEmailWebhookSignature(raw, signature, process.env.FORGELINK_EMAIL_INBOUND_SECRET || "")) return sendJson(response, { error: "Invalid email webhook signature" }, 403);
+        let event: unknown;
+        try { event = JSON.parse(raw); } catch { return sendJson(response, { error: "Invalid payload" }, 400); }
+        const inbound = emailAdapter.parseInboundEmail(event);
+        // Provider message id is the dedup key (INSERT OR IGNORE); ingest time is the
+        // retention timestamp.
+        const id = inbound.providerMessageId ? inbound.providerMessageId.slice(0, 120) : `email-in-${randomUUID()}`;
+        const recorded = database.recordEmailMessage({ id, direction: "inbound", address: inbound.from, subject: inbound.subject, body: inbound.text, attachment_names: inbound.attachmentNames, status: "received", provider_message_id: inbound.providerMessageId || "" });
+        return sendJson(response, { ok: true, id: recorded.id });
+      }
+      // Signed email quick-action (work item 018, EMAIL-006). Token-authenticated;
+      // disabled unless a quick-action secret is configured. Enforces, in order:
+      // signature + expiry + valid action (token), a real actionable pending request
+      // (local pending-action verification), agent trust/contact policy, and
+      // single-use anti-replay — before recording the operator's decision.
+      if (request.method === "POST" && url.pathname === "/webhooks/email/action") {
+        if (!emailQuickActionConfigured()) return sendJson(response, { error: "Email quick actions are not configured." }, 503);
+        const payload = await readJson(request).catch((): Record<string, unknown> => ({}));
+        const verification = verifyQuickActionToken(String(payload.token || ""), process.env.FORGELINK_EMAIL_ACTION_SECRET || "");
+        if (!verification.ok || !verification.payload) return sendJson(response, { error: "Invalid or expired quick action.", reason: verification.reason }, 403);
+        const { rid, action, nonce } = verification.payload;
+        const message = database.agentMessage(rid);
+        if (!message || message.kind !== "approval_request" || !["unread", "read"].includes(message.status)) return sendJson(response, { error: "No actionable pending request.", reason: "no_pending_action" }, 409);
+        const identity = database.agentIdentity(message.source);
+        if (identity && ["blocked", "muted"].includes(identity.trust_state)) return sendJson(response, { error: "Agent is not actionable.", reason: `agent_${identity.trust_state}` }, 403);
+        const isApprove = action === "approve";
+        if (isApprove && !actionExists(message.actions, "approve")) return sendJson(response, { error: "This request has no approve action." }, 409);
+        // Consume the nonce exactly once; a replay is rejected here.
+        if (!database.consumeEmailAction(nonce, rid, action)) return sendJson(response, { error: "This quick action was already used.", reason: "replay" }, 409);
+        const updated = database.updateAgentMessageStatus(rid, isApprove ? "acted" : "dismissed", isApprove ? "approve" : "");
+        const decision = database.recordDecision({ approval_request_id: rid, decision: isApprove ? "approve" : "deny", selected_options: isApprove ? ["approve"] : [], operator_alias: "operator:email-link", decision_comment: "Signed email quick action." });
+        return sendJson(response, { ok: true, applied: isApprove ? "approve" : "deny", status: updated.status, decision_id: decision.id });
       }
       return sendJson(response, { error: "Not found" }, 404);
     } catch (error) {

@@ -74,6 +74,9 @@ beforeEach(() => {
     rotateAgentChannel: vi.fn().mockResolvedValue({ ...agentChannel, rotated_at: "2026-06-15T22:03:00.000Z" }),
     revokeAgentChannel: vi.fn().mockResolvedValue({ ...agentChannel, configured: false, revoked_at: "2026-06-15T22:04:00.000Z", token_file_present: false }),
     setAgentChannelEnabled: vi.fn().mockResolvedValue({ ...agentChannel, enabled: false }),
+    emailSettings: vi.fn().mockResolvedValue({ configured: false, host: "", port: 465, secure: true, user: "", from: "", password_present: false, inbound_secret_present: false, action_secret_present: false }),
+    saveEmailSettings: vi.fn().mockResolvedValue({ configured: true, host: "smtp.example.com", port: 587, secure: false, user: "ops@example.com", from: "ops@example.com", password_present: true, inbound_secret_present: false, action_secret_present: false }),
+    removeEmailSettings: vi.fn().mockResolvedValue({ configured: false, host: "", port: 465, secure: true, user: "", from: "", password_present: false, inbound_secret_present: false, action_secret_present: false }),
     onServerStatus: vi.fn()
   };
   vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -670,7 +673,17 @@ describe("React renderer parity", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
     expect(await screen.findByRole("heading", { name: "Email channel" })).toBeTruthy();
     expect(screen.getByText(/not the default human-approval loop/)).toBeTruthy();
-    expect(screen.getByText(/Configure SMTP via/)).toBeTruthy();
+    expect(screen.getByText(/Enter SMTP credentials below/)).toBeTruthy();
+  });
+
+  it("saves email credentials through the secure store bridge (EMAIL-002)", async () => {
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    await screen.findByRole("heading", { name: "Email channel" });
+    await userEvent.type(screen.getByPlaceholderText("smtp.provider.example"), "smtp.example.com");
+    await userEvent.type(screen.getByPlaceholderText("ops@your-domain"), "ops@example.com");
+    await userEvent.click(screen.getByRole("button", { name: "Save email credentials" }));
+    await waitFor(() => expect(window.desktop?.saveEmailSettings).toHaveBeenCalled());
   });
 
   it("loads and clears the first-run sample workspace with a synthetic-data banner (OCX-018)", async () => {

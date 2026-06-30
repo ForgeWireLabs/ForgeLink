@@ -1,4 +1,4 @@
-import type { AgentChannelStatus, AttentionDecision, AttentionEvent, AttentionPolicy, BackendConnection, DesktopStatus, McpStatus, ValidationResult } from "./types";
+import type { AgentChannelStatus, AttentionDecision, AttentionEvent, AttentionPolicy, BackendConnection, DesktopStatus, EmailSettingsInput, EmailSettingsStatus, McpStatus, ValidationResult } from "./types";
 
 export interface ForgeLinkShellBridge {
   notify(title: string, body: string): Promise<void>;
@@ -23,6 +23,9 @@ export interface ForgeLinkShellBridge {
   rotateAgentChannel(channelId: string): Promise<AgentChannelStatus>;
   revokeAgentChannel(channelId: string): Promise<AgentChannelStatus>;
   setAgentChannelEnabled(channelId: string, enabled: boolean): Promise<AgentChannelStatus>;
+  emailSettings(): Promise<EmailSettingsStatus>;
+  saveEmailSettings(values: EmailSettingsInput): Promise<EmailSettingsStatus>;
+  removeEmailSettings(): Promise<EmailSettingsStatus>;
   onServerStatus(callback: (status: DesktopStatus) => void): void;
 }
 
@@ -54,6 +57,9 @@ export function getShellBridge(): ForgeLinkShellBridge {
       rotateAgentChannel: unavailable("rotateAgentChannel"),
       revokeAgentChannel: unavailable("revokeAgentChannel"),
       setAgentChannelEnabled: unavailable("setAgentChannelEnabled"),
+      emailSettings: unavailable("emailSettings"),
+      saveEmailSettings: unavailable("saveEmailSettings"),
+      removeEmailSettings: unavailable("removeEmailSettings"),
       onServerStatus: () => undefined
     };
   }
@@ -83,5 +89,8 @@ export const shell: ForgeLinkShellBridge = {
   rotateAgentChannel: channelId => getShellBridge().rotateAgentChannel(channelId),
   revokeAgentChannel: channelId => getShellBridge().revokeAgentChannel(channelId),
   setAgentChannelEnabled: (channelId, enabled) => getShellBridge().setAgentChannelEnabled(channelId, enabled),
+  emailSettings: () => getShellBridge().emailSettings(),
+  saveEmailSettings: values => getShellBridge().saveEmailSettings(values),
+  removeEmailSettings: () => getShellBridge().removeEmailSettings(),
   onServerStatus: callback => getShellBridge().onServerStatus(callback)
 };

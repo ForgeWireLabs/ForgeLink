@@ -8,6 +8,7 @@ import test from "node:test";
 import { AddressInfo } from "node:net";
 import { CURRENT_SCHEMA_VERSION } from "./database";
 import { createBackend } from "./server";
+import { mintQuickActionToken } from "./email";
 
 const apiToken = "local-api-test-token";
 const authorized = (headers: HeadersInit = {}): HeadersInit => ({ ...headers, Authorization: `Bearer ${apiToken}` });
@@ -1410,6 +1411,59 @@ test("EMAIL-005/007: email status is redacted and sends record private comms dat
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     for (const [key, value] of Object.entries({ FORGELINK_SMTP_HOST: previous.host, FORGELINK_SMTP_USER: previous.user, FORGELINK_SMTP_PASS: previous.pass, FORGELINK_SMTP_FROM: previous.from })) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("EMAIL-004/006: inbound webhook ingest and signed quick-action boundaries", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-email-inbound-"));
+  const previous = { inbound: process.env.FORGELINK_EMAIL_INBOUND_SECRET, action: process.env.FORGELINK_EMAIL_ACTION_SECRET };
+  process.env.FORGELINK_EMAIL_INBOUND_SECRET = "inbound-secret";
+  process.env.FORGELINK_EMAIL_ACTION_SECRET = "action-secret";
+  const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  const sign = (raw: string, secret: string) => createHmac("sha256", secret).update(raw, "utf8").digest("hex");
+  try {
+    // EMAIL-004: an unsigned/invalid inbound POST is rejected.
+    const body = JSON.stringify({ from: "Dana@Example.com", to: "ops@example.com", subject: "Hi", text: "hello", messageId: "<m1@x>" });
+    assert.equal((await fetch(`${localUrl}/webhooks/email`, { method: "POST", headers: { "Content-Type": "application/json", "X-ForgeLink-Email-Signature": "deadbeef" }, body })).status, 403);
+    // A correctly-signed delivery is stored, and a duplicate (same provider id) is idempotent.
+    assert.equal((await fetch(`${localUrl}/webhooks/email`, { method: "POST", headers: { "Content-Type": "application/json", "X-ForgeLink-Email-Signature": sign(body, "inbound-secret") }, body })).status, 200);
+    assert.equal(database.emailMessageCount(), 1);
+    await fetch(`${localUrl}/webhooks/email`, { method: "POST", headers: { "Content-Type": "application/json", "X-ForgeLink-Email-Signature": sign(body, "inbound-secret") }, body });
+    assert.equal(database.emailMessageCount(), 1);
+
+    // EMAIL-006: seed a pending approval, then exercise the quick-action boundaries.
+    const channelToken = await createChannel(localUrl);
+    const posted = await fetch(`${localUrl}/api/agent-channels/forgewire/messages`, { method: "POST", headers: { "Content-Type": "application/json", "X-ForgeLink-Channel-Token": channelToken }, body: JSON.stringify(approvalRequest({ source: "codex", title: "Email action approval" })) });
+    const rid = ((await posted.json()) as { message: { id: string } }).message.id;
+
+    // Expired token is rejected.
+    const expired = mintQuickActionToken({ rid, action: "approve", nonce: "ex", exp: Date.now() - 1 }, "action-secret");
+    assert.equal((await fetch(`${localUrl}/webhooks/email/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: expired }) })).status, 403);
+    // A token for an unknown/non-pending request is rejected.
+    const ghost = mintQuickActionToken({ rid: "missing-request", action: "deny", nonce: "g1", exp: Date.now() + 60_000 }, "action-secret");
+    assert.equal((await fetch(`${localUrl}/webhooks/email/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: ghost }) })).status, 409);
+    // A valid approve applies exactly once and records the operator decision.
+    const token = mintQuickActionToken({ rid, action: "approve", nonce: "n1", exp: Date.now() + 60_000 }, "action-secret");
+    const applied = await fetch(`${localUrl}/webhooks/email/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) }).then((r) => r.json()) as { ok: boolean; applied: string };
+    assert.equal(applied.ok, true);
+    assert.equal(applied.applied, "approve");
+    assert.equal(database.agentMessage(rid)!.status, "acted");
+    assert.ok(database.decisionForRequest(rid), "a decision is recorded for the signed quick action");
+    // Re-using the request/token is rejected (no longer actionable).
+    assert.equal((await fetch(`${localUrl}/webhooks/email/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) })).status, 409);
+
+    // Disabled state: with the secrets cleared, both routes report disabled.
+    delete process.env.FORGELINK_EMAIL_INBOUND_SECRET;
+    delete process.env.FORGELINK_EMAIL_ACTION_SECRET;
+    assert.equal((await fetch(`${localUrl}/webhooks/email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).status, 503);
+    assert.equal((await fetch(`${localUrl}/webhooks/email/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).status, 503);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    for (const [key, value] of Object.entries({ FORGELINK_EMAIL_INBOUND_SECRET: previous.inbound, FORGELINK_EMAIL_ACTION_SECRET: previous.action })) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
     rmSync(directory, { recursive: true, force: true });
   }
 });

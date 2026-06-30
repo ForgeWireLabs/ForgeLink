@@ -1,0 +1,64 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260630-email-002-004-006-complete",
+  "timestamp": "2026-06-30T00:00:00Z",
+  "work_item": "018",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend build passed after adding the inbound webhook + quick-action helpers, schema v26 consumed_email_actions, consumeEmailAction, and the /webhooks/email + /webhooks/email/action routes."
+    },
+    {
+      "command": "node --check emailSettings.js && node --test emailSettings.test.js",
+      "exit_code": 0,
+      "summary": "Secure email settings store: 3 tests passed — encrypts SMTP/inbound/action secrets, redacts them from the view and the persisted file, keeps the password on blank re-save, removes cleanly, and yields a backend env hand-off only."
+    },
+    {
+      "command": "node --test backend-dist/email.test.js backend-dist/server.test.js backend-dist/database.test.js",
+      "exit_code": 0,
+      "summary": "79 backend tests passed: inbound HMAC signature validation, quick-action mint/verify (expiry/tamper/action/disabled), v26 migration table, single-use anti-replay, and the inbound-ingest + quick-action integration flow (disabled 503, invalid sig 403, dedup idempotent, valid approve applies + records, replay/no-pending 409)."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "39 renderer tests passed, including the email credential form saving through the secure-store bridge."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron validation passed (173 pass / 0 fail / 1 skipped), including emailSettings.js syntax + store tests."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact plus ForgeLink local validation passed for the work-item completion, closeout, docs, evidence, CHANGELOG, decision 0011 (v26), and registry."
+    }
+  ],
+  "artifacts": [
+    "Electron/emailSettings.js",
+    "Electron/emailSettings.test.js",
+    "Electron/main.js",
+    "Electron/preload.js",
+    "Electron/backend/src/email.ts",
+    "Electron/backend/src/email.test.ts",
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/shell.ts",
+    "Electron/renderer/src/types.ts",
+    "docs/email-channel.md",
+    "decisions/0011-schema-migration-coordination.md",
+    "work/completed/018-email-channel-adapter/README.md",
+    "work/completed/018-email-channel-adapter/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "EMAIL-002/004/006 complete work item 018 (all 8 criteria). EMAIL-002: SMTP password + inbound/quick-action secrets stored OS-encrypted via safeStorage in the main process, injected into the backend launch env, never in the DB or renderer (renderer sees presence flags only). EMAIL-004: signed (HMAC) disabled-by-default inbound webhook with dedup + contact resolution + bounded handling; provider-webhook path (IMAP polling not implemented). EMAIL-006: HMAC-signed quick-action tokens with signature + expiry + valid-action + actionable-pending-request + agent-trust + single-use anti-replay (schema v26). Live SMTP transport and Electron main-process safeStorage/IPC are operator-verified at runtime; all relied-on logic is unit/integration tested with injected fakes. No effect on work items 011 or 030."
+  }
+}

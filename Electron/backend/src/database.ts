@@ -6,7 +6,7 @@ import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 import { CLOUD_SUMMARY_DISABLED, SUMMARY_CONTENT_TRUST, SUMMARY_NOTICE, SUMMARY_PROVENANCE, summarizeThread, ThreadSummary } from "./summary";
 
-export const CURRENT_SCHEMA_VERSION = 25;
+export const CURRENT_SCHEMA_VERSION = 26;
 
 export interface ThreadRow {
   id: number;
@@ -1429,6 +1429,21 @@ export class PhoneDatabase {
         version = 25;
         this.connection.exec("PRAGMA user_version=25");
       }
+      if (version === 25) {
+        // Anti-replay store for signed email quick-actions (work item 018,
+        // EMAIL-006; schema v26 per decision 0011). Each action nonce is consumable
+        // exactly once, so a captured signed link cannot be replayed.
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS consumed_email_actions (
+            nonce TEXT PRIMARY KEY,
+            approval_request_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            consumed_at TEXT NOT NULL
+          );
+        `);
+        version = 26;
+        this.connection.exec("PRAGMA user_version=26");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -1662,6 +1677,14 @@ export class PhoneDatabase {
 
   emailMessageCount(): number {
     return (this.connection.prepare("SELECT COUNT(*) AS n FROM email_messages").get() as { n: number }).n;
+  }
+
+  // Single-use consumption of a signed quick-action nonce (work item 018,
+  // EMAIL-006 anti-replay). Returns true only the first time a nonce is consumed.
+  consumeEmailAction(nonce: string, approvalRequestId: string, action: string): boolean {
+    const result = this.connection.prepare("INSERT OR IGNORE INTO consumed_email_actions(nonce, approval_request_id, action, consumed_at) VALUES(?, ?, ?, ?)")
+      .run(String(nonce), String(approvalRequestId), String(action), utcNow());
+    return Number(result.changes) === 1;
   }
 
   close(): void { this.connection.close(); }

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import test from "node:test";
 import {
   buildMimeMessage,
@@ -7,9 +8,12 @@ import {
   EmailTransport,
   loadEmailConfig,
   mapEmailError,
+  mintQuickActionToken,
   normalizeEmailAddress,
   parseInboundEmail,
-  validateOutboundEmail
+  validateEmailWebhookSignature,
+  validateOutboundEmail,
+  verifyQuickActionToken
 } from "./email";
 
 // Configure SMTP env so the adapter treats the channel as enabled. Tests inject a
@@ -146,4 +150,38 @@ test("EMAIL-003: validateCredentials reflects configuration", async () => {
     assert.equal((await createEmailAdapter(okTransport).validateCredentials()).ok, true);
     assert.equal(loadEmailConfig().host, "smtp.example.com");
   } finally { clearEmailConfig(); }
+});
+
+// --- EMAIL-004: inbound webhook signature ----------------------------------
+
+test("EMAIL-004: validates inbound webhook HMAC signatures", () => {
+  const secret = "inbound-secret";
+  const body = JSON.stringify({ from: "a@b.com", messageId: "<1@x>" });
+  const sig = createHmac("sha256", secret).update(body, "utf8").digest("hex");
+  assert.equal(validateEmailWebhookSignature(body, sig, secret), true);
+  assert.equal(validateEmailWebhookSignature(body, sig, "wrong-secret"), false);
+  assert.equal(validateEmailWebhookSignature(`${body} `, sig, secret), false);
+  assert.equal(validateEmailWebhookSignature(body, "deadbeef", secret), false);
+  assert.equal(validateEmailWebhookSignature(body, sig, ""), false);
+});
+
+// --- EMAIL-006: signed quick-action tokens ---------------------------------
+
+test("EMAIL-006: mints/verifies quick-action tokens with expiry and action checks", () => {
+  const secret = "action-secret";
+  const future = Date.now() + 60_000;
+  const token = mintQuickActionToken({ rid: "agent-1", action: "approve", nonce: "n1", exp: future }, secret);
+  const ok = verifyQuickActionToken(token, secret);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.payload?.rid, "agent-1");
+  assert.equal(ok.payload?.action, "approve");
+  // Expired tokens are rejected.
+  assert.equal(verifyQuickActionToken(mintQuickActionToken({ rid: "agent-1", action: "deny", nonce: "n2", exp: Date.now() - 1 }, secret), secret).reason, "expired");
+  // Tampered token / wrong secret are rejected.
+  assert.equal(verifyQuickActionToken(`${token}x`, secret).ok, false);
+  assert.equal(verifyQuickActionToken(token, "other-secret").ok, false);
+  // Unknown actions are rejected.
+  assert.equal(verifyQuickActionToken(mintQuickActionToken({ rid: "agent-1", action: "delete", nonce: "n3", exp: future }, secret), secret).reason, "invalid_action");
+  // Disabled when no secret is configured.
+  assert.equal(verifyQuickActionToken(token, "").reason, "not_configured");
 });

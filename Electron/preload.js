@@ -23,6 +23,9 @@ const forgeLinkShell = {
   rotateAgentChannel: (channelId) => ipcRenderer.invoke("agent-channel-rotate", channelId),
   revokeAgentChannel: (channelId) => ipcRenderer.invoke("agent-channel-revoke", channelId),
   setAgentChannelEnabled: (channelId, enabled) => ipcRenderer.invoke("agent-channel-enabled", channelId, enabled),
+  emailSettings: () => ipcRenderer.invoke("email-settings-get"),
+  saveEmailSettings: (values) => ipcRenderer.invoke("email-settings-save", values),
+  removeEmailSettings: () => ipcRenderer.invoke("email-settings-remove"),
   onServerStatus: (callback) => ipcRenderer.on("server-status", (_, status) => callback(status))
 };
 

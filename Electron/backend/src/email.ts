@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { connect as netConnect } from "node:net";
 import { connect as tlsConnect, TLSSocket } from "node:tls";
 import { ChannelAdapter, ChannelCapabilities, CredentialValidation, InboundMessage, OutboundMessage, SendResult } from "./channels";
@@ -268,6 +269,58 @@ export const sendSmtpEmail: EmailTransport = (email, config) => new Promise((res
   };
   socket.on("data", onData);
 });
+
+// --- Inbound webhook (work item 018, EMAIL-004) -----------------------------
+// Inbound email arrives through a provider webhook (e.g. a forwarding/parse
+// service). It is disabled unless an inbound secret is configured, and every
+// delivery is HMAC-signed over the raw body so an unauthenticated POST cannot
+// inject messages.
+export function emailInboundConfigured(secret = process.env.FORGELINK_EMAIL_INBOUND_SECRET): boolean {
+  return Boolean((secret || "").trim());
+}
+
+export function validateEmailWebhookSignature(rawBody: string, signatureHex: string, secret: string): boolean {
+  if (!secret || !/^[a-f0-9]{64}$/i.test(String(signatureHex || ""))) return false;
+  const expected = createHmac("sha256", secret).update(rawBody, "utf8").digest();
+  let supplied: Buffer;
+  try { supplied = Buffer.from(signatureHex, "hex"); } catch { return false; }
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
+// --- Signed quick-action boundaries (work item 018, EMAIL-006) ---------------
+// A signed link in an email can approve/deny/dismiss a pending request. The token
+// itself carries only signature + expiry + action validity; the server enforces
+// the remaining boundaries (anti-replay single-use, contact policy, and that a
+// real pending request exists) before applying anything.
+export const EMAIL_QUICK_ACTIONS = new Set(["approve", "deny", "dismiss"]);
+
+export function emailQuickActionConfigured(secret = process.env.FORGELINK_EMAIL_ACTION_SECRET): boolean {
+  return Boolean((secret || "").trim());
+}
+
+export interface QuickActionPayload { rid: string; action: string; nonce: string; exp: number; }
+
+export function mintQuickActionToken(payload: QuickActionPayload, secret: string): string {
+  const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  const sig = createHmac("sha256", secret).update(body).digest("base64url");
+  return `${body}.${sig}`;
+}
+
+export function verifyQuickActionToken(token: string, secret: string, nowMs = Date.now()): { ok: boolean; reason: string; payload?: QuickActionPayload } {
+  if (!secret) return { ok: false, reason: "not_configured" };
+  const parts = String(token || "").split(".");
+  if (parts.length !== 2) return { ok: false, reason: "malformed" };
+  const expected = createHmac("sha256", secret).update(parts[0]).digest();
+  let supplied: Buffer;
+  try { supplied = Buffer.from(parts[1], "base64url"); } catch { return { ok: false, reason: "bad_signature" }; }
+  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return { ok: false, reason: "bad_signature" };
+  let payload: QuickActionPayload;
+  try { payload = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8")); } catch { return { ok: false, reason: "malformed" }; }
+  if (!payload || typeof payload.rid !== "string" || !payload.rid || typeof payload.nonce !== "string" || !payload.nonce) return { ok: false, reason: "malformed" };
+  if (!EMAIL_QUICK_ACTIONS.has(String(payload.action))) return { ok: false, reason: "invalid_action" };
+  if (typeof payload.exp !== "number" || payload.exp <= nowMs) return { ok: false, reason: "expired" };
+  return { ok: true, reason: "ok", payload };
+}
 
 export function createEmailAdapter(transport: EmailTransport = sendSmtpEmail): ChannelAdapter & { sendEmail(email: OutboundEmail): Promise<SendResult>; parseInboundEmail(payload: unknown): InboundEmail } {
   const sendEmail = async (email: OutboundEmail): Promise<SendResult> => {

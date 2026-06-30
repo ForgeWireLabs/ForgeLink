@@ -24,14 +24,21 @@ policy.
   (`exportData`), and retention (`applyRetention`); `/api/diagnostics` reports
   `email_configured` as a boolean only — never the host, address, or credentials.
 
-**Deferred (tracked in work item 018):**
-- EMAIL-002 secure credential storage UI (safeStorage) — today SMTP config comes
-  from environment variables (below).
-- EMAIL-004 inbound email (IMAP poll / provider webhook) — the normalization
-  contract (`parseInboundEmail`) exists and is tested; the polling/ingest loop,
-  duplicate detection, and contact resolution are not wired yet.
-- EMAIL-006 signed quick-action boundaries (anti-replay, expiration, contact
-  policy, local pending-action verification).
+- Secure credential storage (EMAIL-002): SMTP password and the inbound/quick-action
+  secrets are stored OS-encrypted (Electron safeStorage) in the main process — never
+  in the database, logs, diagnostics, exports, or the renderer (which only sees
+  presence flags). A Settings form saves/removes them; the local service restarts to
+  apply. Environment variables remain supported as an alternative.
+- Inbound ingest (EMAIL-004): a signed, disabled-by-default provider webhook
+  (`POST /webhooks/email`, HMAC over the raw body) normalizes inbound mail, dedups by
+  provider message id, resolves the contact via email contact points, and bounds the
+  body/attachments.
+- Signed quick-action boundaries (EMAIL-006): `POST /webhooks/email/action` accepts
+  an HMAC-signed token and enforces signature + expiry + valid action + a real
+  actionable pending request + agent trust + single-use anti-replay before recording
+  the operator decision.
+
+All eight EMAIL criteria are complete.
 
 ## Operator setup
 
@@ -45,7 +52,16 @@ FORGELINK_SMTP_SECURE=1            # optional; defaults to true on port 465
 FORGELINK_SMTP_USER=ops@your-domain.example
 FORGELINK_SMTP_PASS=<app password or SMTP token>
 FORGELINK_SMTP_FROM=ForgeLink <ops@your-domain.example>
+
+# Optional inbound + quick-action secrets (each disabled until set):
+FORGELINK_EMAIL_INBOUND_SECRET=<HMAC secret for POST /webhooks/email>
+FORGELINK_EMAIL_ACTION_SECRET=<HMAC secret for signed quick-action links>
 ```
+
+Credentials can instead be entered in Settings → Email channel, where they are
+stored OS-encrypted (EMAIL-002) rather than in the environment. Inbound email
+(`POST /webhooks/email`) and signed quick-actions (`POST /webhooks/email/action`)
+each stay disabled until their secret is configured.
 
 The email channel is **disabled by default** and registers only when host, user,
 password, and from address are all present. With it unset, `email_configured` is

@@ -6,6 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { evaluateAttention, normalizeAttentionPolicy } = require("./attention");
 const { createSettingsStore, validateTwilioCredentials, configureNumberWebhook } = require("./onboarding");
+const { createEmailSettingsStore } = require("./emailSettings");
 const { createTunnelManager } = require("./tunnel");
 const { findAvailablePort, createRestartPolicy } = require("./lifecycle");
 const { shouldAutoUpdate } = require("./updates");
@@ -16,6 +17,7 @@ const apiToken = randomBytes(32).toString("base64url");
 let backendProcess = null;
 let mainWindow = null;
 let settingsStore = null;
+let emailSettingsStore = null;
 let tunnel = null;
 let tunnelPublicUrl = "";
 let effectivePort = 0;
@@ -143,6 +145,7 @@ async function startBackend() {
   const processHandle = utilityProcess.fork(backendEntryPath(), ["--host", host, "--port", String(effectivePort)], {
     env: {
       ...process.env,
+      ...(emailSettingsStore ? emailSettingsStore.backendEnv() : {}),
       TWILIO_ACCOUNT_SID: settings.account_sid,
       TWILIO_AUTH_TOKEN: settings.auth_token,
       TWILIO_PHONE_NUMBER: settings.twilio_number,
@@ -307,6 +310,22 @@ ipcMain.handle("remove-credentials", async () => {
   await waitForBackend();
   return publicStatus();
 });
+// Email channel credentials (work item 018, EMAIL-002): stored OS-encrypted in the
+// main process and applied by restarting the backend so the new env takes effect.
+// The renderer only ever receives the redacted view (never the password/secrets).
+ipcMain.handle("email-settings-get", () => emailSettingsStore.current());
+ipcMain.handle("email-settings-save", async (_event, values = {}) => {
+  const result = emailSettingsStore.persist(values || {});
+  await startBackend();
+  await waitForBackend();
+  return result;
+});
+ipcMain.handle("email-settings-remove", async () => {
+  const result = emailSettingsStore.remove();
+  await startBackend();
+  await waitForBackend();
+  return result;
+});
 ipcMain.handle("start-local-only", async (_, update = {}) => {
   settingsStore.startLocalOnly(update);
   tunnelPublicUrl = "";
@@ -393,6 +412,8 @@ app.whenReady().then(async () => {
     legacyUserData: path.join(app.getPath("appData"), "Twilio Phone")
   });
   settingsStore.load();
+  emailSettingsStore = createEmailSettingsStore({ fs, path, safeStorage, userData: app.getPath("userData") });
+  try { emailSettingsStore.load(); } catch (error) { console.error(`Email settings load failed: ${error}`); }
   if (!(await backendIsReady())) await startBackend();
   const ready = await waitForBackend();
   if (!ready) console.error(`Backend did not become ready at ${baseUrl()}`);
