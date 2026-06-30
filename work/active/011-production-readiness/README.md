@@ -1,7 +1,7 @@
 ---
 audience: maintainers and implementation agents
 status: active
-last_verified: 2026-06-29
+last_verified: 2026-06-30
 source_of_truth: AGENTS.md; work/active/011-production-readiness/_audit/alignment-report.md
 ---
 
@@ -68,6 +68,13 @@ in [`work-item.json`](work-item.json); this is the human summary.
   017 OCX-020. Work item 030 is now the long-term shell strategy: PR-014 should
   preserve the current Electron baseline for near-term desktop releases, but
   should not deepen Electron-only assumptions that make Tauri 2 migration harder.
+  **Scope clarification ([decision 0018](../../../decisions/0018-signing-cert-is-a-distribution-gate-not-a-dev-blocker.md)):**
+  the remaining certificate + signed-feed work is a **public-distribution hardening
+  gate held on an operator-supplied external dependency** — it is **not** a blocker
+  for work item 030 (Tauri scaffolding proceeds on unsigned/dev builds) or for the
+  019–024 channel adapters. 011 stays **active with cert-limited scope** (complete
+  except for that external dependency) rather than blocked or deferred; it is
+  revisited when the certificate arrives.
 
 ## Priority order
 
@@ -196,3 +203,4 @@ in [`work-item.json`](work-item.json); this is the human summary.
 | 2026-06-18 | PR-014 (partial) | Version metadata, release notes (CHANGELOG), reproducible release checklist (docs), and auto-update wiring; packaging test caught + fixed a missing-module regression | Unblocked items landed (evidence 20260618-pr014-release-unblocked); PR-014 stays pending on signing, electron-updater asar bundling, and a published feed. |
 | 2026-06-27 | shell strategy alignment | Operator decision: Tauri 2 is the long-term shared desktop/mobile shell. Work item 030 owns the migration and Electron retirement gate. | PR-014 remains pending for current desktop release/signing work, but future release planning must coordinate with 030 and avoid deepening Electron-only assumptions. |
 | 2026-06-29 | PR-014 (preflight automation) | Automated the non-signing release gates as `npm run release:check` (`scripts/release-preflight.js`): VERSION/package.json sync, `[Unreleased]` notes, electron-updater dependency, `builder.json` publish/asarUnpack/files config, referenced icon assets, and the auto-update guard; covered by `release-preflight.test.js` (in `npm test`) and wired into `docs/release-checklist.md`. All non-cert PR-014 work is now done. Evidence `20260629-pr014-release-preflight`. | PR-014 stays pending only on the operator-provided code-signing certificate and the signing-gated `latest.yml` feed. |
+| 2026-06-30 | PR-014 (scope reframing) | Decision 0018: the remaining certificate + signed-feed work is a public-distribution hardening gate held on an operator-supplied external dependency, not a blocker for work item 030 or the 019–024 adapters. Reframed 030 README/work-item/AGENTS.md and `docs/distribution-and-update-strategy.md` to distinguish unsigned/dev distribution (available now) from signed public distribution (cert-gated). | 011 stays active with cert-limited scope; project sequencing no longer waits on signing. |

@@ -22,3 +22,5 @@ governance choices should be promoted to this directory.
 - 0014: Add a "deferred" status to the decision vocabulary.
 - 0015: Consume RepoPact from PyPI (drop vendoring).
 - 0016: Decision/audit key management and the audit chain's integrity guarantee.
+- 0017: Mobile is a full cockpit, not a companion terminal.
+- 0018: The signing certificate is a public-distribution gate, not a development blocker.

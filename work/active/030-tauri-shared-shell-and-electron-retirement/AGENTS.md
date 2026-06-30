@@ -8,6 +8,10 @@
 - Coordinate with work item 017 for operator cockpit UX and mobile decision
   flows.
 - Coordinate with work item 011 for current release/signing/update constraints.
+  Signing / 011 PR-014 is a public-distribution hardening gate, **not** a
+  development blocker for this item (decision 0018): scaffolding, the app-bridge,
+  and validation proceed on unsigned/dev builds; only signed public distribution
+  waits on the operator-provided certificate.
 - Coordinate with work items 015 and 016 for mobile protocol, governance,
   redaction, signed decisions, and device revocation.
 

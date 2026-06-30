@@ -1,7 +1,7 @@
 ---
 audience: maintainers and implementation agents
 status: active
-last_verified: 2026-06-29
+last_verified: 2026-06-30
 source_of_truth: work/active/030-tauri-shared-shell-and-electron-retirement/README.md; work/active/030-tauri-shared-shell-and-electron-retirement/work-item.json
 ---
 
@@ -45,7 +45,11 @@ move toward:
 
 - Work item 011 owns the current production-readiness/release baseline. Its
   Electron release work remains useful for current manual desktop releases but
-  must not become the long-term shell strategy.
+  must not become the long-term shell strategy. **011 PR-014 / code-signing is a
+  public-distribution hardening gate, not a development blocker for this item**
+  (see [decision 0018](../../../decisions/0018-signing-cert-is-a-distribution-gate-not-a-dev-blocker.md)):
+  Tauri scaffolding, the app-bridge, and validation proceed on unsigned/dev builds;
+  only signed public distribution waits on the operator-provided certificate.
 - Work item 015 owns the communication runtime and mobile companion protocol
   foundation.
 - Work item 016 owns governance semantics, decision records, audit/replay,
@@ -86,7 +90,10 @@ move toward:
 - [ ] **TAURI-005 Define Electron retirement gate.** Remove Electron only after
   Tauri covers current desktop workflows and release-critical OS integrations.
 - [ ] **TAURI-006 Define Tauri distribution/update strategy.** Coordinate signed
-  desktop and mobile release paths with 011 PR-014 and 017 OCX-020.
+  desktop and mobile release paths with 011 PR-014 and 017 OCX-020. **Signed public
+  distribution is a later hardening step gated on the operator-provided certificate
+  (decision 0018); unsigned/dev builds are the acceptable near-term distribution for
+  scaffolding and validation, so this does not block TAURI-001–005/007.**
 - [ ] **TAURI-007 Add validation and rollback evidence.** Automated bridge/shell
   tests plus mobile emulator/device evidence before closing.
 - [x] **TAURI-008 Add the Android/Fabric operator-status consumer.** Type the

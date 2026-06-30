@@ -49,6 +49,14 @@ requirements:
 **Remaining desktop gate (PR-014):** a signing certificate, electron-updater asar
 bundling verified by the packaging test, and a published update feed.
 
+> **Signing is a public-distribution hardening gate, not a development blocker**
+> ([decision 0018](../decisions/0018-signing-cert-is-a-distribution-gate-not-a-dev-blocker.md)).
+> The signing certificate is an operator-supplied external dependency and may not
+> arrive until late in the project. It gates **signed public distribution** only.
+> An **unsigned/dev build path** (`npm run build`) already exists and remains the
+> development and internal-distribution mechanism; it unblocks work item 030
+> scaffolding and the 019–024 channel adapters, which do not wait on signing.
+
 ## Mobile: signed Tauri 2 build/update path
 
 The mobile decision terminal is distributed separately and is owned jointly by
@@ -71,7 +79,10 @@ work item 030 TAURI-006 and this item. Requirements:
 
 ## Shipping gates
 
-The following must be true before the dependent work ships:
+These gate **public/signed shipping** of the dependent work, not its development.
+Building, scaffolding, internal/dev distribution, and validation proceed on the
+unsigned/dev path (decision 0018). The following must be true before the dependent
+work ships publicly:
 
 - **Mobile surface (OCX-007/008):** a signed mobile build/update path exists and
   the shared-shell bridge boundary (OCX-021, work item 030) is in place.
@@ -91,8 +102,10 @@ The following must be true before the dependent work ships:
 
 ## Security and privacy constraints
 
-- Builds are authenticated (signed) before distribution; unsigned builds are not a
-  supported release channel.
+- Builds are authenticated (signed) before **public** distribution; unsigned builds
+  are not a supported **public release** channel. Unsigned/dev builds remain a
+  supported development and internal-distribution path (decision 0018) and are how
+  030 scaffolding and the adapter roadmap proceed until the certificate arrives.
 - Updates are operator-controllable (`FORGELINK_DISABLE_UPDATES`) and never silent
   on an unpackaged/dev build.
 - No release or update path transmits private communication, contact, approval, or
