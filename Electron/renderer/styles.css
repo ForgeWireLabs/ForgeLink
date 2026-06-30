@@ -243,7 +243,7 @@ h1, h2, h3, p { margin: 0; }
 .batch-select { width: fit-content; margin-bottom: 7px; display: flex; align-items: center; gap: 7px; color: var(--muted-bright); font-size: 11px; font-weight: 700; }
 .batch-select input { width: 15px; height: 15px; accent-color: var(--accent-bright); }
 .fatigue-panel { grid-template-columns: minmax(0, 1fr); }
-.fatigue-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.fatigue-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; }
 .metric { min-width: 0; padding: 10px; display: grid; gap: 3px; border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.12); }
 .metric span { color: var(--muted); font-size: 10px; text-transform: uppercase; }
 .metric strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
@@ -352,7 +352,7 @@ h1, h2, h3, p { margin: 0; }
 }
 .mobile-alert h2, .mobile-card h3 { font-size: 18px; line-height: 1.22; }
 .mobile-alert p, .mobile-card p { color: var(--muted-bright); font-size: 12px; }
-.mobile-action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.mobile-action-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
 .mobile-action-grid .span-two { grid-column: 1 / -1; }
 .mobile-flow { display: grid; gap: 14px; }
 .flow-list { margin: 14px 0 0; padding-left: 20px; color: var(--muted-bright); }
@@ -361,7 +361,7 @@ h1, h2, h3, p { margin: 0; }
 .mobile-action-list span { padding: 6px 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted-bright); background: rgba(255,255,255,.018); font-size: 12px; }
 
 .settings-page { max-width: none; }
-.settings-grid { margin-top: 30px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.settings-grid { margin-top: 30px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
 .settings-card { padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: rgba(255,255,255,.018); }
 .settings-card.span-two { grid-column: 1 / -1; }
 .settings-card-head { margin-bottom: 20px; display: flex; gap: 13px; }
@@ -377,7 +377,7 @@ h1, h2, h3, p { margin: 0; }
 .service-address code { color: var(--muted-bright); }
 .service-address span { color: var(--green); font-size: 11px; }
 .data-actions { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 8px; }
-.attention-grid { margin-top: 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.attention-grid { margin-top: 18px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
 .attention-grid .span-two { grid-column: 1 / -1; }
 .presence-strip { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
 .presence-strip span { padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted-bright); background: rgba(255,255,255,.018); font-size: 11px; }
@@ -393,7 +393,7 @@ h1, h2, h3, p { margin: 0; }
 .mcp-paths code, .install-command code {
   color: var(--muted-bright); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.install-command-grid { margin-top: 14px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.install-command-grid { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
 .channel-list { margin-top: 12px; display: grid; gap: 10px; }
 .channel-row { border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; background: rgba(255,255,255,.025); }
 .channel-row strong, .channel-row span, .channel-row small, .channel-row code { display: block; min-width: 0; }
@@ -449,6 +449,17 @@ h1, h2, h3, p { margin: 0; }
   .recipient-input { display: none; }
   .composer-hint, .attachment-chip { margin-left: 4px; }
   .bubble { max-width: 82%; }
+}
+
+/* Narrow / mobile cockpit (decision 0017): the side-by-side two-pane content
+   layouts stack into a single column so they stay usable down to a phone-width
+   viewport in the Tauri 2 shared shell. The responsive auto-fit grids above
+   already collapse on their own. */
+@media (max-width: 760px) {
+  .call-layout, .signal-layout, .mobile-terminal-layout { grid-template-columns: minmax(0, 1fr); }
+  .batch-panel { grid-template-columns: minmax(0, 1fr); }
+  .batch-actions { flex-wrap: wrap; }
+  .page-header { flex-wrap: wrap; gap: 10px; }
 }
 
 /* Reviewed outbox (OCX-014) and channel redaction previews (OCX-015) */

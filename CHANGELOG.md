@@ -6,6 +6,13 @@ versions tracked in `VERSION` and `Electron/package.json`.
 
 ## [Unreleased]
 
+### Changed
+- Responsive cockpit layout: metric and card grids now use fluid `auto-fit`
+  columns, and the two-pane content layouts (calls, signals, mobile terminal)
+  stack on narrow widths, so the UI reflows cleanly as the window resizes and
+  toward the Tauri 2 mobile cockpit. Fixes the cramped Android/Fabric Device
+  Health metric grid (work item 030 groundwork, decision 0017).
+
 ### Added
 - Email channel (outbound): a provider-neutral SMTP email adapter behind the
   channel registry, registered when `FORGELINK_SMTP_*` is configured. Outbound send
