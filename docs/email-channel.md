@@ -15,7 +15,13 @@ policy.
   with a deterministic test matrix (success, provider rejection, missing
   credentials, invalid recipient, attachment bounds, retryable vs permanent
   failure). Registered only when SMTP is configured.
-- Diagnostics redaction (part of EMAIL-007): `/api/diagnostics` reports
+- Configuration UI + contact email identities (EMAIL-005): a Settings "Email
+  channel" card shows redacted status and setup guidance and frames email as a
+  fallback that grants no approval privileges; people get an email identity via
+  contact points (kind: email).
+- Data safety (EMAIL-007): sent email is recorded as private communication data
+  (schema v25 `email_messages`) that participates in backup (whole-DB), export
+  (`exportData`), and retention (`applyRetention`); `/api/diagnostics` reports
   `email_configured` as a boolean only — never the host, address, or credentials.
 
 **Deferred (tracked in work item 018):**
@@ -24,10 +30,8 @@ policy.
 - EMAIL-004 inbound email (IMAP poll / provider webhook) — the normalization
   contract (`parseInboundEmail`) exists and is tested; the polling/ingest loop,
   duplicate detection, and contact resolution are not wired yet.
-- EMAIL-005 configuration and contact-email-identity UI.
 - EMAIL-006 signed quick-action boundaries (anti-replay, expiration, contact
   policy, local pending-action verification).
-- EMAIL-007 full backup/export/retention participation for stored email.
 
 ## Operator setup
 

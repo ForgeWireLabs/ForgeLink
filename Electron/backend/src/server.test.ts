@@ -1366,3 +1366,50 @@ test("TAURI-009: operator-status reports a degraded status when the bridge is no
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("EMAIL-005/007: email status is redacted and sends record private comms data", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-email-api-"));
+  const previous = { host: process.env.FORGELINK_SMTP_HOST, user: process.env.FORGELINK_SMTP_USER, pass: process.env.FORGELINK_SMTP_PASS, from: process.env.FORGELINK_SMTP_FROM };
+  process.env.FORGELINK_SMTP_HOST = "smtp.example.com";
+  process.env.FORGELINK_SMTP_USER = "ops@example.com";
+  process.env.FORGELINK_SMTP_PASS = "secret-smtp-pass";
+  process.env.FORGELINK_SMTP_FROM = "ForgeLink <ops@example.com>";
+  const sent: Array<{ to: string }> = [];
+  const emailTransport = async (email: { to: string }) => { sent.push({ to: email.to }); return { providerMessageId: "smtp-msg-1", accepted: [email.to] }; };
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken, emailTransport: emailTransport as never });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  try {
+    // Status is redacted: booleans + count only, no host/address/credentials.
+    const status = await fetch(`${localUrl}/api/channels/email/status`, { headers: authorized() }).then((r) => r.json()) as Record<string, unknown>;
+    assert.equal(status.configured, true);
+    assert.equal(status.recorded_count, 0);
+    const statusText = JSON.stringify(status);
+    assert.doesNotMatch(statusText, /smtp\.example\.com/);
+    assert.doesNotMatch(statusText, /secret-smtp-pass/);
+    assert.doesNotMatch(statusText, /ops@example\.com/);
+
+    // Diagnostics expose only the email_configured boolean, never addresses/secrets.
+    const diag = await fetch(`${localUrl}/api/diagnostics`, { headers: authorized() }).then((r) => r.json()) as Record<string, unknown>;
+    assert.equal(diag.email_configured, true);
+    assert.doesNotMatch(JSON.stringify(diag), /secret-smtp-pass|smtp\.example\.com/);
+
+    // Send routes through the adapter and records the message as private comms data.
+    const result = await fetch(`${localUrl}/api/email/send`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ to: "dana@example.com", subject: "Hi", text: "body" }) }).then((r) => r.json()) as { ok: boolean; status: string };
+    assert.equal(result.ok, true);
+    assert.equal(result.status, "sent");
+    assert.equal(sent.length, 1);
+    const after = await fetch(`${localUrl}/api/channels/email/status`, { headers: authorized() }).then((r) => r.json()) as { recorded_count: number };
+    assert.equal(after.recorded_count, 1);
+
+    // The email routes are launch-only: an MCP token cannot reach them.
+    const mcpToken = ((await (await fetch(`${localUrl}/api/mcp/token`, { method: "POST", headers: authorized() })).json()) as { token: string }).token;
+    assert.equal((await fetch(`${localUrl}/api/channels/email/status`, { headers: { Authorization: `Bearer ${mcpToken}` } })).status, 401);
+    assert.equal((await fetch(`${localUrl}/api/email/send`, { method: "POST", headers: { Authorization: `Bearer ${mcpToken}`, "Content-Type": "application/json" }, body: "{}" })).status, 401);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    for (const [key, value] of Object.entries({ FORGELINK_SMTP_HOST: previous.host, FORGELINK_SMTP_USER: previous.user, FORGELINK_SMTP_PASS: previous.pass, FORGELINK_SMTP_FROM: previous.from })) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

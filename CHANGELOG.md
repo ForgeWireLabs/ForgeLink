@@ -14,6 +14,13 @@ versions tracked in `VERSION` and `Electron/package.json`.
   Health metric grid (work item 030 groundwork, decision 0017).
 
 ### Added
+- Email channel (configuration + data safety): a Settings "Email channel" card
+  showing redacted status (configured/host/from booleans + recorded count) and
+  setup guidance, framing email as a fallback that grants no approval privileges;
+  contact email identities via contact points (kind: email). Sent email is recorded
+  as private communication data (schema v25 `email_messages`) that participates in
+  backup, export, and retention; `/api/diagnostics` exposes only the
+  `email_configured` boolean (work item 018, EMAIL-005/007).
 - Email channel (outbound): a provider-neutral SMTP email adapter behind the
   channel registry, registered when `FORGELINK_SMTP_*` is configured. Outbound send
   with attachment bounds, MIME assembly, and redacted retryable/permanent failure

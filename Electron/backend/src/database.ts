@@ -6,7 +6,7 @@ import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 import { CLOUD_SUMMARY_DISABLED, SUMMARY_CONTENT_TRUST, SUMMARY_NOTICE, SUMMARY_PROVENANCE, summarizeThread, ThreadSummary } from "./summary";
 
-export const CURRENT_SCHEMA_VERSION = 24;
+export const CURRENT_SCHEMA_VERSION = 25;
 
 export interface ThreadRow {
   id: number;
@@ -1406,6 +1406,29 @@ export class PhoneDatabase {
         version = 24;
         this.connection.exec("PRAGMA user_version=24");
       }
+      if (version === 24) {
+        // Email channel messages (work item 018, EMAIL-007; schema v25 per decision
+        // 0011). Sent/received email is private communication data that participates
+        // in backup/export/retention. Stored in its own table so it neither pollutes
+        // the SMS thread model nor is coupled to phone-number normalization.
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS email_messages (
+            id TEXT PRIMARY KEY,
+            direction TEXT NOT NULL,
+            address TEXT NOT NULL,
+            subject TEXT NOT NULL DEFAULT '',
+            body TEXT NOT NULL DEFAULT '',
+            attachment_names TEXT NOT NULL DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT '',
+            provider_message_id TEXT NOT NULL DEFAULT '',
+            contact_id INTEGER,
+            ts TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_email_messages_ts ON email_messages(ts DESC);
+        `);
+        version = 25;
+        this.connection.exec("PRAGMA user_version=25");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -1467,12 +1490,13 @@ export class PhoneDatabase {
       consent_ledger: this.connection.prepare("SELECT * FROM consent_ledger ORDER BY contact_id, agent_id").all(),
       signal_subscriptions: this.connection.prepare("SELECT * FROM signal_subscriptions ORDER BY title, id").all(),
       signal_items: this.connection.prepare("SELECT * FROM signal_items ORDER BY received_at, id").all(),
+      email_messages: this.connection.prepare("SELECT * FROM email_messages ORDER BY ts, id").all(),
       mcp_tokens: this.connection.prepare("SELECT id, created_at, rotated_at, revoked_at, last_used_at, last_test_at, last_test_status FROM mcp_tokens ORDER BY id").all(),
       agent_channels: this.connection.prepare("SELECT channel_id, label, enabled, created_at, rotated_at, revoked_at, last_used_at, last_rejected_at, rejection_count, rate_limited_count FROM agent_channels ORDER BY channel_id").all()
     };
   }
 
-  applyRetention(days: number): { deletedMessages: number; deletedThreads: number; deletedAgentMessages: number; deletedSignalItems: number; deletedCalls: number } {
+  applyRetention(days: number): { deletedMessages: number; deletedThreads: number; deletedAgentMessages: number; deletedSignalItems: number; deletedCalls: number; deletedEmailMessages: number } {
     if (!Number.isInteger(days) || days < 30 || days > 3650) throw new Error("Retention must be between 30 and 3650 days.");
     const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
     this.connection.exec("BEGIN IMMEDIATE");
@@ -1481,10 +1505,11 @@ export class PhoneDatabase {
       const deletedAgentMessages = Number(this.connection.prepare("DELETE FROM agent_messages WHERE created_at < ?").run(cutoff).changes);
       const deletedSignalItems = Number(this.connection.prepare("DELETE FROM signal_items WHERE received_at < ?").run(cutoff).changes);
       const deletedCalls = Number(this.connection.prepare("DELETE FROM calls WHERE COALESCE(ended_at, started_at, created_at) < ?").run(cutoff).changes);
+      const deletedEmailMessages = Number(this.connection.prepare("DELETE FROM email_messages WHERE ts < ?").run(cutoff).changes);
       const deletedThreads = Number(this.connection.prepare("DELETE FROM threads WHERE NOT EXISTS (SELECT 1 FROM messages WHERE messages.thread_id=threads.id)").run().changes);
       this.connection.prepare("UPDATE threads SET last_msg_ts=(SELECT MAX(ts) FROM messages WHERE messages.thread_id=threads.id)").run();
       this.connection.exec("COMMIT");
-      return { deletedMessages, deletedThreads, deletedAgentMessages, deletedSignalItems, deletedCalls };
+      return { deletedMessages, deletedThreads, deletedAgentMessages, deletedSignalItems, deletedCalls, deletedEmailMessages };
     } catch (error) {
       this.connection.exec("ROLLBACK");
       throw error;
@@ -1612,6 +1637,31 @@ export class PhoneDatabase {
       throw error;
     }
     return this.sampleStatus();
+  }
+
+  // --- Email channel messages (work item 018, EMAIL-007) ----------------------
+  // Sent/received email recorded as private communication data. Participates in
+  // backup (whole-DB copy), export (exportData), and retention (applyRetention).
+  // Resolves to a contact when an email contact point matches the address.
+  recordEmailMessage(input: { id?: string; direction: "outbound" | "inbound"; address: string; subject?: string; body?: string; attachment_names?: string[]; status?: string; provider_message_id?: string; ts?: string }): { id: string } {
+    const id = String(input.id || `email-${randomUUID()}`).slice(0, 120);
+    const ts = input.ts || utcNow();
+    const address = String(input.address || "").trim();
+    const contactId = address ? this.resolveContactIdByValue(address) : null;
+    this.connection.prepare(`
+      INSERT OR IGNORE INTO email_messages(id, direction, address, subject, body, attachment_names, status, provider_message_id, contact_id, ts)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, input.direction === "inbound" ? "inbound" : "outbound", address, String(input.subject || "").slice(0, 998), String(input.body || ""), JSON.stringify(input.attachment_names || []), String(input.status || ""), String(input.provider_message_id || ""), contactId, ts);
+    return { id };
+  }
+
+  emailMessages(limit = 100): Record<string, unknown>[] {
+    const bounded = Math.max(1, Math.min(Number(limit) || 100, 500));
+    return this.connection.prepare("SELECT * FROM email_messages ORDER BY ts DESC, id DESC LIMIT ?").all(bounded) as Record<string, unknown>[];
+  }
+
+  emailMessageCount(): number {
+    return (this.connection.prepare("SELECT COUNT(*) AS n FROM email_messages").get() as { n: number }).n;
   }
 
   close(): void { this.connection.close(); }

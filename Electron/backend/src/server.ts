@@ -11,7 +11,7 @@ import { fetchTrustedSignalFeed } from "./signals";
 import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, loadTwilioConfig, sendTwilioMessage, startTwilioCall, validateTwilioSignature } from "./twilio";
 import { createChannelRegistry, PLANNED_PROVIDERS } from "./channels";
 import { createTelnyxAdapter, validateTelnyxSignature } from "./telnyx";
-import { createEmailAdapter, emailConfigured } from "./email";
+import { createEmailAdapter, EmailTransport, emailConfigured } from "./email";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const ALLOWED_UPLOADS = new Set([".gif", ".jpeg", ".jpg", ".pdf", ".png", ".txt", ".webp"]);
@@ -100,7 +100,7 @@ async function readForm(request: IncomingMessage): Promise<Record<string, string
   return Object.fromEntries(params.entries());
 }
 
-export interface BackendOptions { host: string; port: number; dataDir: string; apiToken: string; sendMessage?: typeof sendTwilioMessage; startCall?: typeof startTwilioCall; endCall?: typeof endTwilioCall; operatorStatus?: (requestId: string) => Promise<unknown>; }
+export interface BackendOptions { host: string; port: number; dataDir: string; apiToken: string; sendMessage?: typeof sendTwilioMessage; startCall?: typeof startTwilioCall; endCall?: typeof endTwilioCall; operatorStatus?: (requestId: string) => Promise<unknown>; emailTransport?: EmailTransport; }
 
 function isPrivateRoute(pathname: string): boolean {
   return pathname === "/health" || pathname === "/upload" || pathname.startsWith("/api/");
@@ -376,7 +376,7 @@ export function createBackend(options: BackendOptions): { server: Server; databa
   // Email internet channel (work item 018, EMAIL-003): registered only when SMTP is
   // configured. Provider-neutral; a fallback/long-form channel, never the default
   // approval loop.
-  const emailAdapter = createEmailAdapter();
+  const emailAdapter = createEmailAdapter(options.emailTransport);
   if (emailConfigured()) channels.register(emailAdapter);
   // Mobile companion (CLV-006): planned, authenticated, disabled unless explicitly
   // enabled, and never any public relay.
@@ -1156,6 +1156,34 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       // Android/Fabric operator-status transport (TAURI-009): launch-only, read-only,
       // advisory. Returns the wrapper's structured JSON (or a degraded ok:false body
       // on any failure). Not MCP-safe; never exposes a raw device/shell surface.
+      // Email channel (work item 018, EMAIL-005/007): operator-only. Status is
+      // redacted (booleans + a recorded count; never host, address, or credentials).
+      if (request.method === "GET" && url.pathname === "/api/channels/email/status") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, {
+          configured: emailConfigured(),
+          host_present: Boolean((process.env.FORGELINK_SMTP_HOST || "").trim()),
+          from_present: Boolean((process.env.FORGELINK_SMTP_FROM || process.env.FORGELINK_SMTP_USER || "").trim()),
+          recorded_count: database.emailMessageCount()
+        });
+      }
+      // Send an email through the channel adapter and record it as private comms
+      // data (EMAIL-003 send path + EMAIL-007 persistence). Launch-only; email is a
+      // fallback channel and grants no approval authority.
+      if (request.method === "POST" && url.pathname === "/api/email/send") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const attachments = Array.isArray(payload.attachments) ? payload.attachments as Array<{ filename?: unknown; contentType?: unknown; contentBase64?: unknown }> : [];
+        const email = {
+          to: String(payload.to || ""),
+          subject: String(payload.subject || ""),
+          text: String(payload.text || payload.body || ""),
+          attachments: attachments.map((item) => ({ filename: String(item.filename || ""), contentType: item.contentType ? String(item.contentType) : undefined, contentBase64: String(item.contentBase64 || "") }))
+        };
+        const result = await emailAdapter.sendEmail(email);
+        const recorded = database.recordEmailMessage({ direction: "outbound", address: email.to, subject: email.subject, body: email.text, attachment_names: email.attachments.map((a) => a.filename), status: result.status, provider_message_id: result.providerMessageId || "" });
+        return sendJson(response, { ok: true, id: recorded.id, status: result.status }, 201);
+      }
       if (request.method === "GET" && url.pathname === "/api/device/operator-status") {
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         const requested = url.searchParams.get("request_id") || "";

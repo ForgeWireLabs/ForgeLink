@@ -148,6 +148,8 @@ test("upgrades a version-seven (pre-015) database to the current schema without 
     assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='device_keys'").get() as { name: string } | undefined)?.name, "device_keys");
     // v24 (017 OCX-014) adds the scheduled-send column to the reviewed outbox.
     assert.equal(new Set((database.connection.prepare("PRAGMA table_info(agent_outbound_drafts)").all() as Array<{ name: string }>).map((column) => column.name)).has("scheduled_at"), true);
+    // v25 (018 EMAIL-007) adds the email_messages table.
+    assert.equal((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='email_messages'").get() as { name: string } | undefined)?.name, "email_messages");
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -294,7 +296,7 @@ test("creates verified backups, restores data, exports JSON, and applies retenti
     assert.equal(exported.format, "forgelink-export-v1");
     assert.equal(exported.schema_version, CURRENT_SCHEMA_VERSION);
     assert.equal(exported.messages.some((message) => message.id === "AFTER"), false);
-    assert.deepEqual(database.applyRetention(365), { deletedMessages: 1, deletedThreads: 1, deletedAgentMessages: 0, deletedSignalItems: 0, deletedCalls: 0 });
+    assert.deepEqual(database.applyRetention(365), { deletedMessages: 1, deletedThreads: 1, deletedAgentMessages: 0, deletedSignalItems: 0, deletedCalls: 0, deletedEmailMessages: 0 });
     assert.equal((database.exportData().messages as Array<unknown>).length, 1);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
@@ -1303,5 +1305,35 @@ test("schedules, surfaces due, and cancels reviewed-outbox sends (OCX-014)", () 
     assert.equal(database.dueScheduledDrafts().some((row) => row.id === future.id), false);
     // Cancelling returns a draft to the pending lane.
     assert.equal(database.cancelOutboundDraftSchedule(draft.id).status, "draft");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// Email channel data safety (work item 018, EMAIL-007): recorded email is private
+// communication data that participates in export and retention and resolves to a
+// contact via an email contact point.
+test("records email messages that participate in export and retention (EMAIL-007)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-email-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const contactId = database.upsertContact("Dana", "+15551239000");
+    database.addContactPoint(contactId, "email", "dana@example.com", "work", false);
+
+    const recent = database.recordEmailMessage({ direction: "outbound", address: "dana@example.com", subject: "Hello", body: "Recent body", status: "sent", provider_message_id: "smtp-1" });
+    const old = database.recordEmailMessage({ direction: "outbound", address: "vendor@example.com", subject: "Old", body: "Old body", status: "sent", ts: "2000-01-01T00:00:00.000Z" });
+    assert.equal(database.emailMessageCount(), 2);
+
+    // Resolves to the contact when an email contact point matches.
+    const stored = database.emailMessages().find((m) => m.id === recent.id) as { contact_id: number | null };
+    assert.equal(stored.contact_id, contactId);
+
+    // Participates in export as private communication data.
+    const exported = database.exportData() as { email_messages: Array<{ id: string }> };
+    assert.equal(exported.email_messages.length, 2);
+
+    // Participates in retention: the old message is removed, the recent one kept.
+    const result = database.applyRetention(30);
+    assert.equal(result.deletedEmailMessages, 1);
+    assert.equal(database.emailMessageCount(), 1);
+    assert.ok(database.emailMessages().every((m) => m.id !== old.id));
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });

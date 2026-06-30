@@ -110,6 +110,7 @@ beforeEach(() => {
     if (url.includes("/api/outbound-drafts")) return response(outboundDraftsFixture);
     if (url.endsWith("/api/redaction-profiles/preview")) { const body = JSON.parse(String(init?.body || "{}")); const profile = String(body.profile || ""); const full = profile === "desktop_full"; const note = body.notification || {}; return response({ profile: { id: profile, label: profile }, notification: { title: note.title || "", body: full ? note.body || "" : "", redaction_profile: profile, redacted: !full } }); }
     if (url.includes("/api/device/operator-status")) return response({ ok: true, target: "emulator-only", authority: "readonly-emulator-inspection", mode: "operator-status", request_id: "forgelink-op-001", bridge_version: "rom_lab.forgelink_operator_status.v1", device: { android_release: "15", sdk: "35", model: "Android SDK built for x86_64", hardware: "ranchu", fingerprint: "fp" }, boot: { completed: true }, network: { summary: "network-read: 52 sanitized line(s)" }, storage: { summary: "storage-read: 52 sanitized line(s)" }, activity: { current_user: "0", top_activity: "ACTIVITY com.android.launcher3/.uioverrides.QuickstepLauncher 7b3f70c" }, packages: { summary: "packages: 40 visible package line(s)", count: 40 } });
+    if (url.endsWith("/api/channels/email/status")) return response({ configured: false, host_present: false, from_present: false, recorded_count: 0 });
     if (url.endsWith("/api/sample/status")) return response(sampleStatusFixture);
     if (url.endsWith("/api/sample/load")) { sampleStatusFixture = { loaded: true, counts: { contacts: 3, agents: 3, approvals: 4, outcomes: 1, channels: 1 } }; return response({ ok: true, ...sampleStatusFixture }); }
     if (url.endsWith("/api/sample/clear")) { sampleStatusFixture = { loaded: false, counts: { contacts: 0, agents: 0, approvals: 0, outcomes: 0, channels: 0 } }; return response({ ok: true, ...sampleStatusFixture }); }
@@ -662,6 +663,14 @@ describe("React renderer parity", () => {
     // Denying the draft removes the pending send action.
     await userEvent.click(screen.getByRole("button", { name: "Deny" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Approve & send" })).toBeNull());
+  });
+
+  it("shows the email channel configuration card (EMAIL-005)", async () => {
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(await screen.findByRole("heading", { name: "Email channel" })).toBeTruthy();
+    expect(screen.getByText(/not the default human-approval loop/)).toBeTruthy();
+    expect(screen.getByText(/Configure SMTP via/)).toBeTruthy();
   });
 
   it("loads and clears the first-run sample workspace with a synthetic-data banner (OCX-018)", async () => {
