@@ -1,4 +1,4 @@
-import type { AgentMessage, AndroidOperatorStatus, BackendConnection, CallRow, ConfigStatus, Contact, ContactPoint, ContactPolicy, ContactTimelineItem, DataStatus, EmailChannelStatus, Message, OutboundDraft, OutboundDraftEvent, RedactionPreview, RedactionProfileSpec, RetentionResult, SampleStatus, SignalItem, SignalSubscription, Thread } from "./types";
+import type { AgentMessage, AndroidOperatorStatus, BackendConnection, CallRow, ConfigStatus, Contact, ContactPoint, ContactPolicy, ContactTimelineItem, DataStatus, EmailChannelStatus, Message, OutboundDraft, OutboundDraftEvent, PushChannelStatus, RedactionPreview, RedactionProfileSpec, RetentionResult, SampleStatus, SignalItem, SignalSubscription, Thread } from "./types";
 
 export class PhoneApi {
   constructor(private connection: () => BackendConnection) {}
@@ -69,6 +69,9 @@ export class PhoneApi {
   operatorStatus = (requestId?: string) => this.request<AndroidOperatorStatus>(`/api/device/operator-status${requestId ? `?request_id=${encodeURIComponent(requestId)}` : ""}`);
   // Email channel status (work item 018, EMAIL-005) — redacted booleans + count.
   emailStatus = () => this.request<EmailChannelStatus>("/api/channels/email/status");
+  // Push channel status + test (work item 019, PUSH-006) — redacted booleans + provider/profile.
+  pushStatus = () => this.request<PushChannelStatus>("/api/channels/push/status");
+  sendTestPush = () => this.request<{ ok: boolean; status: string }>("/api/push/test", { method: "POST" });
   // First-run sample workspace (OCX-018).
   sampleStatus = () => this.request<SampleStatus>("/api/sample/status");
   loadSample = () => this.request<{ ok: true } & SampleStatus>("/api/sample/load", { method: "POST" });

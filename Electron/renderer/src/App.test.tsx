@@ -77,6 +77,9 @@ beforeEach(() => {
     emailSettings: vi.fn().mockResolvedValue({ configured: false, host: "", port: 465, secure: true, user: "", from: "", password_present: false, inbound_secret_present: false, action_secret_present: false }),
     saveEmailSettings: vi.fn().mockResolvedValue({ configured: true, host: "smtp.example.com", port: 587, secure: false, user: "ops@example.com", from: "ops@example.com", password_present: true, inbound_secret_present: false, action_secret_present: false }),
     removeEmailSettings: vi.fn().mockResolvedValue({ configured: false, host: "", port: 465, secure: true, user: "", from: "", password_present: false, inbound_secret_present: false, action_secret_present: false }),
+    pushSettings: vi.fn().mockResolvedValue({ configured: false, provider: "ntfy", url: "https://ntfy.sh", profile: "lock_screen_safe", topic_present: false, token_present: false }),
+    savePushSettings: vi.fn().mockResolvedValue({ configured: true, provider: "ntfy", url: "https://ntfy.sh", profile: "lock_screen_safe", topic_present: true, token_present: false }),
+    removePushSettings: vi.fn().mockResolvedValue({ configured: false, provider: "ntfy", url: "https://ntfy.sh", profile: "lock_screen_safe", topic_present: false, token_present: false }),
     onServerStatus: vi.fn()
   };
   vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -114,6 +117,8 @@ beforeEach(() => {
     if (url.endsWith("/api/redaction-profiles/preview")) { const body = JSON.parse(String(init?.body || "{}")); const profile = String(body.profile || ""); const full = profile === "desktop_full"; const note = body.notification || {}; return response({ profile: { id: profile, label: profile }, notification: { title: note.title || "", body: full ? note.body || "" : "", redaction_profile: profile, redacted: !full } }); }
     if (url.includes("/api/device/operator-status")) return response({ ok: true, target: "emulator-only", authority: "readonly-emulator-inspection", mode: "operator-status", request_id: "forgelink-op-001", bridge_version: "rom_lab.forgelink_operator_status.v1", device: { android_release: "15", sdk: "35", model: "Android SDK built for x86_64", hardware: "ranchu", fingerprint: "fp" }, boot: { completed: true }, network: { summary: "network-read: 52 sanitized line(s)" }, storage: { summary: "storage-read: 52 sanitized line(s)" }, activity: { current_user: "0", top_activity: "ACTIVITY com.android.launcher3/.uioverrides.QuickstepLauncher 7b3f70c" }, packages: { summary: "packages: 40 visible package line(s)", count: 40 } });
     if (url.endsWith("/api/channels/email/status")) return response({ configured: false, host_present: false, from_present: false, recorded_count: 0 });
+    if (url.endsWith("/api/channels/push/status")) return response({ configured: false, provider: "ntfy", url: "https://ntfy.sh", profile: "lock_screen_safe", topic_present: false, token_present: false });
+    if (url.endsWith("/api/push/test")) return response({ ok: true, status: "sent" });
     if (url.endsWith("/api/sample/status")) return response(sampleStatusFixture);
     if (url.endsWith("/api/sample/load")) { sampleStatusFixture = { loaded: true, counts: { contacts: 3, agents: 3, approvals: 4, outcomes: 1, channels: 1 } }; return response({ ok: true, ...sampleStatusFixture }); }
     if (url.endsWith("/api/sample/clear")) { sampleStatusFixture = { loaded: false, counts: { contacts: 0, agents: 0, approvals: 0, outcomes: 0, channels: 0 } }; return response({ ok: true, ...sampleStatusFixture }); }
@@ -684,6 +689,22 @@ describe("React renderer parity", () => {
     await userEvent.type(screen.getByPlaceholderText("ops@your-domain"), "ops@example.com");
     await userEvent.click(screen.getByRole("button", { name: "Save email credentials" }));
     await waitFor(() => expect(window.desktop?.saveEmailSettings).toHaveBeenCalled());
+  });
+
+  it("shows the push channel card with a lock-screen-safe redaction preview (PUSH-006)", async () => {
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(await screen.findByRole("heading", { name: "Push notifications" })).toBeTruthy();
+    expect(screen.getByText(/grants no approval authority/)).toBeTruthy();
+    expect(screen.getByText(/An approval is waiting in ForgeLink/)).toBeTruthy();
+  });
+
+  it("saves push credentials through the secure store bridge (PUSH-003/006)", async () => {
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    await screen.findByRole("heading", { name: "Push notifications" });
+    await userEvent.click(screen.getByRole("button", { name: "Save push credentials" }));
+    await waitFor(() => expect(window.desktop?.savePushSettings).toHaveBeenCalled());
   });
 
   it("loads and clears the first-run sample workspace with a synthetic-data banner (OCX-018)", async () => {

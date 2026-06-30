@@ -7,6 +7,7 @@ const path = require("node:path");
 const { evaluateAttention, normalizeAttentionPolicy } = require("./attention");
 const { createSettingsStore, validateTwilioCredentials, configureNumberWebhook } = require("./onboarding");
 const { createEmailSettingsStore } = require("./emailSettings");
+const { createPushSettingsStore } = require("./pushSettings");
 const { createTunnelManager } = require("./tunnel");
 const { findAvailablePort, createRestartPolicy } = require("./lifecycle");
 const { shouldAutoUpdate } = require("./updates");
@@ -18,6 +19,7 @@ let backendProcess = null;
 let mainWindow = null;
 let settingsStore = null;
 let emailSettingsStore = null;
+let pushSettingsStore = null;
 let tunnel = null;
 let tunnelPublicUrl = "";
 let effectivePort = 0;
@@ -146,6 +148,7 @@ async function startBackend() {
     env: {
       ...process.env,
       ...(emailSettingsStore ? emailSettingsStore.backendEnv() : {}),
+      ...(pushSettingsStore ? pushSettingsStore.backendEnv() : {}),
       TWILIO_ACCOUNT_SID: settings.account_sid,
       TWILIO_AUTH_TOKEN: settings.auth_token,
       TWILIO_PHONE_NUMBER: settings.twilio_number,
@@ -326,6 +329,24 @@ ipcMain.handle("email-settings-remove", async () => {
   await waitForBackend();
   return result;
 });
+
+// Push channel credentials (work item 019, PUSH-003): topic + token stored
+// OS-encrypted in the main process and applied by restarting the backend so the new
+// env takes effect. The renderer only ever receives the redacted view (never the
+// topic or token).
+ipcMain.handle("push-settings-get", () => pushSettingsStore.current());
+ipcMain.handle("push-settings-save", async (_event, values = {}) => {
+  const result = pushSettingsStore.persist(values || {});
+  await startBackend();
+  await waitForBackend();
+  return result;
+});
+ipcMain.handle("push-settings-remove", async () => {
+  const result = pushSettingsStore.remove();
+  await startBackend();
+  await waitForBackend();
+  return result;
+});
 ipcMain.handle("start-local-only", async (_, update = {}) => {
   settingsStore.startLocalOnly(update);
   tunnelPublicUrl = "";
@@ -414,6 +435,8 @@ app.whenReady().then(async () => {
   settingsStore.load();
   emailSettingsStore = createEmailSettingsStore({ fs, path, safeStorage, userData: app.getPath("userData") });
   try { emailSettingsStore.load(); } catch (error) { console.error(`Email settings load failed: ${error}`); }
+  pushSettingsStore = createPushSettingsStore({ fs, path, safeStorage, userData: app.getPath("userData") });
+  try { pushSettingsStore.load(); } catch (error) { console.error(`Push settings load failed: ${error}`); }
   if (!(await backendIsReady())) await startBackend();
   const ready = await waitForBackend();
   if (!ready) console.error(`Backend did not become ready at ${baseUrl()}`);

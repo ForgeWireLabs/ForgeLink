@@ -1467,3 +1467,66 @@ test("EMAIL-004/006: inbound webhook ingest and signed quick-action boundaries",
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("push channel status and test send are redacted and exclude the topic/token (PUSH-006/007)", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-push-http-"));
+  const previous = { url: process.env.FORGELINK_PUSH_URL, topic: process.env.FORGELINK_PUSH_TOPIC, token: process.env.FORGELINK_PUSH_TOKEN, profile: process.env.FORGELINK_PUSH_PROFILE };
+  process.env.FORGELINK_PUSH_URL = "https://push.example.com";
+  process.env.FORGELINK_PUSH_TOPIC = "topic-secret-xyz";
+  process.env.FORGELINK_PUSH_TOKEN = "tok-secret-abc";
+  delete process.env.FORGELINK_PUSH_PROFILE;
+  const sent: Array<{ topic: string; title: string; body: string }> = [];
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken, pushTransport: async (payload) => { sent.push({ topic: payload.topic, title: payload.title, body: payload.body }); return { providerMessageId: "push-test-1" }; } });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  try {
+    // Status is redacted: presence booleans + provider/url/profile, never the topic/token.
+    const statusResponse = await fetch(`${localUrl}/api/channels/push/status`, { headers: authorized() });
+    assert.equal(statusResponse.status, 200);
+    const statusRaw = await statusResponse.text();
+    assert.doesNotMatch(statusRaw, /topic-secret-xyz/);
+    assert.doesNotMatch(statusRaw, /tok-secret-abc/);
+    const status = JSON.parse(statusRaw);
+    assert.equal(status.configured, true);
+    assert.equal(status.topic_present, true);
+    assert.equal(status.token_present, true);
+    assert.equal(status.profile, "lock_screen_safe");
+    // Test send goes through redaction: lock-screen-safe body, no caller content.
+    const test = await fetch(`${localUrl}/api/push/test`, { method: "POST", headers: authorized() });
+    assert.equal(test.status, 201);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].topic, "topic-secret-xyz");
+    assert.equal(sent[0].body, "ForgeLink status update.");
+    // Diagnostics exposes only a boolean, never the topic or token.
+    const diag = await fetch(`${localUrl}/api/diagnostics`, { headers: authorized() });
+    const diagRaw = await diag.text();
+    assert.doesNotMatch(diagRaw, /topic-secret-xyz/);
+    assert.doesNotMatch(diagRaw, /tok-secret-abc/);
+    assert.equal(JSON.parse(diagRaw).push_configured, true);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    for (const [key, value] of Object.entries({ FORGELINK_PUSH_URL: previous.url, FORGELINK_PUSH_TOPIC: previous.topic, FORGELINK_PUSH_TOKEN: previous.token, FORGELINK_PUSH_PROFILE: previous.profile })) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("push test send is disabled when the channel is not configured (PUSH-007)", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-push-off-"));
+  const previous = { url: process.env.FORGELINK_PUSH_URL, topic: process.env.FORGELINK_PUSH_TOPIC };
+  delete process.env.FORGELINK_PUSH_URL;
+  delete process.env.FORGELINK_PUSH_TOPIC;
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  try {
+    const status = await (await fetch(`${localUrl}/api/channels/push/status`, { headers: authorized() })).json();
+    assert.equal(status.configured, false);
+    assert.equal((await fetch(`${localUrl}/api/push/test`, { method: "POST", headers: authorized() })).status, 503);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    for (const [key, value] of Object.entries({ FORGELINK_PUSH_URL: previous.url, FORGELINK_PUSH_TOPIC: previous.topic })) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

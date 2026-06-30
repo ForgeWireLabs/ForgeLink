@@ -143,9 +143,11 @@ test("registry: the push adapter is selectable by the push_send capability", () 
 
 // --- Error classification ---------------------------------------------------
 
-test("mapPushError: 429/5xx and network errors are retriable; other 4xx are permanent", () => {
+test("mapPushError: 429/5xx and network errors are retriable; an invalid/stale token (401/403) is permanent", () => {
   assert.equal(mapPushError({ httpStatus: 429 }).retriable, true);
   assert.equal(mapPushError({ httpStatus: 503 }).retriable, true);
+  // A rejected/stale access token surfaces as a permanent, caller-safe failure.
+  assert.equal(mapPushError({ httpStatus: 401 }).retriable, false);
   assert.equal(mapPushError({ httpStatus: 403 }).retriable, false);
   assert.equal(mapPushError({ code: "ETIMEDOUT" }).retriable, true);
   assert.equal(mapPushError(new Error("unknown")).retriable, false);

@@ -14,15 +14,20 @@ versions tracked in `VERSION` and `Electron/package.json`.
   Health metric grid (work item 030 groundwork, decision 0017).
 
 ### Added
-- Push notification channel foundation (work item 019, PUSH-001/002/004): a
-  provider-neutral `push_send` channel that alerts an operator without carrying
-  private communication state. Redaction profiles default to lock-screen-safe (only
-  generic category text leaves the device); a `full` profile emits clamped,
-  control-stripped content only when explicitly selected. ntfy is the documented
-  initial provider (topic-based, self-hostable) behind an injectable, provider-neutral
-  transport. Disabled by default (no topic ⇒ off); registered in the channel registry
-  only when configured. Notification-only — no stored secrets and no push action
-  authority in this slice (those are deferred). See `docs/push-channel.md`.
+- Push notification channel — completes work item 019: a provider-neutral `push_send`
+  channel that alerts an operator without carrying private communication state.
+  Redaction profiles default to lock-screen-safe (only generic category text leaves
+  the device); a `full` profile emits clamped, control-stripped content only when
+  explicitly selected (PUSH-001/002/004). The push topic and token are stored
+  OS-encrypted (Electron safeStorage) in the main process — never in the
+  DB/renderer/logs/diagnostics/exports — with rotation by re-save and revoke by
+  remove (PUSH-003). A Settings "Push notifications" card provides setup, a test
+  notification, redacted status, revoke, and a redaction preview (PUSH-006). Push is
+  notification-only: a tap is never approval authority, and any future action must use
+  the signed action path (PUSH-005). ntfy is the documented initial provider
+  (topic-based, self-hostable) behind an injectable transport; disabled by default
+  (no topic ⇒ off). Default ntfy transport live verification is deferred. See
+  `docs/push-channel.md`.
 - Email channel (secure storage, inbound, quick-actions) — completes work item 018:
   SMTP and inbound/quick-action secrets are stored OS-encrypted (Electron
   safeStorage) in the main process and entered via a Settings form, never exposed to

@@ -26,6 +26,9 @@ const forgeLinkShell = {
   emailSettings: () => ipcRenderer.invoke("email-settings-get"),
   saveEmailSettings: (values) => ipcRenderer.invoke("email-settings-save", values),
   removeEmailSettings: () => ipcRenderer.invoke("email-settings-remove"),
+  pushSettings: () => ipcRenderer.invoke("push-settings-get"),
+  savePushSettings: (values) => ipcRenderer.invoke("push-settings-save", values),
+  removePushSettings: () => ipcRenderer.invoke("push-settings-remove"),
   onServerStatus: (callback) => ipcRenderer.on("server-status", (_, status) => callback(status))
 };
 

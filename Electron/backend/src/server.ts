@@ -12,7 +12,7 @@ import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, loadTwili
 import { createChannelRegistry, PLANNED_PROVIDERS } from "./channels";
 import { createTelnyxAdapter, validateTelnyxSignature } from "./telnyx";
 import { createEmailAdapter, EmailTransport, emailConfigured, emailInboundConfigured, emailQuickActionConfigured, validateEmailWebhookSignature, verifyQuickActionToken } from "./email";
-import { createPushAdapter, PushTransport, pushConfigured } from "./push";
+import { createPushAdapter, loadPushConfig, PushTransport, pushConfigured } from "./push";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const ALLOWED_UPLOADS = new Set([".gif", ".jpeg", ".jpg", ".pdf", ".png", ".txt", ".webp"]);
@@ -502,7 +502,9 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         planned_channels: PLANNED_PROVIDERS,
         companion: companionEnabled ? "enabled" : "planned",
         // Redacted by design (EMAIL-007): boolean only — never the SMTP host, address, or credentials.
-        email_configured: emailConfigured()
+        email_configured: emailConfigured(),
+        // Redacted by design (PUSH-003/007): boolean only — never the push topic or token.
+        push_configured: pushConfigured()
       });
       if (url.pathname === "/api/companion/pair" || url.pathname === "/api/companion/status") {
         // CLV-006 planning gate: disabled by default, authenticated (under /api/),
@@ -1189,6 +1191,29 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const result = await emailAdapter.sendEmail(email);
         const recorded = database.recordEmailMessage({ direction: "outbound", address: email.to, subject: email.subject, body: email.text, attachment_names: email.attachments.map((a) => a.filename), status: result.status, provider_message_id: result.providerMessageId || "" });
         return sendJson(response, { ok: true, id: recorded.id, status: result.status }, 201);
+      }
+      // Push channel (work item 019, PUSH-006): operator-only. Status is redacted —
+      // provider/URL/profile and presence booleans, never the topic or token.
+      if (request.method === "GET" && url.pathname === "/api/channels/push/status") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const pushConfig = loadPushConfig();
+        return sendJson(response, {
+          configured: pushConfigured(pushConfig),
+          provider: pushConfig.provider,
+          url: pushConfig.baseUrl,
+          profile: pushConfig.defaultProfile,
+          topic_present: Boolean(pushConfig.topic),
+          token_present: Boolean(pushConfig.token)
+        });
+      }
+      // Send a test notification (PUSH-006). Launch-only; goes through the same
+      // redaction as any push, so it never carries private content. Push is
+      // notification-only and grants no approval authority.
+      if (request.method === "POST" && url.pathname === "/api/push/test") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        if (!pushConfigured()) return sendJson(response, { error: "Push notifications are not configured." }, 503);
+        const result = await pushAdapter.sendPush({ category: "system", title: "ForgeLink test", body: "This is a test notification from ForgeLink." });
+        return sendJson(response, { ok: true, status: result.status, provider_message_id: result.providerMessageId }, 201);
       }
       if (request.method === "GET" && url.pathname === "/api/device/operator-status") {
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);

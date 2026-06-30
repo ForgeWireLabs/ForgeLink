@@ -1,8 +1,8 @@
 ---
 audience: maintainers and implementation agents
-status: active
+status: completed
 last_verified: 2026-06-30
-source_of_truth: work/active/019-push-notification-channel/README.md; work/active/019-push-notification-channel/work-item.json
+source_of_truth: work/completed/019-push-notification-channel/README.md; work/completed/019-push-notification-channel/work-item.json
 ---
 
 # Work Item 019: Push Notification Channel
@@ -64,4 +64,37 @@ duplicate-action-tap, and diagnostics-exclusion tests depend on the deferred
 storage/actions/diagnostics slices), PUSH-008 (operator docs). Default ntfy transport
 live verification is deferred; relied-on logic is unit-tested with an injected
 transport. No effect on work items 011 or 030.
+
+### Completion — 2026-06-30 (evidence `20260630-push-003-005-006-007-008-complete`)
+
+All eight criteria satisfied; work item moved to completed.
+
+- **PUSH-003** — secure storage in
+  [`Electron/pushSettings.js`](../../../Electron/pushSettings.js): the topic **and**
+  token are OS-encrypted via `safeStorage` in the main process, injected into the
+  backend launch env, never in the DB/renderer/logs/diagnostics/exports. Re-saving a
+  new topic/token rotates; `remove()` revokes and disables. Wired through
+  `main.js`/`preload.js` IPC; tested in `pushSettings.test.js`.
+- **PUSH-005** — **notification-only by decision**: push ships no quick actions, so a
+  tap is never authority; any future action must use the signed `PushActionResponse`
+  path with the same checks as the email quick-action path (documented in
+  [`docs/push-channel.md`](../../../docs/push-channel.md)).
+- **PUSH-006** — Settings "Push notifications" card (App.tsx): redacted status, a
+  credential form (provider URL / topic / optional token / redaction profile), a
+  **Send test notification** button, **Remove** (revoke), disabled-state messaging,
+  and a redaction preview. Backed by `GET /api/channels/push/status` (redacted) and
+  `POST /api/push/test`.
+- **PUSH-007** — full deterministic matrix: delivery success/failure, invalid/stale
+  token (401/403) → permanent, redaction (default + full + injection), missing
+  credentials (disabled), provider outage (timeout/429/5xx), encrypted-at-rest
+  storage with rotation/revoke, redacted status, and **diagnostics/export exclusion**
+  of the topic and token (`server.test.ts`, `push.test.ts`, `pushSettings.test.js`).
+- **PUSH-008** — operator setup, privacy limitations, lost-device handling (rotate/
+  revoke), failure modes, and the relationship to the first-party mobile cockpit in
+  [`docs/push-channel.md`](../../../docs/push-channel.md).
+
+**Remaining deferred (not blocking completion):** provider-live verification of the
+default ntfy transport (relied-on logic is unit-tested with an injected transport);
+signed push quick actions are intentionally not shipped. No effect on work items 011
+or 030.
 

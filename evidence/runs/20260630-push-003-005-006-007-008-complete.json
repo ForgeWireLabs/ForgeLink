@@ -1,0 +1,64 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260630-push-003-005-006-007-008-complete",
+  "timestamp": "2026-06-30T12:00:00Z",
+  "work_item": "019",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend build passed after adding the push status + test routes, the push_configured diagnostics boolean, and the push adapter registration."
+    },
+    {
+      "command": "node --test pushSettings.test.js",
+      "exit_code": 0,
+      "summary": "3 secure-storage tests passed: topic + token stored encrypted and redacted from the view and the persisted file, reload + blank re-save keeps secrets, rotation replaces the topic, remove revokes and clears the backend env, and URL/topic are required."
+    },
+    {
+      "command": "node --test backend-dist/push.test.js backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Push unit + HTTP tests passed: redaction default/full/injection, send success/failure, invalid-stale-token (401/403) permanent mapping, registry selection; and the HTTP routes — redacted status (no topic/token), test send through an injected transport with lock-screen-safe body, diagnostics exclusion of topic/token, and disabled-when-unconfigured (503)."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "41 renderer tests passed, including the push channel card (lock-screen-safe redaction preview) and saving push credentials through the secure-store bridge."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron validation passed (190 backend pass / 0 fail / 1 skipped, plus 41 renderer), including pushSettings.js syntax + store tests."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact plus ForgeLink local validation passed for the work-item completion, closeout, docs, evidence, CHANGELOG, and registry."
+    }
+  ],
+  "artifacts": [
+    "Electron/pushSettings.js",
+    "Electron/pushSettings.test.js",
+    "Electron/main.js",
+    "Electron/preload.js",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/backend/src/push.ts",
+    "Electron/backend/src/push.test.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/src/api.ts",
+    "Electron/renderer/src/shell.ts",
+    "Electron/renderer/src/types.ts",
+    "Electron/package.json",
+    "docs/push-channel.md",
+    "work/completed/019-push-notification-channel/README.md",
+    "work/completed/019-push-notification-channel/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "Completes work item 019 (all 8 criteria). PUSH-003: push topic + token stored OS-encrypted via Electron safeStorage in the main process, injected into the backend launch env, never in the DB/renderer/logs/diagnostics/exports; rotation by re-save, revoke by remove. PUSH-005: push ships notification-only by decision — no unsigned quick actions; any future action must use the signed PushActionResponse path with the same checks as the email quick-action path. PUSH-006: Settings card with redacted status, credential form, send-test, revoke, disabled state, and a redaction preview, backed by launch-only /api/channels/push/status and /api/push/test. PUSH-007: full deterministic matrix incl. diagnostics/export exclusion of topic+token. PUSH-008: operator setup, privacy limits, lost-device handling, failure modes, and mobile-cockpit relationship documented. Default ntfy transport live verification remains deferred; all relied-on logic is unit-tested with injected fakes. No effect on work items 011 or 030."
+  }
+}
