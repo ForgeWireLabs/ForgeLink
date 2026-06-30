@@ -15,14 +15,14 @@ contracts (e.g. under `work/`) refine this root contract but cannot weaken it.
 ## Governed with RepoPact
 
 ForgeLink is governed with [RepoPact](https://github.com/ForgeWireLabs/repopact),
-consumed from PyPI (`repopact==1.9.0`, pinned in `requirements-repopact.txt`; decision
-0015). Validate with `python .local/validate_system.py` (it runs `repopact validate`
+consumed as a pinned upstream package (`2.0.2+d1d5f81`, pinned in
+`requirements-repopact.txt`; decision 0015). Validate with `python .local/validate_system.py` (it runs `repopact validate`
 plus ForgeLink's local checks). Run `pip install -r requirements-repopact.txt` on a
 fresh clone first. Derived artifacts (`audits/reports/dashboard.md`) are generated,
 never hand-edited.
 
 `schemas/` stay in-repo — RepoPact validates against this repository's own contracts.
 There are no vendored validator patches; the preflight guard is an upstream opt-in
-enabled via `governance/owners.json` (RepoPact 1.9.0). See
+enabled via `governance/owners.json`. See
 [`scripts/LOCAL_EXTENSIONS.md`](scripts/LOCAL_EXTENSIONS.md) for the history and the
 current model.

@@ -1,4 +1,4 @@
-# RepoPact governance tooling, consumed from PyPI instead of vendored (decision 0015).
+# RepoPact governance tooling, consumed as a pinned upstream package instead of vendored (decision 0015).
 # Validate via:  python .local/validate_system.py   (which runs `repopact validate`
 # plus ForgeLink's local LIE-003 / link checks). A fresh clone or CI must
 # `pip install -r requirements-repopact.txt` before validating.
@@ -10,5 +10,6 @@
 #
 # Former ForgeLink extensions now upstream: orphan-work-dir check + dead
 # source_of_truth warning (1.5.0); checkbox parity (1.6.0); deferred + rejected
-# decision statuses (1.8.0); opt-in preflight marker (1.9.0).
-repopact==1.9.0
+# decision statuses (1.8.0); opt-in preflight marker (1.9.0); proposed work
+# lifecycle state (2.0.2+d1d5f81).
+repopact @ git+https://github.com/ForgeWireLabs/repopact@d1d5f812b66350bc1c5514c1c92971f2cf4bebd3
