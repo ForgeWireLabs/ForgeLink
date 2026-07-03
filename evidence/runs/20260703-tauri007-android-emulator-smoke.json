@@ -1,0 +1,53 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260703-tauri007-android-emulator-smoke",
+  "timestamp": "2026-07-03T20:50:54Z",
+  "work_item": "030",
+  "result": "passed",
+  "criteria": ["TAURI-007"],
+  "summary": "Live read-only Android emulator smoke for the ForgeLink mobile cockpit device-health seam.",
+  "commands": [
+    {
+      "command": "C:\\Android\\Sdk\\emulator\\emulator.exe -avd forge_moto_one_hyper_lab_api35 -no-snapshot-load -no-audio -no-boot-anim -gpu swiftshader_indirect",
+      "exit_code": 0,
+      "summary": "Started the installed Android emulator AVD in a headless smoke configuration."
+    },
+    {
+      "command": "C:\\Android\\Sdk\\platform-tools\\adb.exe wait-for-device; adb shell getprop sys.boot_completed; adb devices -l; adb shell getprop ro.build.version.release; adb shell getprop ro.build.version.sdk; adb shell getprop ro.product.model; adb shell getprop ro.hardware",
+      "exit_code": 0,
+      "summary": "Emulator booted successfully: emulator-5554, Android 15, SDK 35, model Android SDK built for x86_64, hardware ranchu."
+    },
+    {
+      "command": "C:\\Projects\\moto-one-hyper\\scripts\\show_forgelink_operator_status.ps1 -RequestId tauri007-emulator-smoke-001",
+      "exit_code": 0,
+      "summary": "Moto One Hyper read-only bridge returned ok:true operator-status payload with authority readonly-emulator-inspection, bridge_version rom_lab.forgelink_operator_status.v1, boot.completed=true, packages.count=40, and sanitized network/storage/activity summaries."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact plus ForgeLink local validation passed after evidence update."
+    }
+  ],
+  "artifacts": [
+    "Tauri/validation-rollback-evidence.json",
+    "docs/tauri-validation-rollback-evidence.md",
+    "work/active/030-tauri-shared-shell-and-electron-retirement/README.md",
+    "work/active/030-tauri-shared-shell-and-electron-retirement/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "android_sdk": "C:\\Android\\Sdk",
+    "avd": "forge_moto_one_hyper_lab_api35",
+    "device": {
+      "serial": "emulator-5554",
+      "android_release": "15",
+      "sdk": "35",
+      "model": "Android SDK built for x86_64",
+      "hardware": "ranchu",
+      "fingerprint": "Android/sdk_phone64_x86_64/emu64x:15/AE3A.240806.019/12368160:userdebug/test-keys"
+    },
+    "process_note": "Read-only emulator/device-health smoke only. This proves the advisory operator-status seam against a booted Android emulator. It does not install or run a packaged Tauri APK/IPA, does not pair a device key, does not return a signed decision envelope from a packaged app, and does not mutate the emulator."
+  }
+}

@@ -24,7 +24,8 @@
       "evidence": [
         "Electron/renderer/src/App.test.tsx: surfaces the Tauri mobile decision terminal flow without private database replication",
         "Tauri/src-tauri/capabilities/mobile-cockpit.json",
-        "Tauri/distribution-plan.json mobile data boundary"
+        "Tauri/distribution-plan.json mobile data boundary",
+        "evidence/runs/20260703-tauri007-android-emulator-smoke.json"
       ]
     },
     "distribution_update_guards": {
@@ -45,9 +46,13 @@
   },
   "limitations": {
     "mobile_emulator_or_device_smoke": {
-      "status": "waived",
-      "reason": "TAURI-007 closes automated shared-shell validation and renderer mobile decision-flow coverage only. There is no Android/iOS emulator or paired device smoke in this host pass; public/mobile shipping remains blocked on TAURI mobile device evidence and store-track validation.",
-      "follow_up_gate": "Before public/mobile release, run Tauri Android/iOS emulator or physical-device smoke for pairing, authenticated local API connection, mobile_lock_screen decision flow, signed decision envelope return, notification/deep-link handling, and device revoke."
+      "status": "covered",
+      "reason": "A live Android emulator smoke was run on AVD forge_moto_one_hyper_lab_api35 through the Moto One Hyper read-only operator-status bridge. It proved a booted Android 15 / SDK 35 emulator and the advisory device-health payload consumed by ForgeLink.",
+      "follow_up_gate": "Before public/mobile release, still run a packaged Tauri Android/iOS emulator or physical-device smoke for pairing, authenticated local API connection from the app shell, mobile_lock_screen decision flow, signed decision envelope return, notification/deep-link handling, and device revoke."
+    },
+    "packaged_tauri_mobile_app_smoke": {
+      "status": "not_claimed",
+      "reason": "This pass smoked the live Android emulator and read-only operator-status bridge, not a packaged Tauri APK/IPA installed on emulator or device."
     },
     "signed_public_distribution": {
       "status": "out_of_scope",

@@ -15,8 +15,9 @@ test("TAURI-007 validation matrix covers bridge, desktop shell, mobile flow, and
     assert.ok(evidence.validation[area], `missing validation area: ${area}`);
     assert.equal(evidence.validation[area].status, "covered", `${area} is not covered`);
   }
-  assert.equal(evidence.limitations.mobile_emulator_or_device_smoke.status, "waived");
-  assert.match(evidence.limitations.mobile_emulator_or_device_smoke.reason, /no Android\/iOS emulator or paired device smoke/);
+  assert.equal(evidence.limitations.mobile_emulator_or_device_smoke.status, "covered");
+  assert.match(evidence.limitations.mobile_emulator_or_device_smoke.reason, /live Android emulator smoke/);
+  assert.equal(evidence.limitations.packaged_tauri_mobile_app_smoke.status, "not_claimed");
 });
 
 test("TAURI-007 evidence references executable checks that are present in the repo", () => {

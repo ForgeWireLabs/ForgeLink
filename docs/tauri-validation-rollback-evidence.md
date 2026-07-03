@@ -20,7 +20,9 @@ Covered checks:
   shapes are renderer-safe, the shared renderer is reused, and Electron remains.
 - Mobile decision flow: renderer tests cover the Tauri mobile decision terminal
   flow, redacted `mobile_lock_screen` profile, paired-device signed-decision
-  intent, device revoke control, and no private database replication.
+  intent, device revoke control, and no private database replication. A live
+  Android emulator smoke also proved the Moto One Hyper read-only
+  `operator-status` bridge against `forge_moto_one_hyper_lab_api35`.
 - Distribution/update guard: `Electron/tauri-distribution.test.js` proves
   unsigned Tauri builds stay internal, public desktop updater feeds are signing
   held, and mobile updates remain store-owned.
@@ -47,10 +49,16 @@ data migration is introduced by TAURI-007.
 
 ## Current Limits
 
-This pass does not claim Android/iOS emulator or physical-device smoke. The
-renderer mobile decision flow is covered, but public/mobile shipping still needs
-device evidence for pairing, authenticated local API connection, notifications,
-deep links, signed decision envelope return, and device revoke.
+This pass includes Android emulator evidence for the advisory device-health seam:
+`forge_moto_one_hyper_lab_api35` booted as Android 15 / SDK 35 (`ranchu`) and
+returned an `ok:true` `rom_lab.forgelink_operator_status.v1` payload through the
+read-only Moto One Hyper bridge. The payload is status-only and grants no
+authority.
+
+This pass still does not claim a packaged Tauri APK/IPA installed on emulator or
+physical device. Public/mobile shipping still needs packaged-app device evidence
+for pairing, authenticated local API connection from the app shell,
+notifications, deep links, signed decision envelope return, and device revoke.
 
 Signed Tauri desktop release, signed updater feed, mobile store submission, and
 Electron removal remain outside this slice.
