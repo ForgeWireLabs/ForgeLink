@@ -7,6 +7,8 @@ Electron/backend-dist/
 Electron/renderer/app.js
 Electron/renderer/app.js.map
 Electron/node_modules/
+Tauri/src-tauri/gen/
+Tauri/src-tauri/target/
 mcp/forgelink-human/dist/
 .visual-smoke-data/
 run.sh

@@ -75,5 +75,10 @@ declare global {
   interface Window {
     forgeLinkShell?: import("./shell").ForgeLinkShellBridge;
     desktop?: import("./shell").ForgeLinkShellBridge;
+    __TAURI__?: {
+      core?: {
+        invoke?: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
+      };
+    };
   }
 }

@@ -29,8 +29,8 @@ Tauri parity gate is satisfied.
 
 Renderer code must depend on the ForgeLink shell bridge, not directly on
 Electron or Tauri APIs. The current Electron preload exposes `forgeLinkShell`;
-`desktop` remains only as a compatibility alias. Future Tauri shells implement
-the same TypeScript bridge shape.
+`desktop` remains only as a compatibility alias. The Tauri scaffold exposes the
+same TypeScript bridge shape through Tauri's `window.__TAURI__.core.invoke`.
 
 Current bridge capability groups are declared in
 `Electron/renderer/src/shell.ts` as `SHELL_BRIDGE_CAPABILITIES`:
@@ -45,6 +45,26 @@ Current bridge capability groups are declared in
 The bridge deliberately excludes raw filesystem, raw process, raw device shell,
 and private database access. Product data flows through the authenticated local
 API and scoped resources; shell capabilities provide OS integration only.
+
+## Tauri Scaffold
+
+The initial Tauri 2 scaffold lives under `Tauri/`:
+
+- `Tauri/src-tauri/tauri.conf.json` uses the existing `Electron/renderer` build
+  output as `frontendDist`.
+- `Tauri/src-tauri/src/main.rs` registers ForgeLink shell-bridge commands for
+  startup, authenticated backend discovery, notifications, settings,
+  attention-policy, MCP, agent-channel, email, and push capability groups.
+- `Tauri/src-tauri/capabilities/mobile-cockpit.json` records the mobile cockpit
+  profile: shared cockpit enabled, `mobile_lock_screen` restricted decision
+  terminal profile, paired-device signed decisions, device revoke, and no private
+  database replication.
+- `Electron/tauri-scaffold.test.js` guards that Electron remains available until
+  the retirement gate is satisfied.
+
+The scaffold responses are local-only/degraded until the Tauri shell owns the
+full backend lifecycle. A real local API connection can be pointed at
+`FORGELINK_LOCAL_API_URL` and `FORGELINK_LOCAL_API_TOKEN`.
 
 ## Mobile Decisions
 
@@ -69,12 +89,16 @@ Electron cannot be removed until Tauri covers:
 - data safety, backup, export, retention, and recovery workflows;
 - Decisions, People, Agents, Channels, Settings, and mobile cockpit workflows.
 
+The explicit gate checklist is recorded in
+[`docs/electron-retirement-gate.md`](electron-retirement-gate.md).
+
 ## Validation And Rollback
 
-TAURI-001/002 are architecture and bridge-boundary closure only. They do not yet
-claim a Tauri desktop build, Tauri mobile build, or emulator/device smoke result.
-Those belong to TAURI-003/004/007.
+TAURI-001/002 are architecture and bridge-boundary closure. TAURI-003/004/005 add
+the first Tauri desktop/mobile scaffold and Electron-retirement guardrails. They
+do not yet claim signed public distribution, Android/iOS emulator/device smoke,
+or Electron removal; those belong to TAURI-006/007 and later parity evidence.
 
-Rollback for these criteria is straightforward: restore the previous work item
-state and remove this architecture note or bridge capability manifest. No
-database schema, provider credential, or runtime migration is introduced here.
+Rollback for the scaffold is straightforward: keep Electron as the supported
+shell, remove or ignore `Tauri/`, and restore the previous work item state. No
+database schema, provider credential, or private data migration is introduced.

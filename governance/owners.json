@@ -60,7 +60,8 @@
         "Electron/preload.js",
         "Electron/builder.json",
         "Electron/assets/**",
-        "Electron/package*.json"
+        "Electron/package*.json",
+        "Tauri/**"
       ],
       "owner": "desktop-agent"
     },

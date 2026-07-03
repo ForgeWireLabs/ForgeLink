@@ -43,7 +43,47 @@ export interface ForgeLinkShellBridge {
 
 const unavailable = (capability: string) => () => Promise.reject(new Error(`ForgeLink shell capability unavailable: ${capability}`));
 
+type TauriInvoke = <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
+
+const invokeWithPayload = <T>(invoke: TauriInvoke, command: string, payload?: Record<string, unknown>) => invoke<T>(command, payload ? { payload } : undefined);
+
+function createTauriBridge(invoke: TauriInvoke): ForgeLinkShellBridge {
+  return {
+    notify: (title, body) => invoke("forgelink_notify", { title, body }),
+    notifyEvent: event => invokeWithPayload<AttentionDecision>(invoke, "forgelink_notify_event", event as unknown as Record<string, unknown>),
+    attentionPolicy: () => invoke<AttentionPolicy>("forgelink_attention_policy"),
+    saveAttentionPolicy: policy => invokeWithPayload<AttentionPolicy>(invoke, "forgelink_save_attention_policy", policy as unknown as Record<string, unknown>),
+    openExternal: url => invoke("forgelink_open_external", { url }),
+    backendConnection: () => invoke<BackendConnection>("forgelink_backend_connection"),
+    getStatus: () => invoke<DesktopStatus>("forgelink_get_status"),
+    validateSettings: settings => invokeWithPayload<ValidationResult>(invoke, "forgelink_validate_settings", settings),
+    startServer: settings => invokeWithPayload<DesktopStatus>(invoke, "forgelink_start_server", settings),
+    startLocalOnly: settings => invokeWithPayload<DesktopStatus>(invoke, "forgelink_start_local_only", settings),
+    importEnvironment: () => invoke<DesktopStatus>("forgelink_import_environment"),
+    removeCredentials: () => invoke<DesktopStatus>("forgelink_remove_credentials"),
+    stopServer: () => invoke<DesktopStatus>("forgelink_stop_server"),
+    mcpStatus: () => invoke<McpStatus>("forgelink_mcp_status"),
+    createMcpToken: () => invoke<McpStatus>("forgelink_create_mcp_token"),
+    revokeMcpToken: () => invoke<McpStatus>("forgelink_revoke_mcp_token"),
+    testMcpBridge: () => invoke<McpStatus>("forgelink_test_mcp_bridge"),
+    agentChannels: () => invoke<AgentChannelStatus[]>("forgelink_agent_channels"),
+    createAgentChannel: payload => invokeWithPayload<AgentChannelStatus>(invoke, "forgelink_create_agent_channel", payload),
+    rotateAgentChannel: channelId => invoke<AgentChannelStatus>("forgelink_rotate_agent_channel", { channelId }),
+    revokeAgentChannel: channelId => invoke<AgentChannelStatus>("forgelink_revoke_agent_channel", { channelId }),
+    setAgentChannelEnabled: (channelId, enabled) => invoke<AgentChannelStatus>("forgelink_set_agent_channel_enabled", { channelId, enabled }),
+    emailSettings: () => invoke<EmailSettingsStatus>("forgelink_email_settings"),
+    saveEmailSettings: values => invokeWithPayload<EmailSettingsStatus>(invoke, "forgelink_save_email_settings", values as unknown as Record<string, unknown>),
+    removeEmailSettings: () => invoke<EmailSettingsStatus>("forgelink_remove_email_settings"),
+    pushSettings: () => invoke<PushSettingsStatus>("forgelink_push_settings"),
+    savePushSettings: values => invokeWithPayload<PushSettingsStatus>(invoke, "forgelink_save_push_settings", values as unknown as Record<string, unknown>),
+    removePushSettings: () => invoke<PushSettingsStatus>("forgelink_remove_push_settings"),
+    onServerStatus: () => undefined
+  };
+}
+
 export function getShellBridge(): ForgeLinkShellBridge {
+  const tauriInvoke = window.__TAURI__?.core?.invoke;
+  if (tauriInvoke) return createTauriBridge(tauriInvoke);
   const bridge = window.forgeLinkShell || window.desktop;
   if (!bridge) {
     return {

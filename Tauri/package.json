@@ -1,0 +1,19 @@
+{
+  "name": "forgelink-tauri-shell",
+  "version": "2.0.3",
+  "private": true,
+  "description": "Tauri 2 desktop and mobile shell scaffold for the shared ForgeLink cockpit",
+  "type": "module",
+  "scripts": {
+    "renderer:build": "cd ../Electron && npm run renderer:build",
+    "tauri:check": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "tauri:desktop:dev": "npm run renderer:build && cargo run --manifest-path src-tauri/Cargo.toml",
+    "tauri:android:init": "tauri android init",
+    "tauri:android:dev": "tauri android dev",
+    "tauri:ios:init": "tauri ios init",
+    "tauri:ios:dev": "tauri ios dev"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

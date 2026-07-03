@@ -46,20 +46,26 @@
     {
       "id": "TAURI-003",
       "text": "Scaffold a Tauri 2 desktop shell alongside Electron using the existing React renderer, with parity smoke tests for startup, authenticated local API access, settings/onboarding entry, notifications, and the Decisions/People/Agents/Channels cockpit.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260703-tauri003-005-shell-scaffold"
+      ]
     },
     {
       "id": "TAURI-004",
       "text": "Define and implement the Tauri 2 mobile cockpit for Android/iOS: the shared cockpit in a mobile layout as a full operator control surface where the platform reasonably allows it, reading the operator's data as an authenticated client (not a replicated private database), with the paired/redacted/signed decision terminal (alerts, approval cards, approve/deny/defer/request-more-info/short-reply, presence, emergency toggle, device revoke) preserved as a restricted mode/profile rather than the whole app (decision 0017).",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260703-tauri003-005-shell-scaffold"
+      ]
     },
     {
       "id": "TAURI-005",
       "text": "Define the Electron retirement gate: Tauri must cover onboarding, local service lifecycle, credential storage, notifications, deep links, updates/distribution, diagnostics, data safety, and existing desktop workflows before Electron is removed.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260703-tauri003-005-shell-scaffold"
+      ]
     },
     {
       "id": "TAURI-006",

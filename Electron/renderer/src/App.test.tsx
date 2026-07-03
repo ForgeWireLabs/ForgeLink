@@ -159,7 +159,7 @@ beforeEach(() => {
   }));
 });
 
-afterEach(() => { cleanup(); delete window.forgeLinkShell; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); delete window.forgeLinkShell; delete window.__TAURI__; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 async function selectConversation() {
   render(<App/>);
@@ -200,6 +200,24 @@ describe("React renderer parity", () => {
     expect(SHELL_BRIDGE_CAPABILITIES.secureSettings).toEqual(expect.arrayContaining(["importEnvironment", "emailSettings", "pushSettings"]));
     expect(SHELL_BRIDGE_CAPABILITIES.agentCredentials).toEqual(expect.arrayContaining(["mcpStatus", "agentChannels", "setAgentChannelEnabled"]));
     expect(capabilityNames.every(name => typeof window.desktop?.[name as keyof typeof window.desktop] === "function")).toBe(true);
+  });
+
+  it("routes shell calls through Tauri invoke when running under a Tauri shell", async () => {
+    delete window.forgeLinkShell;
+    delete window.desktop;
+    const invokeMock = vi.fn(async (command: string): Promise<unknown> => {
+      if (command === "forgelink_get_status") return { running: true, baseUrl: "http://127.0.0.1:5055", configured: false, credential_source: "none", needs_onboarding: false };
+      if (command === "forgelink_backend_connection") return { baseUrl: "http://127.0.0.1:5055", apiToken: "renderer-api-token" };
+      return {};
+    });
+    const invoke = invokeMock as unknown as <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<App/>);
+
+    await screen.findByRole("heading", { name: "Decisions" });
+    expect(invokeMock).toHaveBeenCalledWith("forgelink_get_status");
+    expect(invokeMock).toHaveBeenCalledWith("forgelink_backend_connection");
   });
 
   it("authenticates every local API request with the per-launch credential", async () => {

@@ -56,6 +56,15 @@
       "notes": "Tauri 2 shared shell and Electron-retirement arc; scoped contract under active work."
     },
     {
+      "path": "Tauri",
+      "owner": "desktop-agent",
+      "contract": "Tauri/AGENTS.md",
+      "last_reviewed": "2026-07-03",
+      "next_review": "2026-10-03",
+      "alignment": "current",
+      "notes": "Tauri 2 desktop/mobile shell scaffold; reuses the shared renderer and preserves Electron until the retirement gate is satisfied."
+    },
+    {
       "path": "work/completed/025-ledger-integrity-enforcement",
       "owner": "planning-agent",
       "contract": "work/completed/025-ledger-integrity-enforcement/AGENTS.md",

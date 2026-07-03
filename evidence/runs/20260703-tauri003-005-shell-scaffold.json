@@ -1,0 +1,71 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260703-tauri003-005-shell-scaffold",
+  "timestamp": "2026-07-03T00:00:00Z",
+  "work_item": "030",
+  "result": "passed",
+  "criteria": ["TAURI-003", "TAURI-004", "TAURI-005"],
+  "summary": "Introduced the Tauri 2 desktop/mobile shell scaffold beside Electron, wired the existing renderer to Tauri invoke when available, documented the mobile cockpit profile, and defined the Electron retirement gate.",
+  "commands": [
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript build and browser bundle passed with Tauri invoke bridge support."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "Renderer tests passed, including the Tauri invoke bridge route (43 tests)."
+    },
+    {
+      "command": "node --test tauri-scaffold.test.js",
+      "exit_code": 0,
+      "summary": "Scaffold guard tests passed for shared renderer config, command coverage, mobile cockpit restrictions, and Electron-presence guard (3 tests)."
+    },
+    {
+      "command": "cargo check --manifest-path Tauri/src-tauri/Cargo.toml",
+      "exit_code": 0,
+      "summary": "Tauri 2 Rust scaffold compiled successfully."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron suite passed with the Tauri scaffold guard included."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact plus ForgeLink local validation passed after registering the Tauri nested contract and evidence."
+    }
+  ],
+  "artifacts": [
+    "Tauri/AGENTS.md",
+    "Tauri/package.json",
+    "Tauri/src-tauri/tauri.conf.json",
+    "Tauri/src-tauri/src/main.rs",
+    "Tauri/src-tauri/capabilities/default.json",
+    "Tauri/src-tauri/capabilities/mobile-cockpit.json",
+    "Electron/renderer/src/shell.ts",
+    "Electron/renderer/src/types.ts",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/tauri-scaffold.test.js",
+    "docs/electron-retirement-gate.md",
+    "docs/tauri-shared-shell.md",
+    "work/active/030-tauri-shared-shell-and-electron-retirement/README.md",
+    "work/active/030-tauri-shared-shell-and-electron-retirement/work-item.json"
+  ],
+  "notes": [
+    "Tauri desktop is scaffolded alongside Electron and reuses the built React renderer output; Electron is intentionally still present.",
+    "The Tauri Rust command bridge returns local-only/degraded scaffold responses and uses FORGELINK_LOCAL_API_URL/FORGELINK_LOCAL_API_TOKEN when supplied.",
+    "The mobile cockpit capability records full shared cockpit intent, restricted mobile_lock_screen decision terminal mode, paired-device signed decisions, device revoke, and no private database replication.",
+    "TAURI-003/004/005 do not claim signed public distribution, Android/iOS emulator smoke, or Electron removal."
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "node": "project npm scripts",
+    "rust": "cargo check with Tauri 2 dependencies",
+    "process_note": "TAURI-003/004/005 close scaffold and retirement-gate work only; signed distribution, emulator/device smoke, and Electron removal remain later criteria."
+  }
+}

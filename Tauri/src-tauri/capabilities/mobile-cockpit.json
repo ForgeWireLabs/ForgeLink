@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "mobile-cockpit",
+  "description": "Mobile cockpit scaffold: shared UI, authenticated local API client, and restricted decision terminal profile.",
+  "windows": ["main"],
+  "permissions": ["core:default"],
+  "context": {
+    "shared_cockpit": true,
+    "restricted_decision_terminal_profile": "mobile_lock_screen",
+    "private_database_replication": false,
+    "allowed_decision_actions": ["approve", "deny", "defer", "request_more_info", "short_reply"],
+    "operator_controls": ["presence", "emergency_contact_toggle", "device_revoke"],
+    "authority": "paired-device-signed-decisions-only"
+  }
+}

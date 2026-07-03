@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Desktop scaffold permissions for the ForgeLink shell bridge.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
