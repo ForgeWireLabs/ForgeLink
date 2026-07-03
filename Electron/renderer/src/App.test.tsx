@@ -5,6 +5,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { parseOperatorStatus } from "./operatorStatus";
+import { SHELL_BRIDGE_CAPABILITIES } from "./shell";
 
 const thread = { id: 1, canonical_number: "+15551234567", name: "Ada Lovelace", last_msg_ts: "2026-06-14T18:00:00.000Z", unread_count: 0 };
 const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
@@ -189,6 +190,16 @@ describe("React renderer parity", () => {
     await screen.findByRole("heading", { name: "Decisions" });
     expect(shellStatus).toHaveBeenCalled();
     expect(legacyStatus).not.toHaveBeenCalled();
+  });
+
+  it("documents the shared shell bridge capabilities needed by Tauri", async () => {
+    const capabilityNames = Object.values(SHELL_BRIDGE_CAPABILITIES).flat();
+    expect(SHELL_BRIDGE_CAPABILITIES.localService).toEqual(expect.arrayContaining(["backendConnection", "startServer", "startLocalOnly", "stopServer"]));
+    expect(SHELL_BRIDGE_CAPABILITIES.notifications).toEqual(expect.arrayContaining(["notify", "notifyEvent"]));
+    expect(SHELL_BRIDGE_CAPABILITIES.navigation).toContain("openExternal");
+    expect(SHELL_BRIDGE_CAPABILITIES.secureSettings).toEqual(expect.arrayContaining(["importEnvironment", "emailSettings", "pushSettings"]));
+    expect(SHELL_BRIDGE_CAPABILITIES.agentCredentials).toEqual(expect.arrayContaining(["mcpStatus", "agentChannels", "setAgentChannelEnabled"]));
+    expect(capabilityNames.every(name => typeof window.desktop?.[name as keyof typeof window.desktop] === "function")).toBe(true);
   });
 
   it("authenticates every local API request with the per-launch credential", async () => {

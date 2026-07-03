@@ -30,14 +30,18 @@
     {
       "id": "TAURI-001",
       "text": "Record the Tauri 2 target architecture: one shared React/Web UI for desktop and a full mobile cockpit (mobile layout), Rust-native shell logic, platform plugins where needed, desktop as source of truth at this stage, the decision terminal as a restricted mobile mode/profile (decision 0017), and Electron treated as a temporary compatibility shell.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260703-tauri001-002-architecture-bridge"
+      ]
     },
     {
       "id": "TAURI-002",
       "text": "Introduce a narrow app-bridge abstraction so renderer code does not directly depend on Electron APIs for local service control, notifications, secure storage, deep links, updater/distribution hooks, or mobile decision actions.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260703-tauri001-002-architecture-bridge"
+      ]
     },
     {
       "id": "TAURI-003",
@@ -88,5 +92,5 @@
     }
   ],
   "created": "2026-06-27",
-  "updated": "2026-06-30"
+  "updated": "2026-07-03"
 }

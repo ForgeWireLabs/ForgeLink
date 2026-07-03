@@ -1,0 +1,42 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260703-tauri001-002-architecture-bridge",
+  "timestamp": "2026-07-03T00:00:00Z",
+  "work_item": "030",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript build and browser bundle passed after adding the bridge capability manifest."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "Renderer tests passed, including the ForgeLink bridge preference and shared-shell bridge capability coverage."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron validation passed: backend build, renderer build, renderer interactions, Node test bundle, and syntax checks."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact plus ForgeLink local validation passed for work-item, docs, and evidence updates."
+    }
+  ],
+  "artifacts": [
+    "docs/tauri-shared-shell.md",
+    "Electron/renderer/src/shell.ts",
+    "Electron/renderer/src/App.test.tsx",
+    "work/active/030-tauri-shared-shell-and-electron-retirement/README.md",
+    "work/active/030-tauri-shared-shell-and-electron-retirement/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "TAURI-001/002 close architecture and bridge-boundary work only. No Tauri desktop shell, mobile shell, emulator smoke, schema migration, or Electron removal is claimed; those remain TAURI-003/004/007/005."
+  }
+}

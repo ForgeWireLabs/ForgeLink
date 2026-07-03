@@ -1,5 +1,14 @@
 import type { AgentChannelStatus, AttentionDecision, AttentionEvent, AttentionPolicy, BackendConnection, DesktopStatus, EmailSettingsInput, EmailSettingsStatus, McpStatus, PushSettingsInput, PushSettingsStatus, ValidationResult } from "./types";
 
+export const SHELL_BRIDGE_CAPABILITIES = {
+  localService: ["backendConnection", "getStatus", "startServer", "startLocalOnly", "stopServer", "onServerStatus"],
+  notifications: ["notify", "notifyEvent"],
+  navigation: ["openExternal"],
+  secureSettings: ["validateSettings", "importEnvironment", "removeCredentials", "emailSettings", "saveEmailSettings", "removeEmailSettings", "pushSettings", "savePushSettings", "removePushSettings"],
+  attentionPolicy: ["attentionPolicy", "saveAttentionPolicy"],
+  agentCredentials: ["mcpStatus", "createMcpToken", "revokeMcpToken", "testMcpBridge", "agentChannels", "createAgentChannel", "rotateAgentChannel", "revokeAgentChannel", "setAgentChannelEnabled"]
+} as const;
+
 export interface ForgeLinkShellBridge {
   notify(title: string, body: string): Promise<void>;
   notifyEvent(event: AttentionEvent): Promise<AttentionDecision>;

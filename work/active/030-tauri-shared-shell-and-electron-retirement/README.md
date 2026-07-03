@@ -41,6 +41,9 @@ move toward:
   the mobile cockpit consumes (see "Planned operator-status bridge" below).
 - Electron retirement criteria and rollback plan.
 
+The target architecture and bridge boundary are recorded in
+[`docs/tauri-shared-shell.md`](../../../docs/tauri-shared-shell.md).
+
 ## Relationship to Other Work
 
 - Work item 011 owns the current production-readiness/release baseline. Its
@@ -73,12 +76,12 @@ move toward:
 
 ## Priority Order
 
-- [ ] **TAURI-001 Record Tauri 2 target architecture.** One shared React/Web UI,
+- [x] **TAURI-001 Record Tauri 2 target architecture.** One shared React/Web UI,
   Rust-native shell logic, platform plugins where needed, desktop source of truth
   at this stage, a **full mobile cockpit** (mobile layout) with the decision
   terminal as a restricted mode, and Electron temporary (per
   [decision 0017](../../../decisions/0017-mobile-is-a-full-cockpit.md)).
-- [ ] **TAURI-002 Add shared app bridge.** Renderer code should depend on a
+- [x] **TAURI-002 Add shared app bridge.** Renderer code should depend on a
   narrow ForgeLink bridge, not direct Electron APIs, for shell services.
 - [ ] **TAURI-003 Scaffold Tauri desktop shell.** Run the existing cockpit UI in
   Tauri 2 alongside Electron with startup and local API smoke coverage.
@@ -194,4 +197,4 @@ notes, and `python .local/validate_system.py`.
 | 2026-06-29 | TAURI-009 live smoke | End-to-end live verification against the proven-healthy moto-one-hyper emulator: started the backend with `FORGELINK_OPERATOR_STATUS_SCRIPT` set, hit `GET /api/device/operator-status?request_id=manual-forgelink-smoke-001` (port 5099, launch token) → HTTP 200 `ok:true` live payload (bridge_version `rom_lab.forgelink_operator_status.v1`, Android 15/SDK 35/ranchu, packages 40, live `generated_at` distinct from the sample). Fed the live payload through the panel's `parseOperatorStatus` → `online` → renders "Status: Online" from live data, not the fixture. No code changed. | Live seam confirmed (evidence 20260629-tauri009-operator-status-live-smoke). |
 | 2026-06-29 | TAURI-009 complete | Added the launch-only operator-status transport: `GET /api/device/operator-status` runs the operator-configured ROM lab wrapper (`FORGELINK_OPERATOR_STATUS_SCRIPT`, optional `..._SHELL`) with a strictly-validated `request_id` via an `execFile` arg array (no shell string), bounded by a 10s timeout/1MB buffer, returning the bridge JSON or a degraded `ok:false` body; the runner is injectable for tests. Not MCP-reachable; no raw device/shell surface. The mobile Device Health panel now offers a live "Check device status" alongside the sample. `Electron/backend/src/server.ts`, `Electron/renderer/src/api.ts`, `App.tsx`; backend build, server tests (live runner, unsafe-request_id sanitization, launch-only 401, not-configured degraded), 37 renderer tests, full Electron suite, and RepoPact/local validation passed. | TAURI-009 satisfied (evidence 20260629-tauri009-operator-status-transport). Default is disabled until `FORGELINK_OPERATOR_STATUS_SCRIPT` is set. |
 | 2026-06-29 | TAURI-008 complete | Added the Android/Fabric operator-status consumer for the mobile cockpit path: `AndroidOperatorStatus` type, a fixture captured from the live ROM lab bridge (`rom_lab.forgelink_operator_status.v1`), a pure `parseOperatorStatus` client that neutralizes untrusted text and treats `ok:false`/malformed as degraded, and an advisory read-only "Android / Fabric Device Health" panel on the mobile surface (`AndroidDeviceHealth`) that grants no authority and triggers no actions. `Electron/renderer/src/operatorStatus.ts`, `App.tsx`, `types.ts`; renderer build and 36 renderer interaction tests (incl. panel render + parser online/degraded) passed; full Electron suite and RepoPact/local validation passed. | TAURI-008 satisfied (evidence 20260629-tauri008-operator-status-consumer). Consumer ships in the current renderer; live data awaits a bridge transport. |
-
+| 2026-07-03 | TAURI-001/002 complete | Recorded the Tauri 2 shared-shell architecture in `docs/tauri-shared-shell.md`: one shared React/Web cockpit, Rust-native Tauri shell logic, platform plugins only where needed, desktop/local backend as source of truth at this stage, mobile as a full cockpit with decision terminal as restricted mode, and Electron temporary until parity. Made the renderer bridge contract explicit with `SHELL_BRIDGE_CAPABILITIES` in `Electron/renderer/src/shell.ts`; renderer code already uses `forgeLinkShell`/`desktop` through the ForgeLink bridge, and tests assert the Tauri-required capability groups are backed by bridge methods. Renderer build, renderer tests, full Electron suite, and RepoPact/local validation passed. | TAURI-001 and TAURI-002 satisfied (evidence 20260703-tauri001-002-architecture-bridge). Next: TAURI-003 Tauri desktop shell scaffold. |
