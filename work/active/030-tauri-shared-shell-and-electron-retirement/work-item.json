@@ -78,8 +78,10 @@
     {
       "id": "TAURI-007",
       "text": "Add automated validation for the shared-shell bridge and Tauri targets, including renderer interaction tests, desktop shell smoke tests, mobile decision-flow tests or documented emulator/device evidence, and rollback notes.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260703-tauri007-validation-rollback"
+      ]
     },
     {
       "id": "TAURI-008",

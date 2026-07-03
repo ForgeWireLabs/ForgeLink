@@ -271,3 +271,43 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running ForgeLink Tauri shell");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backend_connection_uses_loopback_and_scaffold_token() {
+        let connection = forgelink_backend_connection();
+        assert_eq!(connection["baseUrl"], json!("http://127.0.0.1:5055"));
+        assert_eq!(connection["apiToken"], json!("tauri-scaffold-token"));
+    }
+
+    #[test]
+    fn desktop_status_is_local_only_and_does_not_require_onboarding() {
+        let status = forgelink_get_status();
+        assert_eq!(status["running"], json!(true));
+        assert_eq!(status["configured"], json!(false));
+        assert_eq!(status["credential_source"], json!("none"));
+        assert_eq!(status["needs_onboarding"], json!(false));
+        assert_eq!(status["settings"]["webhook_host"], json!("127.0.0.1"));
+    }
+
+    #[test]
+    fn stop_server_reports_stopped_without_mutating_private_data() {
+        let status = forgelink_stop_server();
+        assert_eq!(status["running"], json!(false));
+        assert_eq!(status["settings"]["auth_token_configured"], json!(false));
+    }
+
+    #[test]
+    fn notification_and_attention_commands_return_renderer_safe_shapes() {
+        let decision = forgelink_notify_event(json!({ "kind": "system", "title": "test" }));
+        assert_eq!(decision["notify"], json!(true));
+        assert_eq!(decision["reason"], json!("tauri_scaffold"));
+
+        let policy = forgelink_attention_policy();
+        assert_eq!(policy["redact_notification_bodies"], json!(true));
+        assert_eq!(policy["presence_paired_mobile"], json!("unknown"));
+    }
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260703-tauri007-validation-rollback",
+  "timestamp": "2026-07-03T00:00:00Z",
+  "work_item": "030",
+  "result": "passed",
+  "criteria": ["TAURI-007"],
+  "summary": "Added automated validation and rollback evidence for the shared-shell bridge, Tauri desktop scaffold, mobile decision flow, distribution/update guards, and current mobile emulator/device limitation.",
+  "commands": [
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript build and browser bundle passed with TAURI-007 validation guard wired into the package test script."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "Renderer tests passed, including Tauri invoke bridge routing and mobile decision terminal flow without private database replication."
+    },
+    {
+      "command": "node --test tauri-validation.test.js",
+      "exit_code": 0,
+      "summary": "TAURI-007 validation matrix and rollback evidence guard passed."
+    },
+    {
+      "command": "cargo check --manifest-path Tauri/src-tauri/Cargo.toml",
+      "exit_code": 0,
+      "summary": "Tauri scaffold compiled."
+    },
+    {
+      "command": "cargo test --manifest-path Tauri/src-tauri/Cargo.toml",
+      "exit_code": 0,
+      "summary": "Tauri command-level smoke tests passed."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron suite passed with TAURI-007 validation guard included."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact plus ForgeLink local validation passed for work-item, docs, and evidence updates."
+    }
+  ],
+  "artifacts": [
+    "Tauri/validation-rollback-evidence.json",
+    "Tauri/src-tauri/src/lib.rs",
+    "Electron/tauri-validation.test.js",
+    "docs/tauri-validation-rollback-evidence.md",
+    "work/active/030-tauri-shared-shell-and-electron-retirement/README.md",
+    "work/active/030-tauri-shared-shell-and-electron-retirement/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "node": "project npm scripts",
+    "rust": "cargo check/test with existing Tauri 2 scaffold",
+    "process_note": "TAURI-007 closes automated validation and rollback evidence only. It does not claim Android/iOS emulator or physical-device smoke, signed public distribution, published updater feed, mobile store submission, or Electron removal."
+  }
+}

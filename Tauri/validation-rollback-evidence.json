@@ -1,0 +1,75 @@
+{
+  "$schema": "./validation-rollback-evidence.schema.json",
+  "version": 1,
+  "work_item": "030",
+  "criterion": "TAURI-007",
+  "validation": {
+    "shared_shell_bridge": {
+      "status": "covered",
+      "evidence": [
+        "Electron/renderer/src/App.test.tsx: routes shell calls through Tauri invoke when running under a Tauri shell",
+        "Electron/renderer/src/App.test.tsx: documents the shared shell bridge capabilities needed by Tauri"
+      ]
+    },
+    "tauri_desktop_shell": {
+      "status": "covered",
+      "evidence": [
+        "cargo check --manifest-path Tauri/src-tauri/Cargo.toml",
+        "cargo test --manifest-path Tauri/src-tauri/Cargo.toml",
+        "Electron/tauri-scaffold.test.js"
+      ]
+    },
+    "mobile_decision_flow": {
+      "status": "covered",
+      "evidence": [
+        "Electron/renderer/src/App.test.tsx: surfaces the Tauri mobile decision terminal flow without private database replication",
+        "Tauri/src-tauri/capabilities/mobile-cockpit.json",
+        "Tauri/distribution-plan.json mobile data boundary"
+      ]
+    },
+    "distribution_update_guards": {
+      "status": "covered",
+      "evidence": [
+        "Electron/tauri-distribution.test.js",
+        "docs/tauri-distribution-update-strategy.md"
+      ]
+    },
+    "rollback": {
+      "status": "covered",
+      "evidence": [
+        "docs/tauri-validation-rollback-evidence.md",
+        "docs/electron-retirement-gate.md",
+        "Tauri/distribution-plan.json rollback section"
+      ]
+    }
+  },
+  "limitations": {
+    "mobile_emulator_or_device_smoke": {
+      "status": "waived",
+      "reason": "TAURI-007 closes automated shared-shell validation and renderer mobile decision-flow coverage only. There is no Android/iOS emulator or paired device smoke in this host pass; public/mobile shipping remains blocked on TAURI mobile device evidence and store-track validation.",
+      "follow_up_gate": "Before public/mobile release, run Tauri Android/iOS emulator or physical-device smoke for pairing, authenticated local API connection, mobile_lock_screen decision flow, signed decision envelope return, notification/deep-link handling, and device revoke."
+    },
+    "signed_public_distribution": {
+      "status": "out_of_scope",
+      "reason": "Operator-provided signing certificates and signed update feeds remain public-distribution hardening gates from decision 0018 and TAURI-006."
+    }
+  },
+  "rollback": {
+    "electron_compatibility_shell_retained": true,
+    "no_schema_or_private_data_migration": true,
+    "tauri_scaffold_can_be_ignored_without_data_conversion": true,
+    "local_data_rollback_uses_managed_backups": true,
+    "mobile_store_or_emulator_artifacts_required_before_public_ship": true
+  },
+  "commands": [
+    "npm run renderer:build",
+    "npx vitest run renderer/src/App.test.tsx",
+    "node --test tauri-scaffold.test.js",
+    "node --test tauri-distribution.test.js",
+    "node --test tauri-validation.test.js",
+    "cargo check --manifest-path Tauri/src-tauri/Cargo.toml",
+    "cargo test --manifest-path Tauri/src-tauri/Cargo.toml",
+    "npm test",
+    "python .local/validate_system.py"
+  ]
+}
