@@ -1,0 +1,72 @@
+{
+  "$schema": "./distribution-plan.schema.json",
+  "version": 1,
+  "work_item": "030",
+  "criterion": "TAURI-006",
+  "decision_refs": [
+    "decisions/0017-mobile-is-a-full-cockpit.md",
+    "decisions/0018-signing-cert-is-a-distribution-gate-not-a-dev-blocker.md"
+  ],
+  "development": {
+    "unsigned_dev_builds_allowed": true,
+    "public_distribution_allowed": false,
+    "notes": "Unsigned Tauri builds are allowed for scaffold, validation, internal operator testing, and CI smoke only. They are not a public release channel."
+  },
+  "desktop": {
+    "target_shell": "tauri-2",
+    "current_compatibility_shell": "electron",
+    "renderer": "../Electron/renderer",
+    "public_release_requires": [
+      "operator_provided_code_signing_certificate",
+      "signed_installer_or_bundle",
+      "signed_update_manifest",
+      "published_checksums",
+      "rollback_notes",
+      "tauri_parity_evidence"
+    ],
+    "update_channel": {
+      "kind": "tauri-updater",
+      "feed_status": "held_until_signing",
+      "operator_opt_out_env": "FORGELINK_DISABLE_UPDATES",
+      "must_not_publish_unsigned_feed": true
+    },
+    "coordinates_with": [
+      "work/active/011-production-readiness#PR-014",
+      "work/active/030-tauri-shared-shell-and-electron-retirement#TAURI-005"
+    ]
+  },
+  "mobile": {
+    "target_shell": "tauri-2",
+    "ios": {
+      "pre_release": "TestFlight",
+      "public_release": "App Store",
+      "requires": ["Apple Developer signing", "reviewed native capability changes"]
+    },
+    "android": {
+      "pre_release": "Play internal or closed testing",
+      "public_release": "Play production track",
+      "requires": ["upload or app-signing key", "reviewed native capability changes"]
+    },
+    "update_channel": {
+      "kind": "platform-store",
+      "self_hosted_native_update_feed_allowed": false,
+      "ota_content_updates_allowed": false
+    },
+    "data_boundary": {
+      "private_database_replication": false,
+      "authenticated_local_api_client": true,
+      "restricted_decision_profile": "mobile_lock_screen",
+      "signed_decision_envelopes_required": true
+    },
+    "coordinates_with": [
+      "work/completed/017-operator-cockpit-and-native-experience#OCX-020",
+      "decisions/0017-mobile-is-a-full-cockpit.md"
+    ]
+  },
+  "rollback": {
+    "electron_remains_available_until_tauri_public_release": true,
+    "prior_signed_desktop_versions_remain_installable": true,
+    "mobile_rollback_uses_store_track_controls": true,
+    "local_data_rollback_uses_managed_backups": true
+  }
+}

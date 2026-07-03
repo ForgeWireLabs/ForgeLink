@@ -70,8 +70,10 @@
     {
       "id": "TAURI-006",
       "text": "Define the signed distribution and update strategy for Tauri desktop and mobile targets, coordinating with work item 011 PR-014 and work item 017 OCX-020 so release work does not deepen the Electron-only path. Signed public distribution is a later hardening step gated on the operator-provided certificate (decision 0018); unsigned/dev builds are acceptable for near-term scaffolding and validation and do not block the other TAURI criteria.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260703-tauri006-distribution-update-strategy"
+      ]
     },
     {
       "id": "TAURI-007",

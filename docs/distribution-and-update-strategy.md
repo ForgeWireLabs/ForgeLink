@@ -100,6 +100,25 @@ work ships publicly:
   signed-release + auto-update model defined here; Electron is retired only after
   Tauri reaches parity.
 
+## Tauri distribution/update contract
+
+TAURI-006 records the concrete Tauri contract in
+[`Tauri/distribution-plan.json`](../Tauri/distribution-plan.json) and
+[`docs/tauri-distribution-update-strategy.md`](tauri-distribution-update-strategy.md).
+The plan is intentionally stricter than a prose note:
+
+- unsigned Tauri builds are allowed for scaffold, validation, and internal
+  operator testing, but not as a public release channel;
+- the desktop Tauri updater feed is held until signing and must not publish an
+  unsigned manifest;
+- mobile updates are owned by TestFlight/App Store and Play testing/production
+  tracks, not a self-hosted native update feed;
+- mobile stays an authenticated local API client and the release path cannot
+  introduce private database replication.
+
+`Electron/tauri-distribution.test.js` keeps these constraints wired into the
+standard `npm test` gate.
+
 ## Security and privacy constraints
 
 - Builds are authenticated (signed) before **public** distribution; unsigned builds

@@ -1,0 +1,52 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260703-tauri006-distribution-update-strategy",
+  "timestamp": "2026-07-03T00:00:00Z",
+  "work_item": "030",
+  "result": "passed",
+  "criteria": ["TAURI-006"],
+  "summary": "Defined and validated the Tauri desktop/mobile distribution and update contract, coordinating with PR-014, OCX-020, and decision 0018.",
+  "commands": [
+    {
+      "command": "node --test tauri-distribution.test.js",
+      "exit_code": 0,
+      "summary": "Tauri distribution contract tests passed for unsigned/internal-only builds, signing-held desktop updater feed, store-owned mobile updates, and no private database replication."
+    },
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer build passed after wiring the new distribution test into the package test script."
+    },
+    {
+      "command": "cargo check --manifest-path Tauri/src-tauri/Cargo.toml",
+      "exit_code": 0,
+      "summary": "Tauri Rust scaffold still compiles with the distribution contract artifact present."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron suite passed with the Tauri distribution test included."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact plus ForgeLink local validation passed for work-item, docs, and evidence updates."
+    }
+  ],
+  "artifacts": [
+    "Tauri/distribution-plan.json",
+    "Electron/tauri-distribution.test.js",
+    "docs/tauri-distribution-update-strategy.md",
+    "docs/distribution-and-update-strategy.md",
+    "work/active/030-tauri-shared-shell-and-electron-retirement/README.md",
+    "work/active/030-tauri-shared-shell-and-electron-retirement/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "node": "project npm scripts",
+    "rust": "cargo check with existing Tauri 2 scaffold",
+    "process_note": "TAURI-006 closes strategy and validation only. It does not claim signed Tauri desktop release, published updater feed, mobile store submission, emulator/device smoke, or Electron removal."
+  }
+}
