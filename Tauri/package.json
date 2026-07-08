@@ -5,10 +5,12 @@
   "description": "Tauri 2 desktop and mobile shell scaffold for the shared ForgeLink cockpit",
   "type": "module",
   "scripts": {
+    "tauri": "tauri",
     "renderer:build": "cd ../Electron && npm run renderer:build",
     "tauri:check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "tauri:desktop:dev": "npm run renderer:build && cargo run --manifest-path src-tauri/Cargo.toml",
-    "tauri:android:init": "tauri android init",
+    "tauri:android:init": "tauri android init --ci",
+    "tauri:android:build": "tauri android build --apk",
     "tauri:android:dev": "tauri android dev",
     "tauri:ios:init": "tauri ios init",
     "tauri:ios:dev": "tauri ios dev"

@@ -4,8 +4,8 @@
   "version": "2.0.3",
   "identifier": "com.forgewire.forgelink",
   "build": {
-    "beforeBuildCommand": "cd ../../Electron && npm run renderer:build",
-    "beforeDevCommand": "cd ../../Electron && npm run renderer:build",
+    "beforeBuildCommand": "npm run renderer:build",
+    "beforeDevCommand": "npm run renderer:build",
     "frontendDist": "../../Electron/renderer"
   },
   "app": {
