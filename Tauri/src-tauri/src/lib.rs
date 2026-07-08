@@ -1,6 +1,15 @@
 use serde_json::{json, Value};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
+use tauri::Manager;
 
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:5055";
+const MOBILE_STATE_DIR: &str = "mobile-runtime";
+const ATTENTION_POLICY_FILE: &str = "attention-policy.json";
+const AGENT_CHANNELS_FILE: &str = "agent-channels.json";
 
 fn base_url() -> String {
     std::env::var("FORGELINK_LOCAL_API_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string())
@@ -12,7 +21,18 @@ fn api_token() -> String {
         .unwrap_or_else(|_| "tauri-scaffold-token".to_string())
 }
 
-fn attention_policy() -> Value {
+fn now_marker() -> String {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| format!("unix:{}", duration.as_secs()))
+        .unwrap_or_else(|_| "unix:0".to_string())
+}
+
+fn mobile_state_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path().app_data_dir().ok().map(|path| path.join(MOBILE_STATE_DIR))
+}
+
+fn default_attention_policy() -> Value {
     json!({
         "enabled": true,
         "operator_mode": "available",
@@ -37,6 +57,33 @@ fn attention_policy() -> Value {
     })
 }
 
+fn read_json(path: &Path, fallback: Value) -> Value {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|contents| serde_json::from_str::<Value>(&contents).ok())
+        .unwrap_or(fallback)
+}
+
+fn write_json(path: &Path, value: &Value) -> Value {
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(contents) = serde_json::to_string_pretty(value) {
+        let _ = fs::write(path, contents);
+    }
+    value.clone()
+}
+
+fn attention_policy_from_dir(dir: Option<&Path>) -> Value {
+    dir.map(|state_dir| read_json(&state_dir.join(ATTENTION_POLICY_FILE), default_attention_policy()))
+        .unwrap_or_else(default_attention_policy)
+}
+
+fn save_attention_policy_to_dir(dir: Option<&Path>, payload: Value) -> Value {
+    dir.map(|state_dir| write_json(&state_dir.join(ATTENTION_POLICY_FILE), &payload))
+        .unwrap_or(payload)
+}
+
 fn desktop_status() -> Value {
     json!({
         "running": true,
@@ -52,7 +99,7 @@ fn desktop_status() -> Value {
             "public_base_url": "",
             "webhook_host": "127.0.0.1",
             "webhook_port": 5055,
-            "attention_policy": attention_policy()
+            "attention_policy": default_attention_policy()
         }
     })
 }
@@ -76,13 +123,14 @@ fn mcp_status() -> Value {
 }
 
 fn agent_channel(channel_id: &str, label: &str) -> Value {
+    let now = now_marker();
     json!({
         "channel_id": channel_id,
         "label": label,
-        "enabled": false,
-        "configured": false,
-        "created_at": "",
-        "rotated_at": "",
+        "enabled": true,
+        "configured": true,
+        "created_at": now,
+        "rotated_at": now,
         "revoked_at": null,
         "last_used_at": null,
         "last_rejected_at": null,
@@ -91,6 +139,43 @@ fn agent_channel(channel_id: &str, label: &str) -> Value {
         "token_file": "",
         "token_file_present": false
     })
+}
+
+fn channels_from_dir(dir: Option<&Path>) -> Vec<Value> {
+    let value = dir
+        .map(|state_dir| read_json(&state_dir.join(AGENT_CHANNELS_FILE), json!([])))
+        .unwrap_or_else(|| json!([]));
+    value.as_array().cloned().unwrap_or_default()
+}
+
+fn save_channels_to_dir(dir: Option<&Path>, channels: &[Value]) -> Vec<Value> {
+    if let Some(state_dir) = dir {
+        let _ = write_json(&state_dir.join(AGENT_CHANNELS_FILE), &json!(channels));
+    }
+    channels.to_vec()
+}
+
+fn upsert_channel(mut channels: Vec<Value>, channel: Value) -> Vec<Value> {
+    let channel_id = channel["channel_id"].as_str().unwrap_or_default().to_string();
+    if let Some(existing) = channels.iter_mut().find(|candidate| candidate["channel_id"].as_str() == Some(channel_id.as_str())) {
+        *existing = channel;
+    } else {
+        channels.push(channel);
+    }
+    channels
+}
+
+fn update_channel(mut channels: Vec<Value>, channel_id: &str, updater: impl FnOnce(&mut Value)) -> (Vec<Value>, Value) {
+    if let Some(existing) = channels.iter_mut().find(|candidate| candidate["channel_id"].as_str() == Some(channel_id)) {
+        updater(existing);
+        let updated = existing.clone();
+        return (channels.clone(), updated);
+    }
+
+    let mut created = agent_channel(channel_id, channel_id);
+    updater(&mut created);
+    channels.push(created.clone());
+    (channels, created)
 }
 
 #[tauri::command]
@@ -122,7 +207,7 @@ fn forgelink_stop_server() -> Value {
 
 #[tauri::command]
 fn forgelink_validate_settings(_payload: Value) -> Value {
-    json!({ "account_name": "Tauri scaffold", "account_status": "not-validated", "phone_number": "" })
+    json!({ "account_name": "Tauri mobile runtime", "account_status": "mobile-local", "phone_number": "" })
 }
 
 #[tauri::command]
@@ -140,20 +225,22 @@ fn forgelink_notify(_title: String, _body: String) {}
 
 #[tauri::command]
 fn forgelink_notify_event(_payload: Value) -> Value {
-    json!({ "notify": true, "reason": "tauri_scaffold", "title": "ForgeLink", "body": "ForgeLink has an update." })
+    json!({ "notify": true, "reason": "tauri_mobile_local", "title": "ForgeLink", "body": "ForgeLink has an update." })
 }
 
 #[tauri::command]
 fn forgelink_open_external(_url: String) {}
 
 #[tauri::command]
-fn forgelink_attention_policy() -> Value {
-    attention_policy()
+fn forgelink_attention_policy(app: tauri::AppHandle) -> Value {
+    let dir = mobile_state_dir(&app);
+    attention_policy_from_dir(dir.as_deref())
 }
 
 #[tauri::command]
-fn forgelink_save_attention_policy(payload: Value) -> Value {
-    payload
+fn forgelink_save_attention_policy(app: tauri::AppHandle, payload: Value) -> Value {
+    let dir = mobile_state_dir(&app);
+    save_attention_policy_to_dir(dir.as_deref(), payload)
 }
 
 #[tauri::command]
@@ -177,32 +264,56 @@ fn forgelink_test_mcp_bridge() -> Value {
 }
 
 #[tauri::command]
-fn forgelink_agent_channels() -> Value {
-    json!([])
+fn forgelink_agent_channels(app: tauri::AppHandle) -> Value {
+    let dir = mobile_state_dir(&app);
+    json!(channels_from_dir(dir.as_deref()))
 }
 
 #[tauri::command]
-fn forgelink_create_agent_channel(payload: Value) -> Value {
-    agent_channel(
+fn forgelink_create_agent_channel(app: tauri::AppHandle, payload: Value) -> Value {
+    let dir = mobile_state_dir(&app);
+    let channel = agent_channel(
         payload["channel_id"].as_str().unwrap_or("forgewire"),
         payload["label"].as_str().unwrap_or("ForgeWire Fabric"),
-    )
+    );
+    let channels = upsert_channel(channels_from_dir(dir.as_deref()), channel.clone());
+    let _ = save_channels_to_dir(dir.as_deref(), &channels);
+    channel
 }
 
 #[tauri::command]
-fn forgelink_rotate_agent_channel(channel_id: String) -> Value {
-    agent_channel(&channel_id, &channel_id)
+fn forgelink_rotate_agent_channel(app: tauri::AppHandle, channel_id: String) -> Value {
+    let dir = mobile_state_dir(&app);
+    let (channels, channel) = update_channel(channels_from_dir(dir.as_deref()), &channel_id, |existing| {
+        existing["configured"] = json!(true);
+        existing["revoked_at"] = json!(null);
+        existing["rotated_at"] = json!(now_marker());
+        existing["token_file_present"] = json!(false);
+    });
+    let _ = save_channels_to_dir(dir.as_deref(), &channels);
+    channel
 }
 
 #[tauri::command]
-fn forgelink_revoke_agent_channel(channel_id: String) -> Value {
-    agent_channel(&channel_id, &channel_id)
+fn forgelink_revoke_agent_channel(app: tauri::AppHandle, channel_id: String) -> Value {
+    let dir = mobile_state_dir(&app);
+    let (channels, channel) = update_channel(channels_from_dir(dir.as_deref()), &channel_id, |existing| {
+        existing["enabled"] = json!(false);
+        existing["configured"] = json!(false);
+        existing["revoked_at"] = json!(now_marker());
+        existing["token_file_present"] = json!(false);
+    });
+    let _ = save_channels_to_dir(dir.as_deref(), &channels);
+    channel
 }
 
 #[tauri::command]
-fn forgelink_set_agent_channel_enabled(channel_id: String, enabled: bool) -> Value {
-    let mut channel = agent_channel(&channel_id, &channel_id);
-    channel["enabled"] = json!(enabled);
+fn forgelink_set_agent_channel_enabled(app: tauri::AppHandle, channel_id: String, enabled: bool) -> Value {
+    let dir = mobile_state_dir(&app);
+    let (channels, channel) = update_channel(channels_from_dir(dir.as_deref()), &channel_id, |existing| {
+        existing["enabled"] = json!(enabled);
+    });
+    let _ = save_channels_to_dir(dir.as_deref(), &channels);
     channel
 }
 
@@ -277,6 +388,12 @@ pub fn run() {
 mod tests {
     use super::*;
 
+    fn test_state_dir(name: &str) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!("forgelink-tauri-mobile-runtime-{}-{}", name, now_marker().replace(':', "-")));
+        path
+    }
+
     #[test]
     fn backend_connection_uses_loopback_and_scaffold_token() {
         let connection = forgelink_backend_connection();
@@ -302,13 +419,69 @@ mod tests {
     }
 
     #[test]
-    fn notification_and_attention_commands_return_renderer_safe_shapes() {
+    fn notification_and_attention_defaults_return_renderer_safe_shapes() {
         let decision = forgelink_notify_event(json!({ "kind": "system", "title": "test" }));
         assert_eq!(decision["notify"], json!(true));
-        assert_eq!(decision["reason"], json!("tauri_scaffold"));
+        assert_eq!(decision["reason"], json!("tauri_mobile_local"));
 
-        let policy = forgelink_attention_policy();
+        let policy = default_attention_policy();
         assert_eq!(policy["redact_notification_bodies"], json!(true));
         assert_eq!(policy["presence_paired_mobile"], json!("unknown"));
+    }
+
+    #[test]
+    fn attention_policy_persists_to_mobile_state_dir() {
+        let dir = test_state_dir("attention");
+        let mut policy = default_attention_policy();
+        policy["operator_mode"] = json!("focus");
+        policy["quiet_hours_enabled"] = json!(true);
+
+        let saved = save_attention_policy_to_dir(Some(&dir), policy.clone());
+        assert_eq!(saved["operator_mode"], json!("focus"));
+
+        let loaded = attention_policy_from_dir(Some(&dir));
+        assert_eq!(loaded["operator_mode"], json!("focus"));
+        assert_eq!(loaded["quiet_hours_enabled"], json!(true));
+    }
+
+    #[test]
+    fn agent_channels_persist_metadata_without_secret_files() {
+        let dir = test_state_dir("channels");
+        let channel = agent_channel("forgewire", "ForgeWire Fabric");
+        let channels = upsert_channel(channels_from_dir(Some(&dir)), channel.clone());
+        save_channels_to_dir(Some(&dir), &channels);
+
+        let loaded = channels_from_dir(Some(&dir));
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0]["channel_id"], json!("forgewire"));
+        assert_eq!(loaded[0]["label"], json!("ForgeWire Fabric"));
+        assert_eq!(loaded[0]["configured"], json!(true));
+        assert_eq!(loaded[0]["token_file_present"], json!(false));
+    }
+
+    #[test]
+    fn agent_channel_revoke_and_enable_update_existing_record() {
+        let dir = test_state_dir("channel-update");
+        let channels = upsert_channel(channels_from_dir(Some(&dir)), agent_channel("forgewire", "ForgeWire Fabric"));
+        save_channels_to_dir(Some(&dir), &channels);
+
+        let (channels, revoked) = update_channel(channels_from_dir(Some(&dir)), "forgewire", |existing| {
+            existing["enabled"] = json!(false);
+            existing["configured"] = json!(false);
+            existing["revoked_at"] = json!(now_marker());
+        });
+        assert_eq!(revoked["enabled"], json!(false));
+        assert_eq!(revoked["configured"], json!(false));
+        assert!(revoked["revoked_at"].as_str().unwrap_or_default().starts_with("unix:"));
+
+        let (channels, enabled) = update_channel(channels, "forgewire", |existing| {
+            existing["enabled"] = json!(true);
+        });
+        save_channels_to_dir(Some(&dir), &channels);
+        assert_eq!(enabled["enabled"], json!(true));
+
+        let loaded = channels_from_dir(Some(&dir));
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0]["enabled"], json!(true));
     }
 }
