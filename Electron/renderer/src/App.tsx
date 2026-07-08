@@ -134,6 +134,25 @@ const DEFAULT_ATTENTION_POLICY: AttentionPolicy = {
   presence_paired_mobile: "unknown",
   muted_sources: []
 };
+const isTauriRuntime = () => Boolean(window.__TAURI__?.core?.invoke);
+
+const MOBILE_RUNTIME_GAP_MESSAGE = "Android full cockpit runtime is active. The desktop local service is unavailable on this device; mobile-local runtime parity work is next.";
+
+const MOBILE_LOCAL_CONFIG: ConfigStatus = {
+  account_sid: false,
+  auth_token: false,
+  phone_number: false,
+  public_base_url: false
+};
+
+const MOBILE_LOCAL_DATA_STATUS: DataStatus = {
+  schema_version: 0,
+  latest_backup: null,
+  backup_count: 0,
+  recovered_from: null,
+  migration_backup: null
+};
+
 const presenceSnapshot = (): PresenceSnapshot => ({
   app_focus: document.hasFocus() ? "focused" : "unfocused",
   input: "active",
@@ -177,6 +196,7 @@ function messageDay(iso: string): string {
 function Modal({ title, eyebrow, children, submitLabel = "Save", onSubmit, onClose, hideSubmit = false }: { title: string; eyebrow: string; children: ReactNode; submitLabel?: string; onSubmit?(data: FormData): Promise<void>; onClose(): void; hideSubmit?: boolean }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [error, setError] = useState("");
+  const [mobileLocalMode, setMobileLocalMode] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -240,6 +260,7 @@ export function App() {
   const [search, setSearch] = useState("");
   const [contactSearch, setContactSearch] = useState("");
   const [error, setError] = useState("");
+  const [mobileLocalMode, setMobileLocalMode] = useState(false);
   const [modal, setModal] = useState<ModalState>(null);
   const [sending, setSending] = useState(false);
   const [calling, setCalling] = useState(false);
@@ -251,6 +272,30 @@ export function App() {
   const onboardingShownRef = useRef(false);
   const selected = threads.find(thread => thread.id === selectedId);
   const closeModal = useCallback(() => setModal(null), []);
+  const applyMobileRuntimeGap = useCallback((cause: unknown) => {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    setMobileLocalMode(true);
+    setThreads([]);
+    setContacts([]);
+    setAgentMessages([]);
+    setCalls([]);
+    setSignalSubscriptions([]);
+    setSignalItems([]);
+    setMessages([]);
+    setSelectedId(undefined);
+    setOldestTs(undefined);
+    setConfig(MOBILE_LOCAL_CONFIG);
+    setDataStatus(MOBILE_LOCAL_DATA_STATUS);
+    setMcpStatus(undefined);
+    setAgentChannels([]);
+    setOutboundDrafts([]);
+    setSampleStatus(undefined);
+    setEmailStatus(undefined);
+    setPushStatus(undefined);
+    setAttentionPolicy(current => current || DEFAULT_ATTENTION_POLICY);
+    setError(`${MOBILE_RUNTIME_GAP_MESSAGE} (${detail})`);
+  }, []);
+
   const saveSelectedDraft = useCallback((value: string) => {
     setDraft(value);
     if (selectedId) void api.saveDraft(selectedId, value).catch(() => undefined);
@@ -281,6 +326,7 @@ export function App() {
           setHost(backendConnection.baseUrl);
           setApiToken(backendConnection.apiToken);
           setConnectionReady(true);
+          setMobileLocalMode(false);
         }
       } catch (cause) { setError(String(cause)); }
     })();
@@ -319,8 +365,11 @@ export function App() {
   }, [attentionPolicy]);
 
   useEffect(() => {
-    if (!connectionReady) return;
-    loadAll().catch(cause => setError(`The local service is unavailable. ${cause.message}`));
+    if (!connectionReady || mobileLocalMode) return;
+    loadAll().catch(cause => {
+      if (isTauriRuntime()) applyMobileRuntimeGap(cause);
+      else setError(`The local service is unavailable. ${cause instanceof Error ? cause.message : String(cause)}`);
+    });
     const timer = window.setInterval(async () => {
       try {
         const next = await api.threads();
@@ -346,7 +395,7 @@ export function App() {
       } catch { /* The visible error state is managed by foreground actions. */ }
     }, 5000);
     return () => clearInterval(timer);
-  }, [api, connectionReady, loadAll, selectedId]);
+  }, [api, applyMobileRuntimeGap, connectionReady, loadAll, mobileLocalMode, selectedId]);
 
   async function chooseThread(id: number) {
     setSelectedId(id); setView("messages");
@@ -606,6 +655,7 @@ const PREVIEW_CHANNELS: Array<{ label: string; profile: string }> = [
 function ChannelRedactionPreview({ api, title, body }: { api: PhoneApi; title: string; body: string }) {
   const [rows, setRows] = useState<Array<{ label: string; profile: string; preview?: RedactionPreview }>>([]);
   const [error, setError] = useState("");
+  const [mobileLocalMode, setMobileLocalMode] = useState(false);
   useEffect(() => {
     let active = true;
     (async () => {
@@ -775,6 +825,7 @@ function ConnectionModal({ status, firstRun, onClose, onValidate, onSave, onStar
   const busyRef = useRef(false);
   const [busy, setBusy] = useState<"test" | "save" | "local" | null>(null);
   const [error, setError] = useState("");
+  const [mobileLocalMode, setMobileLocalMode] = useState(false);
   const [validated, setValidated] = useState<import("./types").ValidationResult>();
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
