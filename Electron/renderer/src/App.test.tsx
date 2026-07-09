@@ -515,19 +515,17 @@ describe("React renderer parity", () => {
     expect(screen.getByText("Agent channel metadata: 1")).toBeTruthy();
     expect(screen.getByText("No private desktop DB replication")).toBeTruthy();
     expect(screen.getByText("Pairing status: Unpaired")).toBeTruthy();
-    expect(screen.getByText("Node link: Local only")).toBeTruthy();
+    expect(screen.getAllByText("Node link: Local only").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("This Android device has not been paired with the desktop ForgeLink authority.")).toBeTruthy();
     expect(screen.getByText("This ForgeLink node is running local-only. No desktop link or private-data sync is active.")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Android runtime capability matrix" })).toBeTruthy();
-    expect(screen.getByText("Shell bridge: available")).toBeTruthy();
-    expect(screen.getByText("Desktop local API: unavailable")).toBeTruthy();
-    expect(screen.getByText("Attention policy: mobile-local")).toBeTruthy();
-    expect(screen.getByText("Agent-channel metadata: mobile-local")).toBeTruthy();
-    expect(screen.getByText("Private messages: deferred pending policy")).toBeTruthy();
-    expect(screen.getByText("Contacts: deferred pending policy")).toBeTruthy();
-    expect(screen.getByText("Calls: desktop-only")).toBeTruthy();
-    expect(screen.getByText("Signals: desktop-only")).toBeTruthy();
-    expect(screen.getByText("Push notifications: requires pairing")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Cross-platform node capability matrix" })).toBeTruthy();
+    expect(screen.getByText("Platform: android")).toBeTruthy();
+    expect(screen.getByText("Sync mode: No comms sync")).toBeTruthy();
+    expect(screen.getByText("Private data sync: private-data policy pending")).toBeTruthy();
+    expect(screen.getByText("Calls: available local")).toBeTruthy();
+    expect(screen.getByText("Signals: available local")).toBeTruthy();
+    expect(screen.getByText("Decisions: available local")).toBeTruthy();
+    expect(screen.getByText("Comms sync: unavailable because unlinked")).toBeTruthy();
     expect(screen.getByText("Device pairing: unpaired")).toBeTruthy();
     expect(screen.getByText(/private messages and contacts remain out of this Android-local slice/)).toBeTruthy();
   });
@@ -549,10 +547,9 @@ describe("React renderer parity", () => {
 
     expect(await screen.findByText("Pairing status: Paired limited")).toBeTruthy();
     expect(screen.getByText("This Android device is paired for limited cockpit capabilities.")).toBeTruthy();
-    expect(screen.getByText("Push notifications: paired limited")).toBeTruthy();
+    expect(screen.getByText("Push notifications: requires link")).toBeTruthy();
     expect(screen.getByText("Device pairing: paired limited")).toBeTruthy();
-    expect(screen.getByText("Private messages: deferred pending policy")).toBeTruthy();
-    expect(screen.getByText("Contacts: deferred pending policy")).toBeTruthy();
+    expect(screen.getByText("Private data sync: private-data policy pending")).toBeTruthy();
   });
 
 
@@ -577,10 +574,12 @@ describe("React renderer parity", () => {
     expect(await screen.findByText(/Android full cockpit runtime is active/)).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
 
-    expect(await screen.findByText(`Node link: ${label}`)).toBeTruthy();
+    expect((await screen.findAllByText(`Node link: ${label}`)).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(detail)).toBeTruthy();
-    expect(screen.getByText("Private messages: deferred pending policy")).toBeTruthy();
-    expect(screen.getByText("Contacts: deferred pending policy")).toBeTruthy();
+    if (linkState === "linked") expect(await screen.findByText("Comms sync: available linked")).toBeTruthy();
+    if (linkState === "revoked") expect(await screen.findByText("Comms sync: unavailable because revoked")).toBeTruthy();
+    if (linkState === "stale") expect(await screen.findByText("Comms sync: unavailable because stale")).toBeTruthy();
+    expect(screen.getByText("Private data sync: private-data policy pending")).toBeTruthy();
   });
 
   it("backs up, exports, restores, and applies local retention from settings", async () => {
