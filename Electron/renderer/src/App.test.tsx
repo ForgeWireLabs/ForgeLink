@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { parseOperatorStatus } from "./operatorStatus";
 import { SHELL_BRIDGE_CAPABILITIES } from "./shell";
+import { ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES, androidLocalCommsStoreAllowsDataClass, buildAndroidLocalCommsStoreSnapshot } from "./androidLocalCommsStore";
 
 const thread = { id: 1, canonical_number: "+15551234567", name: "Ada Lovelace", last_msg_ts: "2026-06-14T18:00:00.000Z", unread_count: 0 };
 const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
@@ -864,5 +865,63 @@ describe("Android operator-status parsing", () => {
     expect(parseOperatorStatus({ ok: false, mode: "operator-status", request_id: "r2", error: "bridge offline" }).health).toBe("degraded");
     expect(parseOperatorStatus(null).health).toBe("degraded");
     expect(parseOperatorStatus({ ok: true, mode: "operator-status", request_id: "r3" }).health).toBe("degraded");
+  });
+});
+
+
+describe("Android local comms store stub", () => {
+  const localNode = {
+    schema_version: 1,
+    node_id: "local-android-node",
+    platform: "android" as const,
+    device_label: "Android local node",
+    link_state: "local_only" as const,
+    trust_state: "local" as const,
+    sync_mode: "none" as const,
+    capability_claims: ["cockpit.local", "sync.none"],
+    authority_node_id: null,
+    linked_at: null,
+    last_seen_at: null,
+    revoked_at: null,
+    stale_after: null,
+    detail: "Local-only metadata store."
+  };
+
+  it("builds a metadata-only Android-local store snapshot without desktop DB copying", () => {
+    const snapshot = buildAndroidLocalCommsStoreSnapshot(localNode, { now: "2026-07-10T00:00:00.000Z" });
+
+    expect(snapshot.schema_version).toBe(1);
+    expect(snapshot.platform).toBe("android");
+    expect(snapshot.node_id).toBe("local-android-node");
+    expect(snapshot.storage_kind).toBe("app_local_file_state");
+    expect(snapshot.private_data_enabled).toBe(false);
+    expect(snapshot.desktop_db_copy_enabled).toBe(false);
+    expect(snapshot.link_metadata.link_state).toBe("local_only");
+    expect(snapshot.capability_cache).toEqual(["cockpit.local", "sync.none"]);
+    expect(snapshot.sync_checkpoints[0].data_classes).toEqual([
+      "schema_version",
+      "node_id",
+      "link_metadata",
+      "capability_cache",
+      "sync_checkpoint_metadata",
+      "redacted_status_rows"
+    ]);
+    expect(snapshot.redacted_status_rows[0].detail).toContain("Metadata-only");
+  });
+
+  it("rejects private communication data classes from the Android-local stub", () => {
+    expect(androidLocalCommsStoreAllowsDataClass("link_metadata")).toBe(true);
+    expect(androidLocalCommsStoreAllowsDataClass("sync_checkpoint_metadata")).toBe(true);
+
+    for (const forbidden of ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES) {
+      expect(androidLocalCommsStoreAllowsDataClass(forbidden)).toBe(false);
+    }
+
+    expect(ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES).toContain("raw_messages");
+    expect(ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES).toContain("contacts");
+    expect(ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES).toContain("calls");
+    expect(ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES).toContain("signal_content");
+    expect(ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES).toContain("attachments");
+    expect(ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES).toContain("secrets");
   });
 });
