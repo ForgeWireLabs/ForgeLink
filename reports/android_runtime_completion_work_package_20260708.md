@@ -1,4 +1,4 @@
-﻿# Android Runtime Completion Work Package - 2026-07-08
+# Android Runtime Completion Work Package - 2026-07-08
 
 ## Purpose
 
@@ -244,7 +244,101 @@ In Electron/renderer/src/App.test.tsx:
 
 Show Android pairing status surface
 
-## Work Item 011 - Pairing Status Persistence Stub
+## Direction Correction - 2026-07-09
+
+The original WI011+ sequence was Android-only and pairing-status-first. That is now superseded.
+
+ForgeLink is targeting cross-platform cockpit parity across Windows, Linux, macOS, and Android.
+
+Android is a first-class ForgeLink communication node, not a permanently limited companion terminal.
+
+Desktop link is a trust and communication-sync relationship. It is not clustering.
+
+See:
+
+- reports/forgelink_cross_device_comms_sync_direction_20260709.md
+
+### Hard Boundary
+
+Do not introduce:
+
+- rqlite;
+- Raft;
+- quorum;
+- voters;
+- cluster topology;
+- failover;
+- HA state;
+- clustered control-plane language.
+
+ForgeWire Fabric may inform trust primitives only:
+
+- signed envelopes;
+- node identity;
+- capability advertisement;
+- nonce/replay protection;
+- policy gates;
+- hash-chain audit;
+- operator-visible trust transitions;
+- discovery/link setup concepts.
+
+Do not import Fabric's clustering/storage model.
+
+## Work Item 011 - Cross-Device Comms Sync Direction
+
+### Type
+
+Report/update-only.
+
+### Purpose
+
+Record the architecture correction before any more runtime implementation proceeds.
+
+### Scope
+
+Add a direction report and update this work package so future work cannot continue down an Android-only or cluster-framed path.
+
+### Required Statements
+
+The report and work package must state:
+
+- Windows, Linux, macOS, and Android are parity targets.
+- Android is a first-class ForgeLink communication node.
+- Desktop link is a trust/sync relationship, not clustering.
+- No rqlite.
+- No Raft.
+- No quorum.
+- No voters.
+- No failover framing.
+- No HA state.
+- Sync means signed, policy-gated communication change-set exchange.
+- Private data sync requires explicit policy, encryption, retention, revocation, wipe, conflict handling, and rollback.
+
+### Suggested Files
+
+- reports/forgelink_cross_device_comms_sync_direction_20260709.md
+- reports/android_runtime_completion_work_package_20260708.md
+
+### Tests
+
+Report-only slice:
+
+- python .local\validate_system.py
+
+### Acceptance Criteria
+
+- Direction report exists.
+- This work package WI011+ sequence is revised.
+- rqlite/clustering/failover language is explicitly forbidden.
+- Android is no longer framed as companion-only.
+- Tests/validation pass.
+- Commit is pushed.
+
+### Recommended Commit Message
+
+Clarify cross-device comms sync direction
+
+## Work Item 012 - ForgeLink Node Identity and Link-State Stub
 
 ### Type
 
@@ -252,76 +346,84 @@ Implementation.
 
 ### Purpose
 
-Persist a non-secret pairing status record in Android mobile-local runtime state, without implementing real trust yet.
+Create the shared node/link state shape used by Windows, Linux, macOS, and Android.
+
+This is the foundation for cross-device ForgeLink parity.
 
 ### Scope
 
-Add a Tauri command or mobile-local runtime state file for pairing status.
+Define a non-secret node/link state model.
 
-Possible file:
+Possible fields:
 
-- mobile-runtime/pairing-status.json
-
-Allowed fields:
-
-- state;
+- schema_version;
+- node_id;
+- platform;
 - device_label;
-- paired_at;
-- last_seen_at;
-- revoked_at;
-- stale_after;
-- capabilities;
-- schema_version.
+- link_state;
+- trust_state;
+- sync_mode;
+- capability_claims;
+- authority_node_id optional;
+- linked_at optional;
+- last_seen_at optional;
+- revoked_at optional;
+- stale_after optional.
 
-Forbidden fields:
+Allowed link states:
+
+- local_only;
+- link_requested;
+- linked;
+- degraded;
+- revoked;
+- stale.
+
+Allowed sync modes:
+
+- none;
+- metadata_only;
+- redacted;
+- private_data_disabled;
+- private_data_policy_pending.
+
+### Forbidden Fields
+
+Do not store:
 
 - private keys;
 - tokens;
 - credentials;
-- raw certificates unless later reviewed;
-- operator secrets.
+- provider secrets;
+- raw messages;
+- contacts;
+- call history;
+- attachments;
+- raw signal content.
 
 ### Suggested Files
 
-- Tauri/src-tauri/src/lib.rs
+- Electron/renderer/src/types.ts
+- Electron/renderer/src/shell.ts
 - Electron/renderer/src/App.tsx
 - Electron/renderer/src/App.test.tsx
-
-### Suggested Tauri Commands
-
-Possible commands:
-
-- forgelink_pairing_status
-- forgelink_save_pairing_status
-
-Keep this minimal. If saving is not needed yet, only read/default command is acceptable.
-
-### Suggested Tests
-
-Rust tests:
-
-- default pairing status is unpaired when no file exists;
-- pairing status persists allowed metadata;
-- persisted status rejects or strips unexpected secret-like fields if validation exists.
-
-Renderer tests:
-
-- Tauri pairing status feeds Settings.
+- Tauri/src-tauri/src/lib.rs, only if a read command is implemented
 
 ### Acceptance Criteria
 
-- pairing-status.json can exist as non-secret metadata;
-- default status is unpaired;
-- no secrets are persisted;
-- Settings can read pairing status;
-- tests pass;
-- validation passes.
+- A shared node/link status type exists.
+- Android pairing status either maps to or is replaced by node/link status.
+- Settings can show local-only and linked/degraded/revoked/stale link states.
+- No private data is persisted.
+- No rqlite or clustering language is introduced.
+- Focused renderer tests pass.
+- python .local\validate_system.py passes.
 
 ### Recommended Commit Message
 
-Persist Android pairing status metadata
+Define ForgeLink node link status
 
-## Work Item 012 - Pairing Capability Matrix State Transitions
+## Work Item 013 - Cross-Platform Capability Advertisement Matrix
 
 ### Type
 
@@ -329,74 +431,53 @@ Implementation.
 
 ### Purpose
 
-Make the Android runtime capability matrix respond to pairing status.
+Replace Android-only capability language with a cross-platform ForgeLink capability matrix.
 
 ### Scope
 
-Capability rows should be derived from pairing status instead of static text for:
+Capabilities should be described by node/link/sync state instead of hardcoded Android-only labels.
 
-- Push notifications;
-- Device pairing;
-- future derived private-data views.
+Capability examples:
 
-### Required State Mapping
+- messages.local;
+- messages.linked;
+- contacts.local;
+- contacts.linked;
+- calls.local;
+- signals.local;
+- decisions.local;
+- push.receive;
+- sync.metadata;
+- sync.redacted;
+- sync.private_policy_pending.
 
-Unpaired:
+### Required Behavior
 
-- Push notifications: requires pairing
-- Device pairing: unpaired
-- Private messages: deferred pending policy
-- Contacts: deferred pending policy
+The UI should make the difference visible between:
 
-Pairing requested:
-
-- Push notifications: pending pairing
-- Device pairing: pairing requested
-- Private messages: deferred pending policy
-- Contacts: deferred pending policy
-
-Paired limited:
-
-- Push notifications: paired limited
-- Device pairing: paired limited
-- Private messages: deferred pending policy
-- Contacts: deferred pending policy
-
-Revoked:
-
-- Push notifications: unavailable
-- Device pairing: revoked
-- Private messages: unavailable
-- Contacts: unavailable
-
-Lost:
-
-- Push notifications: unavailable
-- Device pairing: lost
-- Private messages: unavailable
-- Contacts: unavailable
-
-Stale:
-
-- Push notifications: unavailable
-- Device pairing: stale
-- Private messages: unavailable
-- Contacts: unavailable
+- unavailable because unsupported;
+- unavailable because unlinked;
+- unavailable because revoked;
+- unavailable because stale;
+- available local;
+- available linked;
+- available with redaction;
+- policy pending.
 
 ### Acceptance Criteria
 
-- Matrix row labels are generated from pairing status.
-- Tests cover unpaired, paired limited, revoked, and stale.
-- Private messages/contacts never become available in this work item.
-- No storage change unless Work Item 011 already exists.
-- Tests pass.
-- Validation passes.
+- Matrix language no longer implies Android is permanently weaker.
+- Windows/Linux/macOS/Android are treated as node platforms.
+- Tests cover at least local-only, linked, revoked, and stale.
+- Private messages/contacts do not become available unless an explicit later policy slice permits them.
+- No rqlite, quorum, failover, or clustering language appears.
+- Tests and validation pass.
 
 ### Recommended Commit Message
 
-Reflect Android pairing state in capability matrix
+Show cross-platform node capability matrix
 
-## Work Item 013 - Android Offline Cockpit View Ledger
+## Work Item 014 - Signed Link Envelope Proposal
 
 ### Type
 
@@ -404,43 +485,111 @@ Report-only or implementation-prep.
 
 ### Purpose
 
-Define what each cockpit view shows when Android is mobile-local, unpaired, paired limited, revoked, stale, or desktop API unavailable.
+Define the signed envelope format for ForgeLink link and sync operations.
 
-### Views to Cover
+### Scope
 
-- Dashboard/Home
-- Conversations/Messages
-- People
-- Calls
-- Signals
-- Decisions/Approvals
-- Agent channels
-- Settings
-- Mobile terminal
-- Device health/status
+The proposal should define envelopes for:
 
-### Required Output
+- link_request;
+- link_accept;
+- link_revoke;
+- sync_policy_update;
+- change_set_offer;
+- change_set_ack;
+- wipe_request;
+- wipe_ack;
+- stale_notice.
 
-For each view, define:
+### Required Properties
 
-- available content;
-- unavailable content;
-- safe empty state;
-- forbidden fallback;
-- future derived view candidate.
+Envelope semantics must include:
+
+- schema version;
+- op;
+- source node id;
+- target node id;
+- link id;
+- timestamp;
+- nonce;
+- required capabilities;
+- data classes affected;
+- sync mode;
+- policy id;
+- base checkpoint hash optional;
+- change-set hash optional;
+- signature over canonical payload.
+
+### Explicit Non-Goals
+
+- No rqlite.
+- No cluster.
+- No quorum.
+- No failover.
+- No private-data sync implementation.
+- No key exchange implementation unless scoped separately.
 
 ### Acceptance Criteria
 
-- Report exists under reports/.
-- Each view has a state table.
-- No runtime behavior changes.
+- Proposal is explicit enough to implement later.
+- Secrets are never included in signed metadata.
+- Replay protection is required.
+- Audit linkage is required.
+- Tests are not required unless an executable fixture is added.
+
+### Recommended Commit Message
+
+Propose signed ForgeLink link envelopes
+
+## Work Item 015 - Communication Change-Set Sync Architecture
+
+### Type
+
+Report-only.
+
+### Purpose
+
+Define DB linking as signed communication change-set exchange, not database clustering.
+
+### Scope
+
+The report must define:
+
+- local SQLite ownership per node;
+- change-set boundaries;
+- checkpoints;
+- per-data-class sync policy;
+- conflict detection;
+- conflict resolution posture;
+- encryption requirement for private data;
+- revocation behavior;
+- wipe behavior;
+- stale/degraded behavior;
+- audit events;
+- rollback behavior.
+
+### Explicit Non-Goals
+
+- No rqlite.
+- No Raft.
+- No consensus.
+- No whole-DB copy.
+- No HA/failover model.
+- No private-data implementation yet.
+
+### Acceptance Criteria
+
+- Architecture separates local DB ownership from sync.
+- Private data requires explicit later implementation.
+- Android, Windows, Linux, and macOS are all in scope.
+- No cluster language appears.
 - Validation passes.
 
 ### Recommended Commit Message
 
-Map Android offline cockpit view states
+Define ForgeLink communication change-set sync
 
-## Work Item 014 - Android Offline Cockpit Empty States
+## Work Item 016 - Android Local SQLite Comms Store Stub
 
 ### Type
 
@@ -448,389 +597,183 @@ Implementation.
 
 ### Purpose
 
-Replace ambiguous empty screens with explicit Android mobile-local/unavailable states.
+Create an Android-local comms store foundation only after the node/link and change-set direction is recorded.
 
 ### Scope
 
-When desktop API is unavailable on Android:
+Stub only.
 
-- messages should not look like zero messages;
-- contacts should not look like zero contacts;
-- calls should not look like zero calls;
-- signals should not look like zero signals.
+Allowed:
 
-They should say unavailable, desktop-only, deferred, or requires pairing.
+- schema version;
+- node id;
+- link metadata;
+- capability cache;
+- sync checkpoint metadata;
+- redacted status rows.
 
-### Suggested UI Text
+Forbidden:
 
-Messages:
-
-- Private messages are not stored on this Android device yet.
-- Desktop service or a future paired derived view is required.
-
-People:
-
-- Contacts are deferred pending Android private-data implementation.
-- This device is not a source of truth for contacts.
-
-Calls:
-
-- Calls are desktop-only in this Android runtime slice.
-
-Signals:
-
-- Trusted signals are desktop-only in this Android runtime slice.
-
-### Tests
-
-- Android fallback shows explicit unavailable state for Messages.
-- Android fallback shows explicit unavailable state for People.
-- Android fallback shows explicit unavailable state for Calls.
-- Android fallback shows explicit unavailable state for Signals.
-- No private data is displayed.
+- raw messages;
+- contacts;
+- calls;
+- signal content;
+- attachments;
+- secrets.
 
 ### Acceptance Criteria
 
-- No ambiguous blank private views.
+- Android can own local metadata without desktop DB copying.
+- Store is local SQLite or app-local file state.
+- No rqlite or cluster dependency.
 - Tests pass.
 - Validation passes.
 
 ### Recommended Commit Message
 
-Show Android offline cockpit empty states
+Stub Android local comms store
 
-## Work Item 015 - Android Redacted People Derived View Proposal
+## Work Item 017 - Desktop Authority Sync Endpoint Stub
 
 ### Type
 
-Proposal/report before implementation.
+Implementation.
 
 ### Purpose
 
-Design the first safe private-data-adjacent Android feature: a redacted People derived view.
+Add a desktop-side endpoint or shell command stub for linked-node status and metadata sync.
 
-### Why People Before Messages
+### Scope
 
-A redacted People view can be less risky than raw messages if it avoids phone numbers, email addresses, notes, metadata, and full identity details.
+Stub only.
 
-### Candidate Derived Fields
+Allowed:
 
-Allowed candidate fields:
+- list linked nodes;
+- expose node capability claims;
+- expose redacted sync health;
+- accept no private change sets yet.
 
-- display label or alias;
-- relationship group;
-- blocked/unknown/trusted status;
-- last interaction category, not content;
-- policy summary such as can_notify or muted, if redacted.
+Forbidden:
 
-Forbidden candidate fields:
+- raw private data sync;
+- credentials;
+- provider secrets;
+- broad background sync;
+- clustering.
 
-- phone numbers;
-- email addresses;
-- addresses;
-- notes;
-- raw message snippets;
-- identity links;
-- provider IDs;
+### Acceptance Criteria
+
+- Endpoint/command returns redacted metadata only.
+- Android can query link status without private data.
+- Tests pass.
+- Validation passes.
+
+### Recommended Commit Message
+
+Stub desktop linked node status
+
+## Work Item 018 - Revocation, Stale, and Wipe Semantics
+
+### Type
+
+Report-only or implementation-prep.
+
+### Purpose
+
+Define what happens when a linked ForgeLink node is revoked, stale, lost, or wiped.
+
+### Scope
+
+Define behavior for:
+
+- UI state;
+- local metadata retention;
+- private-data lockout;
+- pending sync;
+- queued changes;
+- wipe request;
+- wipe acknowledgement;
+- audit event;
+- recovery path.
+
+### Acceptance Criteria
+
+- Revocation does not depend on clustering.
+- Stale state is operator-visible.
+- Wipe semantics are defined before private-data sync.
+- Validation passes.
+
+### Recommended Commit Message
+
+Define linked node revocation semantics
+
+## Work Item 019 - Private Data Sync Policy Gate
+
+### Type
+
+Report-only before implementation.
+
+### Purpose
+
+Define the explicit operator policy gate required before any private communication data sync.
+
+### Scope
+
+Policy must cover:
+
+- messages;
+- contacts;
+- calls;
+- signals;
 - attachments;
-- full contact point list.
-
-### Required Decisions
-
-- Is Android allowed to cache this derived view?
-- Is it desktop-mediated only?
-- Is it retained after app close?
-- Does revoked pairing wipe it?
-- Does stale pairing hide it?
+- agent content;
+- audit/governance data.
 
 ### Acceptance Criteria
 
-- Proposal exists.
-- Fields are explicitly allowed/forbidden.
-- Tests needed for implementation are listed.
-- No runtime behavior change.
-
-### Recommended Commit Message
-
-Propose Android redacted People derived view
-
-## Work Item 016 - Android Redacted People Derived View Implementation
-
-### Type
-
-Implementation.
-
-### Prerequisite
-
-Work Item 015 must be committed.
-
-### Purpose
-
-Implement a minimal, redacted, desktop-mediated People derived view for Android.
-
-### Scope
-
-Only implement if policy allows.
-
-Initial version should avoid persistent private local storage.
-
-Preferred behavior:
-
-- desktop service returns redacted people summary;
-- Android displays it only when paired limited or better;
-- revoked/stale/unpaired hides it.
-
-### Acceptance Criteria
-
-- No full contact database copied to Android.
-- No phone numbers or email addresses displayed unless explicitly approved by proposal.
-- Revoked/stale/unpaired states block view.
-- Tests cover allowed and blocked states.
+- Private data sync remains disabled by default.
+- Policy distinguishes metadata, redacted data, and private data.
+- Encryption, retention, revocation, wipe, conflict handling, and rollback are required before implementation.
 - Validation passes.
 
 ### Recommended Commit Message
 
-Show Android redacted People derived view
+Define private data sync policy gate
 
-## Work Item 017 - Android Redacted Message Summary Proposal
-
-### Type
-
-Proposal/report before implementation.
-
-### Purpose
-
-Design a safe, redacted message summary path for Android without storing raw messages.
-
-### Candidate Behavior
-
-Possible summary row:
-
-- conversation alias;
-- unread count;
-- last activity time;
-- urgency category;
-- needs reply flag;
-- no message body;
-- no phone number;
-- no email address;
-- no attachment content.
-
-### Forbidden
-
-- raw message bodies;
-- MMS media;
-- email bodies;
-- private agent message bodies;
-- contact point values;
-- provider payloads;
-- local full-text search index.
-
-### Required Decisions
-
-- Desktop-mediated only or cache?
-- If cache, retention duration?
-- Does Android store unread counts?
-- What happens on revoked pairing?
-- What is shown on lock screen?
-
-### Acceptance Criteria
-
-- Proposal exists.
-- Allowed/forbidden fields are explicit.
-- Implementation tests are listed.
-- No runtime behavior change.
-
-### Recommended Commit Message
-
-Propose Android redacted message summaries
-
-## Work Item 018 - Android Redacted Message Summary Implementation
+## Work Item 020 - Cross-Device Parity Closeout Ledger
 
 ### Type
 
-Implementation.
-
-### Prerequisite
-
-Work Item 017 must be committed.
+Report-only.
 
 ### Purpose
 
-Implement the first redacted Android message summary view.
+Close the corrected cross-device direction phase and list the remaining work to reach full ForgeLink parity.
 
 ### Scope
 
-Desktop-mediated, no raw message local persistence.
+Ledger must cover:
+
+- Windows;
+- Linux;
+- macOS;
+- Android;
+- local-only mode;
+- linked mode;
+- degraded mode;
+- revoked/stale mode;
+- metadata sync;
+- private-data policy gate;
+- signed change-set future work.
 
 ### Acceptance Criteria
 
-- Shows only allowed summary fields.
-- No message body.
-- No contact point values.
-- Unpaired/revoked/stale states block view.
-- Tests prove no raw private text is rendered.
+- Future work is clear.
+- Android is first-class.
+- No rqlite/clustering/failover framing appears.
 - Validation passes.
 
 ### Recommended Commit Message
 
-Show Android redacted message summaries
-
-## Work Item 019 - Android Push Notification Pairing Path
-
-### Type
-
-Implementation.
-
-### Purpose
-
-Allow paired Android to receive redacted notification routing status without approval authority.
-
-### Scope
-
-This is not push delivery yet unless already scaffolded safely. It may only surface push readiness by pairing state.
-
-### Allowed
-
-- lock-screen-safe redaction default;
-- push configured/unconfigured status;
-- paired route status;
-- notification tap target placeholder.
-
-### Forbidden
-
-- approve/deny/defer from notification;
-- private message body in payload;
-- contact name/number/email in payload by default;
-- token leakage;
-- source-of-truth behavior.
-
-### Acceptance Criteria
-
-- Pairing state gates push readiness.
-- Lock-screen-safe remains default.
-- Tests cover unpaired blocked and paired limited available/readiness state.
-- Validation passes.
-
-### Recommended Commit Message
-
-Gate Android push status by pairing
-
-## Work Item 020 - Android APK Smoke for Pairing/Status UI
-
-### Type
-
-Evidence/smoke.
-
-### Purpose
-
-Build, install, and launch Android APK after pairing/status UI is implemented.
-
-### Scope
-
-Physical device smoke only.
-
-### Device
-
-Moto One Hyper.
-
-### Evidence to Record
-
-- build command;
-- APK path;
-- signing path if applicable;
-- adb install result;
-- adb launch result;
-- observed Settings capability/pairing UI if manually checked;
-- limitations.
-
-### Acceptance Criteria
-
-- report under reports/;
-- no secrets;
-- no raw local device data;
-- validation passes;
-- commit and push.
-
-### Recommended Commit Message
-
-Record Android pairing status APK smoke
-
-## Proposed Execution Order
-
-Recommended order:
-
-1. Work Item 010 - Android Pairing Status Surface
-2. Work Item 011 - Pairing Status Persistence Stub
-3. Work Item 012 - Pairing Capability Matrix State Transitions
-4. Work Item 013 - Android Offline Cockpit View Ledger
-5. Work Item 014 - Android Offline Cockpit Empty States
-6. Work Item 015 - Android Redacted People Derived View Proposal
-7. Work Item 016 - Android Redacted People Derived View Implementation
-8. Work Item 017 - Android Redacted Message Summary Proposal
-9. Work Item 018 - Android Redacted Message Summary Implementation
-10. Work Item 019 - Android Push Notification Pairing Path
-11. Work Item 020 - Android APK Smoke for Pairing/Status UI
-
-## Implementation Notes for Weaker Models
-
-Do not infer missing architecture.
-
-If a file anchor is not found:
-
-- stop;
-- inspect the relevant file;
-- do not force a blind patch.
-
-If tests fail:
-
-- read the failure;
-- fix the smallest cause;
-- do not rewrite unrelated UI;
-- do not update snapshots blindly.
-
-If generated app.js appears modified:
-
-- restore Electron/renderer/app.js before final status unless explicitly instructed otherwise.
-
-If a change requires private data:
-
-- stop and create a proposal first.
-
-If a change needs a new storage file:
-
-- use non-secret metadata only;
-- add tests proving secrets are not persisted;
-- keep schema small.
-
-If unsure whether data is private:
-
-- treat it as private;
-- do not persist it on Android.
-
-## Definition of Meat
-
-The next implementation work is the meat.
-
-The meat is not more reports unless a proposal is required before private-data work.
-
-The first meat slice is:
-
-- Work Item 010 - Android Pairing Status Surface
-
-The second meat slice should be:
-
-- Work Item 011 or 012, depending on whether pairing status needs persistence before richer UI behavior.
-
-The first private-data-adjacent meat should not happen until:
-
-- Work Item 015 is complete.
-
-## Closeout Criteria for This Work Package
-
-This work package is complete when:
-
-- it is committed under reports/;
-- repo validation passes;
-- no runtime files are changed;
-- Work Item 010 is selected as the next implementation slice.
+Record cross-device parity closeout ledger
