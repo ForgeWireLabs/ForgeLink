@@ -497,6 +497,24 @@ describe("React renderer parity", () => {
     expect(screen.getByRole("button", { name: "Revoke device" })).toBeTruthy();
   });
 
+  it("surfaces Android mobile-local runtime status from Settings when desktop API is unavailable", async () => {
+    const invoke = vi.fn(async (command: string) => { if (command === "forgelink_agent_channels") return [agentChannel]; if (command === "forgelink_attention_policy") return attentionPolicy; return {}; }) as unknown as <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
+    window.__TAURI__ = { core: { invoke } };
+    vi.mocked(fetch).mockRejectedValue(new Error("desktop offline"));
+
+    render(<App/>);
+
+    expect(await screen.findByText(/Android full cockpit runtime is active/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(await screen.findByRole("heading", { name: "Android mobile-local runtime active" })).toBeTruthy();
+    expect(screen.getByText("The Android cockpit is running from app-local runtime state while the desktop local service is unavailable.")).toBeTruthy();
+    expect(screen.getByText("Attention policy available")).toBeTruthy();
+    expect(screen.getByText("Agent channel metadata: 1")).toBeTruthy();
+    expect(screen.getByText("No private desktop DB replication")).toBeTruthy();
+    expect(screen.getByText(/private messages and contacts remain out of this Android-local slice/)).toBeTruthy();
+  });
+
   it("backs up, exports, restores, and applies local retention from settings", async () => {
     render(<App/>);
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
