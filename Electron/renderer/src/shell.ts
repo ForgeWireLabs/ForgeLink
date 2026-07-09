@@ -1,4 +1,4 @@
-import type { AgentChannelStatus, AndroidPairingStatus, AttentionDecision, AttentionEvent, AttentionPolicy, BackendConnection, DesktopStatus, EmailSettingsInput, EmailSettingsStatus, McpStatus, PushSettingsInput, PushSettingsStatus, ValidationResult } from "./types";
+import type { AgentChannelStatus, AndroidPairingStatus, AttentionDecision, AttentionEvent, AttentionPolicy, BackendConnection, DesktopStatus, EmailSettingsInput, EmailSettingsStatus, ForgeLinkNodeLinkStatus, McpStatus, PushSettingsInput, PushSettingsStatus, ValidationResult } from "./types";
 
 export const SHELL_BRIDGE_CAPABILITIES = {
   localService: ["backendConnection", "getStatus", "startServer", "startLocalOnly", "stopServer", "onServerStatus"],
@@ -7,7 +7,8 @@ export const SHELL_BRIDGE_CAPABILITIES = {
   secureSettings: ["validateSettings", "importEnvironment", "removeCredentials", "emailSettings", "saveEmailSettings", "removeEmailSettings", "pushSettings", "savePushSettings", "removePushSettings"],
   attentionPolicy: ["attentionPolicy", "saveAttentionPolicy"],
   agentCredentials: ["mcpStatus", "createMcpToken", "revokeMcpToken", "testMcpBridge", "agentChannels", "createAgentChannel", "rotateAgentChannel", "revokeAgentChannel", "setAgentChannelEnabled"],
-  androidPairing: ["pairingStatus"]
+  androidPairing: ["pairingStatus"],
+  nodeLink: ["nodeLinkStatus"]
 } as const;
 
 export interface ForgeLinkShellBridge {
@@ -38,6 +39,7 @@ export interface ForgeLinkShellBridge {
   removeEmailSettings(): Promise<EmailSettingsStatus>;
   pushSettings(): Promise<PushSettingsStatus>;
   pairingStatus(): Promise<AndroidPairingStatus>;
+  nodeLinkStatus(): Promise<ForgeLinkNodeLinkStatus>;
   savePushSettings(values: PushSettingsInput): Promise<PushSettingsStatus>;
   removePushSettings(): Promise<PushSettingsStatus>;
   onServerStatus(callback: (status: DesktopStatus) => void): void;
@@ -78,6 +80,7 @@ function createTauriBridge(invoke: TauriInvoke): ForgeLinkShellBridge {
     removeEmailSettings: () => invoke<EmailSettingsStatus>("forgelink_remove_email_settings"),
     pushSettings: () => invoke<PushSettingsStatus>("forgelink_push_settings"),
     pairingStatus: () => invoke<AndroidPairingStatus>("forgelink_pairing_status"),
+    nodeLinkStatus: () => invoke<ForgeLinkNodeLinkStatus>("forgelink_node_link_status"),
     savePushSettings: values => invokeWithPayload<PushSettingsStatus>(invoke, "forgelink_save_push_settings", values as unknown as Record<string, unknown>),
     removePushSettings: () => invoke<PushSettingsStatus>("forgelink_remove_push_settings"),
     onServerStatus: () => undefined
@@ -117,6 +120,7 @@ export function getShellBridge(): ForgeLinkShellBridge {
       removeEmailSettings: unavailable("removeEmailSettings"),
       pushSettings: unavailable("pushSettings"),
       pairingStatus: unavailable("pairingStatus"),
+      nodeLinkStatus: unavailable("nodeLinkStatus"),
       savePushSettings: unavailable("savePushSettings"),
       removePushSettings: unavailable("removePushSettings"),
       onServerStatus: () => undefined
@@ -153,6 +157,7 @@ export const shell: ForgeLinkShellBridge = {
   removeEmailSettings: () => getShellBridge().removeEmailSettings(),
   pushSettings: () => getShellBridge().pushSettings(),
   pairingStatus: () => getShellBridge().pairingStatus(),
+  nodeLinkStatus: () => getShellBridge().nodeLinkStatus(),
   savePushSettings: values => getShellBridge().savePushSettings(values),
   removePushSettings: () => getShellBridge().removePushSettings(),
   onServerStatus: callback => getShellBridge().onServerStatus(callback)

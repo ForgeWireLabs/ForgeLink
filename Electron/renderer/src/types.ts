@@ -44,6 +44,12 @@ export interface PushSettingsStatus { configured: boolean; provider: string; url
 export interface PushSettingsInput { provider?: string; url?: string; topic?: string; token?: string; profile?: "lock_screen_safe" | "full" | string; }
 export type AndroidPairingState = "unpaired" | "pairing_requested" | "paired_limited" | "revoked" | "lost" | "stale";
 export interface AndroidPairingStatus { state: AndroidPairingState; label: string; detail: string; capabilities: string[]; updated_at?: string | null; }
+export type ForgeLinkNodePlatform = "windows" | "linux" | "macos" | "android" | "unknown";
+export type ForgeLinkNodeLinkState = "local_only" | "link_requested" | "linked" | "degraded" | "revoked" | "stale";
+export type ForgeLinkNodeTrustState = "local" | "requested" | "trusted" | "limited" | "revoked" | "stale";
+export type ForgeLinkNodeSyncMode = "none" | "metadata_only" | "redacted" | "private_data_disabled" | "private_data_policy_pending";
+export interface ForgeLinkNodeLinkStatus { schema_version: number; node_id: string; platform: ForgeLinkNodePlatform; device_label: string; link_state: ForgeLinkNodeLinkState; trust_state: ForgeLinkNodeTrustState; sync_mode: ForgeLinkNodeSyncMode; capability_claims: string[]; authority_node_id?: string | null; linked_at?: string | null; last_seen_at?: string | null; revoked_at?: string | null; stale_after?: string | null; detail: string; }
+
 
 export interface McpStatus { configured: boolean; created_at: string | null; rotated_at: string | null; revoked_at: string | null; last_used_at: string | null; last_test_at: string | null; last_test_status: string | null; token_file: string; token_file_present: boolean; bridge_server: string; bridge_built: boolean; base_url: string; install_commands: Record<string, string>; }
 export interface AgentChannelStatus { channel_id: string; label: string; enabled: boolean; configured: boolean; created_at: string; rotated_at: string; revoked_at: string | null; last_used_at: string | null; last_rejected_at: string | null; rejection_count: number; rate_limited_count: number; token_file?: string; token_file_present?: boolean; }

@@ -80,6 +80,7 @@ beforeEach(() => {
     removeEmailSettings: vi.fn().mockResolvedValue({ configured: false, host: "", port: 465, secure: true, user: "", from: "", password_present: false, inbound_secret_present: false, action_secret_present: false }),
     pushSettings: vi.fn().mockResolvedValue({ configured: false, provider: "ntfy", url: "https://ntfy.sh", profile: "lock_screen_safe", topic_present: false, token_present: false }),
     pairingStatus: vi.fn().mockResolvedValue({ state: "unpaired", label: "Unpaired", detail: "This Android device has not been paired with the desktop ForgeLink authority.", capabilities: [] }),
+    nodeLinkStatus: vi.fn().mockResolvedValue({ schema_version: 1, node_id: "local-android-node", platform: "android", device_label: "Android local node", link_state: "local_only", trust_state: "local", sync_mode: "none", capability_claims: ["cockpit.local", "sync.none"], authority_node_id: null, linked_at: null, last_seen_at: null, revoked_at: null, stale_after: null, detail: "This ForgeLink node is running local-only. No desktop link or private-data sync is active." }),
     savePushSettings: vi.fn().mockResolvedValue({ configured: true, provider: "ntfy", url: "https://ntfy.sh", profile: "lock_screen_safe", topic_present: true, token_present: false }),
     removePushSettings: vi.fn().mockResolvedValue({ configured: false, provider: "ntfy", url: "https://ntfy.sh", profile: "lock_screen_safe", topic_present: false, token_present: false }),
     onServerStatus: vi.fn()
@@ -499,7 +500,7 @@ describe("React renderer parity", () => {
   });
 
   it("surfaces Android mobile-local runtime status from Settings when desktop API is unavailable", async () => {
-    const invoke = vi.fn(async (command: string) => { if (command === "forgelink_agent_channels") return [agentChannel]; if (command === "forgelink_attention_policy") return attentionPolicy; if (command === "forgelink_pairing_status") return { state: "unpaired", label: "Unpaired", detail: "This Android device has not been paired with the desktop ForgeLink authority.", capabilities: [] }; return {}; }) as unknown as <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
+    const invoke = vi.fn(async (command: string) => { if (command === "forgelink_agent_channels") return [agentChannel]; if (command === "forgelink_attention_policy") return attentionPolicy; if (command === "forgelink_pairing_status") return { state: "unpaired", label: "Unpaired", detail: "This Android device has not been paired with the desktop ForgeLink authority.", capabilities: [] }; if (command === "forgelink_node_link_status") return { schema_version: 1, node_id: "local-android-node", platform: "android", device_label: "Android local node", link_state: "local_only", trust_state: "local", sync_mode: "none", capability_claims: ["cockpit.local", "sync.none"], authority_node_id: null, linked_at: null, last_seen_at: null, revoked_at: null, stale_after: null, detail: "This ForgeLink node is running local-only. No desktop link or private-data sync is active." }; return {}; }) as unknown as <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
     window.__TAURI__ = { core: { invoke } };
     vi.mocked(fetch).mockRejectedValue(new Error("desktop offline"));
 
@@ -514,7 +515,9 @@ describe("React renderer parity", () => {
     expect(screen.getByText("Agent channel metadata: 1")).toBeTruthy();
     expect(screen.getByText("No private desktop DB replication")).toBeTruthy();
     expect(screen.getByText("Pairing status: Unpaired")).toBeTruthy();
+    expect(screen.getByText("Node link: Local only")).toBeTruthy();
     expect(screen.getByText("This Android device has not been paired with the desktop ForgeLink authority.")).toBeTruthy();
+    expect(screen.getByText("This ForgeLink node is running local-only. No desktop link or private-data sync is active.")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Android runtime capability matrix" })).toBeTruthy();
     expect(screen.getByText("Shell bridge: available")).toBeTruthy();
     expect(screen.getByText("Desktop local API: unavailable")).toBeTruthy();
@@ -548,6 +551,34 @@ describe("React renderer parity", () => {
     expect(screen.getByText("This Android device is paired for limited cockpit capabilities.")).toBeTruthy();
     expect(screen.getByText("Push notifications: paired limited")).toBeTruthy();
     expect(screen.getByText("Device pairing: paired limited")).toBeTruthy();
+    expect(screen.getByText("Private messages: deferred pending policy")).toBeTruthy();
+    expect(screen.getByText("Contacts: deferred pending policy")).toBeTruthy();
+  });
+
+
+  it.each([
+    ["linked", "Linked", "trusted", "metadata_only", "This ForgeLink node is linked to a desktop authority for metadata-only comms sync."],
+    ["degraded", "Degraded", "limited", "private_data_disabled", "This ForgeLink node link is degraded; private-data sync remains disabled."],
+    ["revoked", "Revoked", "revoked", "private_data_disabled", "This ForgeLink node link has been revoked. Linked capabilities are unavailable."],
+    ["stale", "Stale", "stale", "private_data_disabled", "This ForgeLink node link is stale. Revalidation is required before linked capabilities resume."]
+  ])("surfaces %s ForgeLink node-link status without private-data access", async (linkState, label, trustState, syncMode, detail) => {
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "forgelink_agent_channels") return [agentChannel];
+      if (command === "forgelink_attention_policy") return attentionPolicy;
+      if (command === "forgelink_pairing_status") return { state: "paired_limited", label: "Paired limited", detail: "This Android device is paired for limited cockpit capabilities.", capabilities: ["push_notifications"] };
+      if (command === "forgelink_node_link_status") return { schema_version: 1, node_id: "android-node-1", platform: "android", device_label: "Moto One Hyper", link_state: linkState, trust_state: trustState, sync_mode: syncMode, capability_claims: ["cockpit.local", "sync.metadata"], authority_node_id: "desktop-node-1", linked_at: null, last_seen_at: null, revoked_at: null, stale_after: null, detail };
+      return {};
+    }) as unknown as <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
+    window.__TAURI__ = { core: { invoke } };
+    vi.mocked(fetch).mockRejectedValue(new Error("desktop offline"));
+
+    render(<App/>);
+
+    expect(await screen.findByText(/Android full cockpit runtime is active/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(await screen.findByText(`Node link: ${label}`)).toBeTruthy();
+    expect(screen.getByText(detail)).toBeTruthy();
     expect(screen.getByText("Private messages: deferred pending policy")).toBeTruthy();
     expect(screen.getByText("Contacts: deferred pending policy")).toBeTruthy();
   });
