@@ -512,6 +512,17 @@ describe("React renderer parity", () => {
     expect(screen.getByText("Attention policy available")).toBeTruthy();
     expect(screen.getByText("Agent channel metadata: 1")).toBeTruthy();
     expect(screen.getByText("No private desktop DB replication")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Android runtime capability matrix" })).toBeTruthy();
+    expect(screen.getByText("Shell bridge: available")).toBeTruthy();
+    expect(screen.getByText("Desktop local API: unavailable")).toBeTruthy();
+    expect(screen.getByText("Attention policy: mobile-local")).toBeTruthy();
+    expect(screen.getByText("Agent-channel metadata: mobile-local")).toBeTruthy();
+    expect(screen.getByText("Private messages: deferred pending policy")).toBeTruthy();
+    expect(screen.getByText("Contacts: deferred pending policy")).toBeTruthy();
+    expect(screen.getByText("Calls: desktop-only")).toBeTruthy();
+    expect(screen.getByText("Signals: desktop-only")).toBeTruthy();
+    expect(screen.getByText("Push notifications: requires pairing")).toBeTruthy();
+    expect(screen.getByText("Device pairing: requires pairing")).toBeTruthy();
     expect(screen.getByText(/private messages and contacts remain out of this Android-local slice/)).toBeTruthy();
   });
 
