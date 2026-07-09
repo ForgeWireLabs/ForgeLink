@@ -5,8 +5,9 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { parseOperatorStatus } from "./operatorStatus";
-import { SHELL_BRIDGE_CAPABILITIES } from "./shell";
+import { SHELL_BRIDGE_CAPABILITIES, shell } from "./shell";
 import { ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES, androidLocalCommsStoreAllowsDataClass, buildAndroidLocalCommsStoreSnapshot } from "./androidLocalCommsStore";
+import { DESKTOP_LINKED_NODE_FORBIDDEN_DATA_CLASSES, buildDesktopLinkedNodeStatus, desktopLinkedNodeStatusAcceptsDataClass } from "./desktopLinkedNodeStatus";
 
 const thread = { id: 1, canonical_number: "+15551234567", name: "Ada Lovelace", last_msg_ts: "2026-06-14T18:00:00.000Z", unread_count: 0 };
 const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
@@ -82,6 +83,7 @@ beforeEach(() => {
     pushSettings: vi.fn().mockResolvedValue({ configured: false, provider: "ntfy", url: "https://ntfy.sh", profile: "lock_screen_safe", topic_present: false, token_present: false }),
     pairingStatus: vi.fn().mockResolvedValue({ state: "unpaired", label: "Unpaired", detail: "This Android device has not been paired with the desktop ForgeLink authority.", capabilities: [] }),
     nodeLinkStatus: vi.fn().mockResolvedValue({ schema_version: 1, node_id: "local-android-node", platform: "android", device_label: "Android local node", link_state: "local_only", trust_state: "local", sync_mode: "none", capability_claims: ["cockpit.local", "sync.none"], authority_node_id: null, linked_at: null, last_seen_at: null, revoked_at: null, stale_after: null, detail: "This ForgeLink node is running local-only. No desktop link or private-data sync is active." }),
+    desktopLinkedNodeStatus: vi.fn().mockResolvedValue(buildDesktopLinkedNodeStatus()),
     savePushSettings: vi.fn().mockResolvedValue({ configured: true, provider: "ntfy", url: "https://ntfy.sh", profile: "lock_screen_safe", topic_present: true, token_present: false }),
     removePushSettings: vi.fn().mockResolvedValue({ configured: false, provider: "ntfy", url: "https://ntfy.sh", profile: "lock_screen_safe", topic_present: false, token_present: false }),
     onServerStatus: vi.fn()
@@ -923,5 +925,76 @@ describe("Android local comms store stub", () => {
     expect(ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES).toContain("signal_content");
     expect(ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES).toContain("attachments");
     expect(ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES).toContain("secrets");
+  });
+});
+
+
+describe("Desktop linked node status stub", () => {
+  const linkedAndroidNode = {
+    schema_version: 1,
+    node_id: "local-android-node",
+    platform: "android" as const,
+    device_label: "Android local node",
+    link_state: "linked" as const,
+    trust_state: "limited" as const,
+    sync_mode: "metadata_only" as const,
+    capability_claims: ["cockpit.local", "sync.metadata"],
+    authority_node_id: "desktop-authority-node",
+    linked_at: "2026-07-10T00:00:00.000Z",
+    last_seen_at: "2026-07-10T00:01:00.000Z",
+    revoked_at: null,
+    stale_after: "2026-07-10T01:00:00.000Z",
+    detail: "Linked metadata-only node."
+  };
+
+  it("builds redacted desktop linked-node metadata without private change-set acceptance", () => {
+    const status = buildDesktopLinkedNodeStatus([linkedAndroidNode], {
+      authority_node_id: "desktop-authority-node",
+      last_checked_at: "2026-07-10T00:02:00.000Z"
+    });
+
+    expect(status.schema_version).toBe(1);
+    expect(status.authority_node_id).toBe("desktop-authority-node");
+    expect(status.linked_nodes).toHaveLength(1);
+    expect(status.linked_nodes[0].node_id).toBe("local-android-node");
+    expect(status.sync_health.redacted).toBe(true);
+    expect(status.sync_health.accepts_private_change_sets).toBe(false);
+    expect(status.sync_health.private_data_sync_enabled).toBe(false);
+    expect(status.sync_health.broad_background_sync_enabled).toBe(false);
+    expect(status.sync_health.clustering_enabled).toBe(false);
+    expect(status.accepted_data_classes).toEqual([
+      "node_link_status",
+      "capability_cache",
+      "sync_checkpoint_metadata",
+      "redacted_sync_health",
+      "wipe_status"
+    ]);
+    expect(status.capability_claims).toContain("linked_nodes.list");
+    expect(status.capability_claims).toContain("sync.health.redacted");
+    expect(status.capability_claims).toContain("change_sets.private.reject");
+  });
+
+  it("rejects private data classes from desktop linked-node metadata", () => {
+    expect(desktopLinkedNodeStatusAcceptsDataClass("node_link_status")).toBe(true);
+    expect(desktopLinkedNodeStatusAcceptsDataClass("redacted_sync_health")).toBe(true);
+
+    for (const forbidden of DESKTOP_LINKED_NODE_FORBIDDEN_DATA_CLASSES) {
+      expect(desktopLinkedNodeStatusAcceptsDataClass(forbidden)).toBe(false);
+    }
+
+    expect(DESKTOP_LINKED_NODE_FORBIDDEN_DATA_CLASSES).toContain("raw_private_data");
+    expect(DESKTOP_LINKED_NODE_FORBIDDEN_DATA_CLASSES).toContain("credentials");
+    expect(DESKTOP_LINKED_NODE_FORBIDDEN_DATA_CLASSES).toContain("provider_secrets");
+    expect(DESKTOP_LINKED_NODE_FORBIDDEN_DATA_CLASSES).toContain("tokens");
+  });
+
+  it("exposes a shell command stub for desktop linked-node status", async () => {
+    expect(SHELL_BRIDGE_CAPABILITIES.nodeLink).toContain("desktopLinkedNodeStatus");
+
+    const status = await shell.desktopLinkedNodeStatus();
+
+    expect(status.sync_health.redacted).toBe(true);
+    expect(status.sync_health.accepts_private_change_sets).toBe(false);
+    expect(status.detail).toContain("redacted sync health");
   });
 });

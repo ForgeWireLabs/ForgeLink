@@ -1,4 +1,4 @@
-import type { AgentChannelStatus, AndroidPairingStatus, AttentionDecision, AttentionEvent, AttentionPolicy, BackendConnection, DesktopStatus, EmailSettingsInput, EmailSettingsStatus, ForgeLinkNodeLinkStatus, McpStatus, PushSettingsInput, PushSettingsStatus, ValidationResult } from "./types";
+import type { AgentChannelStatus, AndroidPairingStatus, AttentionDecision, AttentionEvent, AttentionPolicy, BackendConnection, DesktopLinkedNodeStatus, DesktopStatus, EmailSettingsInput, EmailSettingsStatus, ForgeLinkNodeLinkStatus, McpStatus, PushSettingsInput, PushSettingsStatus, ValidationResult } from "./types";
 
 export const SHELL_BRIDGE_CAPABILITIES = {
   localService: ["backendConnection", "getStatus", "startServer", "startLocalOnly", "stopServer", "onServerStatus"],
@@ -8,7 +8,7 @@ export const SHELL_BRIDGE_CAPABILITIES = {
   attentionPolicy: ["attentionPolicy", "saveAttentionPolicy"],
   agentCredentials: ["mcpStatus", "createMcpToken", "revokeMcpToken", "testMcpBridge", "agentChannels", "createAgentChannel", "rotateAgentChannel", "revokeAgentChannel", "setAgentChannelEnabled"],
   androidPairing: ["pairingStatus"],
-  nodeLink: ["nodeLinkStatus"]
+  nodeLink: ["nodeLinkStatus", "desktopLinkedNodeStatus"]
 } as const;
 
 export interface ForgeLinkShellBridge {
@@ -40,6 +40,7 @@ export interface ForgeLinkShellBridge {
   pushSettings(): Promise<PushSettingsStatus>;
   pairingStatus(): Promise<AndroidPairingStatus>;
   nodeLinkStatus(): Promise<ForgeLinkNodeLinkStatus>;
+  desktopLinkedNodeStatus(): Promise<DesktopLinkedNodeStatus>;
   savePushSettings(values: PushSettingsInput): Promise<PushSettingsStatus>;
   removePushSettings(): Promise<PushSettingsStatus>;
   onServerStatus(callback: (status: DesktopStatus) => void): void;
@@ -81,6 +82,7 @@ function createTauriBridge(invoke: TauriInvoke): ForgeLinkShellBridge {
     pushSettings: () => invoke<PushSettingsStatus>("forgelink_push_settings"),
     pairingStatus: () => invoke<AndroidPairingStatus>("forgelink_pairing_status"),
     nodeLinkStatus: () => invoke<ForgeLinkNodeLinkStatus>("forgelink_node_link_status"),
+    desktopLinkedNodeStatus: () => invoke<DesktopLinkedNodeStatus>("forgelink_desktop_linked_node_status"),
     savePushSettings: values => invokeWithPayload<PushSettingsStatus>(invoke, "forgelink_save_push_settings", values as unknown as Record<string, unknown>),
     removePushSettings: () => invoke<PushSettingsStatus>("forgelink_remove_push_settings"),
     onServerStatus: () => undefined
@@ -121,6 +123,7 @@ export function getShellBridge(): ForgeLinkShellBridge {
       pushSettings: unavailable("pushSettings"),
       pairingStatus: unavailable("pairingStatus"),
       nodeLinkStatus: unavailable("nodeLinkStatus"),
+      desktopLinkedNodeStatus: unavailable("desktopLinkedNodeStatus"),
       savePushSettings: unavailable("savePushSettings"),
       removePushSettings: unavailable("removePushSettings"),
       onServerStatus: () => undefined
@@ -158,6 +161,7 @@ export const shell: ForgeLinkShellBridge = {
   pushSettings: () => getShellBridge().pushSettings(),
   pairingStatus: () => getShellBridge().pairingStatus(),
   nodeLinkStatus: () => getShellBridge().nodeLinkStatus(),
+  desktopLinkedNodeStatus: () => getShellBridge().desktopLinkedNodeStatus(),
   savePushSettings: values => getShellBridge().savePushSettings(values),
   removePushSettings: () => getShellBridge().removePushSettings(),
   onServerStatus: callback => getShellBridge().onServerStatus(callback)
