@@ -42,6 +42,9 @@ export interface EmailSettingsInput { host: string; port: number; secure: boolea
 export interface PushChannelStatus { configured: boolean; provider: string; url: string; profile: "lock_screen_safe" | "full" | string; topic_present: boolean; token_present: boolean; }
 export interface PushSettingsStatus { configured: boolean; provider: string; url: string; profile: "lock_screen_safe" | "full" | string; topic_present: boolean; token_present: boolean; }
 export interface PushSettingsInput { provider?: string; url?: string; topic?: string; token?: string; profile?: "lock_screen_safe" | "full" | string; }
+export type AndroidPairingState = "unpaired" | "pairing_requested" | "paired_limited" | "revoked" | "lost" | "stale";
+export interface AndroidPairingStatus { state: AndroidPairingState; label: string; detail: string; capabilities: string[]; updated_at?: string | null; }
+
 export interface McpStatus { configured: boolean; created_at: string | null; rotated_at: string | null; revoked_at: string | null; last_used_at: string | null; last_test_at: string | null; last_test_status: string | null; token_file: string; token_file_present: boolean; bridge_server: string; bridge_built: boolean; base_url: string; install_commands: Record<string, string>; }
 export interface AgentChannelStatus { channel_id: string; label: string; enabled: boolean; configured: boolean; created_at: string; rotated_at: string; revoked_at: string | null; last_used_at: string | null; last_rejected_at: string | null; rejection_count: number; rate_limited_count: number; token_file?: string; token_file_present?: boolean; }
 export type OperatorMode = "available" | "focus" | "driving" | "sleeping" | "family" | "work" | "emergency_only" | "offline";

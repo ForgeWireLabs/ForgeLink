@@ -79,6 +79,7 @@ beforeEach(() => {
     saveEmailSettings: vi.fn().mockResolvedValue({ configured: true, host: "smtp.example.com", port: 587, secure: false, user: "ops@example.com", from: "ops@example.com", password_present: true, inbound_secret_present: false, action_secret_present: false }),
     removeEmailSettings: vi.fn().mockResolvedValue({ configured: false, host: "", port: 465, secure: true, user: "", from: "", password_present: false, inbound_secret_present: false, action_secret_present: false }),
     pushSettings: vi.fn().mockResolvedValue({ configured: false, provider: "ntfy", url: "https://ntfy.sh", profile: "lock_screen_safe", topic_present: false, token_present: false }),
+    pairingStatus: vi.fn().mockResolvedValue({ state: "unpaired", label: "Unpaired", detail: "This Android device has not been paired with the desktop ForgeLink authority.", capabilities: [] }),
     savePushSettings: vi.fn().mockResolvedValue({ configured: true, provider: "ntfy", url: "https://ntfy.sh", profile: "lock_screen_safe", topic_present: true, token_present: false }),
     removePushSettings: vi.fn().mockResolvedValue({ configured: false, provider: "ntfy", url: "https://ntfy.sh", profile: "lock_screen_safe", topic_present: false, token_present: false }),
     onServerStatus: vi.fn()
@@ -498,7 +499,7 @@ describe("React renderer parity", () => {
   });
 
   it("surfaces Android mobile-local runtime status from Settings when desktop API is unavailable", async () => {
-    const invoke = vi.fn(async (command: string) => { if (command === "forgelink_agent_channels") return [agentChannel]; if (command === "forgelink_attention_policy") return attentionPolicy; return {}; }) as unknown as <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
+    const invoke = vi.fn(async (command: string) => { if (command === "forgelink_agent_channels") return [agentChannel]; if (command === "forgelink_attention_policy") return attentionPolicy; if (command === "forgelink_pairing_status") return { state: "unpaired", label: "Unpaired", detail: "This Android device has not been paired with the desktop ForgeLink authority.", capabilities: [] }; return {}; }) as unknown as <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
     window.__TAURI__ = { core: { invoke } };
     vi.mocked(fetch).mockRejectedValue(new Error("desktop offline"));
 
@@ -512,6 +513,8 @@ describe("React renderer parity", () => {
     expect(screen.getByText("Attention policy available")).toBeTruthy();
     expect(screen.getByText("Agent channel metadata: 1")).toBeTruthy();
     expect(screen.getByText("No private desktop DB replication")).toBeTruthy();
+    expect(screen.getByText("Pairing status: Unpaired")).toBeTruthy();
+    expect(screen.getByText("This Android device has not been paired with the desktop ForgeLink authority.")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Android runtime capability matrix" })).toBeTruthy();
     expect(screen.getByText("Shell bridge: available")).toBeTruthy();
     expect(screen.getByText("Desktop local API: unavailable")).toBeTruthy();
@@ -522,8 +525,31 @@ describe("React renderer parity", () => {
     expect(screen.getByText("Calls: desktop-only")).toBeTruthy();
     expect(screen.getByText("Signals: desktop-only")).toBeTruthy();
     expect(screen.getByText("Push notifications: requires pairing")).toBeTruthy();
-    expect(screen.getByText("Device pairing: requires pairing")).toBeTruthy();
+    expect(screen.getByText("Device pairing: unpaired")).toBeTruthy();
     expect(screen.getByText(/private messages and contacts remain out of this Android-local slice/)).toBeTruthy();
+  });
+
+  it("surfaces Android paired-limited status from Settings when desktop API is unavailable", async () => {
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "forgelink_agent_channels") return [agentChannel];
+      if (command === "forgelink_attention_policy") return attentionPolicy;
+      if (command === "forgelink_pairing_status") return { state: "paired_limited", label: "Paired limited", detail: "This Android device is paired for limited cockpit capabilities.", capabilities: ["push_notifications"] };
+      return {};
+    }) as unknown as <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
+    window.__TAURI__ = { core: { invoke } };
+    vi.mocked(fetch).mockRejectedValue(new Error("desktop offline"));
+
+    render(<App/>);
+
+    expect(await screen.findByText(/Android full cockpit runtime is active/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(await screen.findByText("Pairing status: Paired limited")).toBeTruthy();
+    expect(screen.getByText("This Android device is paired for limited cockpit capabilities.")).toBeTruthy();
+    expect(screen.getByText("Push notifications: paired limited")).toBeTruthy();
+    expect(screen.getByText("Device pairing: paired limited")).toBeTruthy();
+    expect(screen.getByText("Private messages: deferred pending policy")).toBeTruthy();
+    expect(screen.getByText("Contacts: deferred pending policy")).toBeTruthy();
   });
 
   it("backs up, exports, restores, and applies local retention from settings", async () => {
