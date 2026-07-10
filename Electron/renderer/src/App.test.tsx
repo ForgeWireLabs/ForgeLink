@@ -9,6 +9,7 @@ import { SHELL_BRIDGE_CAPABILITIES, shell } from "./shell";
 import { ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES, androidLocalCommsStoreAllowsDataClass, buildAndroidLocalCommsStoreSnapshot, parseAndroidLocalCommsStoreSnapshot, serializeAndroidLocalCommsStoreSnapshot } from "./androidLocalCommsStore";
 import { DESKTOP_LINKED_NODE_FORBIDDEN_DATA_CLASSES, buildDesktopLinkedNodeStatus, desktopLinkedNodeStatusAcceptsDataClass } from "./desktopLinkedNodeStatus";
 import { buildRedactedLinkedNodeLifecycleStatus, linkedNodeLifecycleLocksPrivateData, linkedNodeLifecyclePausesLinkedOperations } from "./linkedNodeLifecycle";
+import { evaluatePrivateDataPolicyGate, type PrivateDataPolicyGateInput } from "./privateDataPolicyGate";
 
 const thread = { id: 1, canonical_number: "+15551234567", name: "Ada Lovelace", last_msg_ts: "2026-06-14T18:00:00.000Z", unread_count: 0 };
 const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
@@ -1160,5 +1161,131 @@ describe("Redacted linked node lifecycle status model", () => {
     expect(status.private_data_locked).toBe(true);
     expect(status.redacted_health_detail).not.toContain("Hello");
     expect(status.redacted_health_detail).not.toContain("+1555");
+  });
+});
+
+
+describe("Private data policy gate helper", () => {
+  const readyRequest = (
+    overrides: Partial<PrivateDataPolicyGateInput> = {}
+  ): PrivateDataPolicyGateInput => ({
+    source_node_id: "desktop-node-1",
+    target_node_id: "android-node-1",
+    link_id: "link-desktop-android-1",
+    data_domain: "messages",
+    sensitivity_class: "private",
+    requested_sync_mode: "private_change_set",
+    link_state: "linked",
+    trust_state: "trusted",
+    policy_present: true,
+    policy_expires_at: "2026-07-11T00:00:00.000Z",
+    operator_confirmation_present: true,
+    encryption_ready: true,
+    retention_ready: true,
+    revocation_behavior_ready: true,
+    wipe_behavior_ready: true,
+    conflict_handling_ready: true,
+    rollback_ready: true,
+    audit_ready: true,
+    now: "2026-07-10T00:00:00.000Z",
+    ...overrides
+  });
+
+  it("denies by default when policy is missing", () => {
+    expect(
+      evaluatePrivateDataPolicyGate(
+        readyRequest({ policy_present: false })
+      )
+    ).toMatchObject({
+      decision: "deny",
+      reason_code: "missing_policy",
+      audit_event_type: "private_data_policy_gate.denied"
+    });
+  });
+
+  it.each([
+    ["policy_expired", { policy_expires_at: "2026-07-09T00:00:00.000Z" }],
+    ["missing_operator_confirmation", { operator_confirmation_present: false }],
+    ["encryption_unavailable", { encryption_ready: false }],
+    ["retention_undefined", { retention_ready: false }],
+    ["revocation_undefined", { revocation_behavior_ready: false }],
+    ["wipe_undefined", { wipe_behavior_ready: false }],
+    ["conflict_handling_undefined", { conflict_handling_ready: false }],
+    ["rollback_undefined", { rollback_ready: false }],
+    ["audit_undefined", { audit_ready: false }],
+    ["link_stale", { link_state: "stale" }],
+    ["link_revoked", { link_state: "revoked" }],
+    ["link_lost", { link_state: "lost" }],
+    ["link_degraded", { link_state: "degraded" }],
+    ["unsupported_data_domain", { data_domain: "desktop_database" }],
+    ["unsupported_sync_mode", { requested_sync_mode: "whole_database_copy" }]
+  ] as const)(
+    "denies the %s path",
+    (reasonCode, overrides) => {
+      expect(
+        evaluatePrivateDataPolicyGate(
+          readyRequest(overrides as Partial<PrivateDataPolicyGateInput>)
+        )
+      ).toMatchObject({
+        decision: "deny",
+        reason_code: reasonCode,
+        audit_event_type: "private_data_policy_gate.denied"
+      });
+    }
+  );
+
+  it("does not treat pairing, a link, or metadata sync as private-data approval", () => {
+    expect(
+      evaluatePrivateDataPolicyGate(
+        readyRequest({
+          requested_sync_mode: "metadata_only",
+          policy_present: true,
+          operator_confirmation_present: true
+        })
+      )
+    ).toMatchObject({
+      decision: "deny",
+      reason_code: "not_private_data_request"
+    });
+
+    expect(
+      evaluatePrivateDataPolicyGate(
+        readyRequest({
+          link_state: "linked",
+          trust_state: "limited"
+        })
+      )
+    ).toMatchObject({
+      decision: "deny",
+      reason_code: "trust_not_approved"
+    });
+
+    expect(
+      evaluatePrivateDataPolicyGate(
+        readyRequest({
+          link_state: "link_requested"
+        })
+      )
+    ).toMatchObject({
+      decision: "deny",
+      reason_code: "link_not_active"
+    });
+  });
+
+  it("allows only a fully satisfied policy evaluation without moving data", () => {
+    const decision = evaluatePrivateDataPolicyGate(readyRequest());
+
+    expect(decision).toEqual({
+      decision: "allow",
+      reason_code: "allowed",
+      redacted_reason:
+        "The request satisfies the modeled private-data policy prerequisites.",
+      audit_event_type: "private_data_policy_gate.allowed"
+    });
+
+    expect(decision).not.toHaveProperty("payload");
+    expect(decision).not.toHaveProperty("messages");
+    expect(decision).not.toHaveProperty("contacts");
+    expect(decision).not.toHaveProperty("credentials");
   });
 });
