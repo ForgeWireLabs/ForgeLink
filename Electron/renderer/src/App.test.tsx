@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { parseOperatorStatus } from "./operatorStatus";
 import { SHELL_BRIDGE_CAPABILITIES, shell } from "./shell";
-import { ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES, androidLocalCommsStoreAllowsDataClass, buildAndroidLocalCommsStoreSnapshot } from "./androidLocalCommsStore";
+import { ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES, androidLocalCommsStoreAllowsDataClass, buildAndroidLocalCommsStoreSnapshot, parseAndroidLocalCommsStoreSnapshot, serializeAndroidLocalCommsStoreSnapshot } from "./androidLocalCommsStore";
 import { DESKTOP_LINKED_NODE_FORBIDDEN_DATA_CLASSES, buildDesktopLinkedNodeStatus, desktopLinkedNodeStatusAcceptsDataClass } from "./desktopLinkedNodeStatus";
 import { buildRedactedLinkedNodeLifecycleStatus, linkedNodeLifecycleLocksPrivateData, linkedNodeLifecyclePausesLinkedOperations } from "./linkedNodeLifecycle";
 
