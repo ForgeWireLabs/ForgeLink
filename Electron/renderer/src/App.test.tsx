@@ -8,6 +8,7 @@ import { parseOperatorStatus } from "./operatorStatus";
 import { SHELL_BRIDGE_CAPABILITIES, shell } from "./shell";
 import { ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES, androidLocalCommsStoreAllowsDataClass, buildAndroidLocalCommsStoreSnapshot } from "./androidLocalCommsStore";
 import { DESKTOP_LINKED_NODE_FORBIDDEN_DATA_CLASSES, buildDesktopLinkedNodeStatus, desktopLinkedNodeStatusAcceptsDataClass } from "./desktopLinkedNodeStatus";
+import { buildRedactedLinkedNodeLifecycleStatus, linkedNodeLifecycleLocksPrivateData, linkedNodeLifecyclePausesLinkedOperations } from "./linkedNodeLifecycle";
 
 const thread = { id: 1, canonical_number: "+15551234567", name: "Ada Lovelace", last_msg_ts: "2026-06-14T18:00:00.000Z", unread_count: 0 };
 const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
@@ -996,5 +997,99 @@ describe("Desktop linked node status stub", () => {
     expect(status.sync_health.redacted).toBe(true);
     expect(status.sync_health.accepts_private_change_sets).toBe(false);
     expect(status.detail).toContain("redacted sync health");
+  });
+});
+
+
+describe("Redacted linked node lifecycle status model", () => {
+  const baseNode = {
+    schema_version: 1,
+    node_id: "local-android-node",
+    platform: "android" as const,
+    device_label: "Android local node",
+    link_state: "linked" as const,
+    trust_state: "limited" as const,
+    sync_mode: "metadata_only" as const,
+    capability_claims: ["cockpit.local", "sync.metadata"],
+    authority_node_id: "desktop-authority-node",
+    linked_at: "2026-07-10T00:00:00.000Z",
+    last_seen_at: "2026-07-10T00:01:00.000Z",
+    revoked_at: null,
+    stale_after: "2026-07-10T01:00:00.000Z",
+    detail: "Linked metadata-only node."
+  };
+
+  it("builds linked lifecycle status without unlocking private data", () => {
+    const status = buildRedactedLinkedNodeLifecycleStatus(baseNode, {
+      lifecycle_state: "linked",
+      link_id: "link-1",
+      audit_event_id: "audit-linked-1"
+    });
+
+    expect(status.schema_version).toBe(1);
+    expect(status.node_id).toBe("local-android-node");
+    expect(status.platform).toBe("android");
+    expect(status.device_label).toBe("Android local node");
+    expect(status.link_id).toBe("link-1");
+    expect(status.lifecycle_state).toBe("linked");
+    expect(status.redacted_health_label).toBe("Linked");
+    expect(status.private_data_locked).toBe(false);
+    expect(status.linked_operations_paused).toBe(false);
+    expect(status.audit_event_id).toBe("audit-linked-1");
+    expect(status.redacted_health_detail).toContain("Private data remains policy-gated");
+  });
+
+  it("locks private data for degraded, stale, lost, revoked, wipe pending, and wiped states", () => {
+    const unsafeStates = ["degraded", "stale", "lost", "revoked", "wipe_pending", "wiped"] as const;
+
+    for (const lifecycle_state of unsafeStates) {
+      const status = buildRedactedLinkedNodeLifecycleStatus(baseNode, { lifecycle_state });
+
+      expect(status.lifecycle_state).toBe(lifecycle_state);
+      expect(status.private_data_locked).toBe(true);
+      expect(linkedNodeLifecycleLocksPrivateData(lifecycle_state)).toBe(true);
+      expect(status.redacted_health_detail.length).toBeGreaterThan(10);
+      expect(status.recovery_action_hint.length).toBeGreaterThan(10);
+    }
+  });
+
+  it("pauses linked operations for stale, lost, revoked, wipe pending, and wiped states", () => {
+    const pausedStates = ["stale", "lost", "revoked", "wipe_pending", "wiped"] as const;
+
+    for (const lifecycle_state of pausedStates) {
+      const status = buildRedactedLinkedNodeLifecycleStatus(baseNode, { lifecycle_state });
+      expect(status.linked_operations_paused).toBe(true);
+      expect(linkedNodeLifecyclePausesLinkedOperations(lifecycle_state)).toBe(true);
+    }
+
+    const degraded = buildRedactedLinkedNodeLifecycleStatus(baseNode, { lifecycle_state: "degraded" });
+    expect(degraded.private_data_locked).toBe(true);
+    expect(degraded.linked_operations_paused).toBe(false);
+  });
+
+  it("carries stale, revoked, wipe, and audit metadata without private payloads", () => {
+    const revokedNode = {
+      ...baseNode,
+      link_state: "revoked" as const,
+      trust_state: "revoked" as const,
+      sync_mode: "private_data_disabled" as const,
+      revoked_at: "2026-07-10T00:05:00.000Z"
+    };
+
+    const status = buildRedactedLinkedNodeLifecycleStatus(revokedNode, {
+      lifecycle_state: "wipe_pending",
+      link_id: "link-1",
+      wipe_request_id: "wipe-request-1",
+      audit_event_id: "audit-wipe-1"
+    });
+
+    expect(status.revoked_at).toBe("2026-07-10T00:05:00.000Z");
+    expect(status.stale_after).toBe("2026-07-10T01:00:00.000Z");
+    expect(status.wipe_request_id).toBe("wipe-request-1");
+    expect(status.wipe_ack_id).toBeNull();
+    expect(status.audit_event_id).toBe("audit-wipe-1");
+    expect(status.private_data_locked).toBe(true);
+    expect(status.redacted_health_detail).not.toContain("Hello");
+    expect(status.redacted_health_detail).not.toContain("+1555");
   });
 });
