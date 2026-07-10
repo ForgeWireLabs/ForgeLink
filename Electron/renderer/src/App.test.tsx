@@ -10,6 +10,7 @@ import { ANDROID_LOCAL_COMMS_STORE_FORBIDDEN_DATA_CLASSES, androidLocalCommsStor
 import { DESKTOP_LINKED_NODE_FORBIDDEN_DATA_CLASSES, buildDesktopLinkedNodeStatus, desktopLinkedNodeStatusAcceptsDataClass } from "./desktopLinkedNodeStatus";
 import { buildRedactedLinkedNodeLifecycleStatus, linkedNodeLifecycleLocksPrivateData, linkedNodeLifecyclePausesLinkedOperations } from "./linkedNodeLifecycle";
 import { evaluatePrivateDataPolicyGate, type PrivateDataPolicyGateInput } from "./privateDataPolicyGate";
+import { buildSignedLinkEnvelopeReplayKey, validateSignedLinkEnvelopeFixture, type SignedLinkEnvelopeFixture } from "./signedLinkEnvelopeValidator";
 
 const thread = { id: 1, canonical_number: "+15551234567", name: "Ada Lovelace", last_msg_ts: "2026-06-14T18:00:00.000Z", unread_count: 0 };
 const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
@@ -1287,5 +1288,218 @@ describe("Private data policy gate helper", () => {
     expect(decision).not.toHaveProperty("messages");
     expect(decision).not.toHaveProperty("contacts");
     expect(decision).not.toHaveProperty("credentials");
+  });
+});
+
+
+describe("Signed link envelope fixture validator", () => {
+  const validEnvelope = (
+    overrides: Partial<SignedLinkEnvelopeFixture> = {}
+  ): SignedLinkEnvelopeFixture => ({
+    schema_version: 1,
+    op: "change_set_offer",
+    source_node_id: "desktop-node-1",
+    target_node_id: "android-node-1",
+    link_id: "link-desktop-android-1",
+    timestamp: "2026-07-10T15:30:00.000Z",
+    nonce: "nonce-fixture-001",
+    required_capabilities: [
+      "node.capabilities.read",
+      "sync.metadata"
+    ],
+    data_classes: [
+      "change_set_metadata",
+      "audit_event"
+    ],
+    sync_mode: "metadata_only",
+    policy_id: "policy.metadata-only.1",
+    base_checkpoint_hash: "sha256:checkpoint-1",
+    change_set_hash: "sha256:change-set-1",
+    audit_parent_hash: "sha256:audit-parent-1",
+    payload_hash: "sha256:payload-1",
+    signature: {
+      algorithm: "ed25519",
+      key_id: "fixture-key-1",
+      value: "fixture-signature-not-production-crypto"
+    },
+    ...overrides
+  });
+
+  const validationOptions = {
+    now: "2026-07-10T15:30:30.000Z",
+    max_clock_skew_ms: 60_000
+  };
+
+  it("accepts a valid metadata-only fixture envelope", () => {
+    const envelope = validEnvelope();
+    const result = validateSignedLinkEnvelopeFixture(
+      envelope,
+      validationOptions
+    );
+
+    expect(result).toEqual({
+      valid: true,
+      reason_code: "valid",
+      redacted_reason:
+        "The signed link-envelope fixture satisfies the metadata contract.",
+      replay_key:
+        "desktop-node-1:android-node-1:link-desktop-android-1:change_set_offer:nonce-fixture-001",
+      audit_event_type: "signed_link_envelope.accepted"
+    });
+
+    expect(result).not.toHaveProperty("private_key");
+    expect(result).not.toHaveProperty("payload");
+  });
+
+  it.each([
+    ["unknown_operation", { op: "database_replication" }],
+    ["missing_nonce", { nonce: "" }],
+    ["missing_timestamp", { timestamp: "" }],
+    ["missing_policy_id", { policy_id: "" }],
+    ["missing_payload_hash", { payload_hash: "" }],
+    ["missing_signature_metadata", { signature: null }],
+    ["unsupported_sync_mode", { sync_mode: "whole_database_copy" }],
+    ["invalid_hash_linkage", { audit_parent_hash: "" }]
+  ] as const)(
+    "rejects the %s path",
+    (reasonCode, overrides) => {
+      expect(
+        validateSignedLinkEnvelopeFixture(
+          validEnvelope(
+            overrides as Partial<SignedLinkEnvelopeFixture>
+          ),
+          validationOptions
+        )
+      ).toMatchObject({
+        valid: false,
+        reason_code: reasonCode,
+        audit_event_type: "signed_link_envelope.rejected"
+      });
+    }
+  );
+
+  it.each([
+    "raw_private_data",
+    "raw_messages",
+    "contacts",
+    "calls",
+    "call_history",
+    "attachments",
+    "raw_signal_content",
+    "credentials",
+    "provider_secrets",
+    "tokens",
+    "private_keys"
+  ])("rejects forbidden data class %s", dataClass => {
+    expect(
+      validateSignedLinkEnvelopeFixture(
+        validEnvelope({ data_classes: [dataClass] }),
+        validationOptions
+      )
+    ).toMatchObject({
+      valid: false,
+      reason_code: "forbidden_data_class"
+    });
+  });
+
+  it("rejects envelopes outside the accepted timestamp window", () => {
+    expect(
+      validateSignedLinkEnvelopeFixture(
+        validEnvelope({
+          timestamp: "2026-07-10T15:20:00.000Z"
+        }),
+        validationOptions
+      )
+    ).toMatchObject({
+      valid: false,
+      reason_code: "timestamp_outside_window"
+    });
+  });
+
+  it("rejects a repeated replay tuple", () => {
+    const envelope = validEnvelope();
+    const replayKey =
+      buildSignedLinkEnvelopeReplayKey(envelope);
+
+    expect(
+      validateSignedLinkEnvelopeFixture(envelope, {
+        ...validationOptions,
+        seen_replay_keys: new Set([replayKey])
+      })
+    ).toMatchObject({
+      valid: false,
+      reason_code: "replayed_nonce",
+      replay_key: replayKey
+    });
+  });
+
+  it("does not confuse different nonce or operation tuples", () => {
+    const first = validEnvelope();
+    const seen = new Set([
+      buildSignedLinkEnvelopeReplayKey(first)
+    ]);
+
+    expect(
+      validateSignedLinkEnvelopeFixture(
+        validEnvelope({ nonce: "nonce-fixture-002" }),
+        {
+          ...validationOptions,
+          seen_replay_keys: seen
+        }
+      )
+    ).toMatchObject({
+      valid: true,
+      reason_code: "valid"
+    });
+
+    expect(
+      validateSignedLinkEnvelopeFixture(
+        validEnvelope({
+          op: "change_set_ack",
+          nonce: "nonce-fixture-001"
+        }),
+        {
+          ...validationOptions,
+          seen_replay_keys: seen
+        }
+      )
+    ).toMatchObject({
+      valid: true,
+      reason_code: "valid"
+    });
+  });
+
+  it("validates fixture signature shape without production cryptography", () => {
+    expect(
+      validateSignedLinkEnvelopeFixture(
+        validEnvelope({
+          signature: {
+            algorithm: "ed25519",
+            key_id: "",
+            value: "fixture-value"
+          }
+        }),
+        validationOptions
+      )
+    ).toMatchObject({
+      valid: false,
+      reason_code: "missing_signature_key_id"
+    });
+
+    expect(
+      validateSignedLinkEnvelopeFixture(
+        validEnvelope({
+          signature: {
+            algorithm: "ed25519",
+            key_id: "fixture-key-1",
+            value: ""
+          }
+        }),
+        validationOptions
+      )
+    ).toMatchObject({
+      valid: false,
+      reason_code: "missing_signature_value"
+    });
   });
 });
