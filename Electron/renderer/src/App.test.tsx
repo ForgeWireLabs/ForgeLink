@@ -15,6 +15,7 @@ import { validateMetadataChangeSetFixture, type MetadataChangeSetFixture } from 
 import { buildCheckpointReplayKey, evaluateCheckpointReplayGuard, type CheckpointReplayGuardInput } from "./checkpointReplayGuard";
 import { serializeRedactedLinkedNodeAuditEvent, writeRedactedLinkedNodeAuditEvent, type RedactedLinkedNodeAuditInput } from "./redactedLinkedNodeAudit";
 import { queryAndroidLinkedNodeMetadata } from "./androidLinkedNodeMetadataQuery";
+import { buildCrossPlatformNodeMetadataContract } from "./crossPlatformNodeMetadataContract";
 
 const thread = { id: 1, canonical_number: "+15551234567", name: "Ada Lovelace", last_msg_ts: "2026-06-14T18:00:00.000Z", unread_count: 0 };
 const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
@@ -2314,5 +2315,179 @@ describe("Android linked-node metadata query path", () => {
     expect(serialized).not.toContain("provider_secret");
     expect(serialized).not.toContain("token_value");
     expect(serialized).not.toContain("private_key");
+  });
+});
+
+
+describe("Cross-platform node metadata contracts", () => {
+  const baseInput = {
+    node_id: "node-platform-1",
+    device_label: "ForgeLink node",
+    link_state: "linked" as const,
+    trust_state: "trusted" as const,
+    sync_mode: "metadata_only" as const,
+    capability_claims: [
+      "node.capabilities.read",
+      "sync.health.redacted",
+      "change_sets.private.reject"
+    ],
+    health_state: "healthy" as const,
+    health_detail:
+      "Redacted node metadata is healthy."
+  };
+
+  it.each([
+    "windows",
+    "linux",
+    "macos",
+    "android"
+  ])("builds the %s metadata contract", platform => {
+    const result =
+      buildCrossPlatformNodeMetadataContract({
+        ...baseInput,
+        platform
+      });
+
+    expect(result).toMatchObject({
+      valid: true,
+      reason_code: "valid",
+      contract: {
+        schema_version: 1,
+        platform,
+        link_state: "linked",
+        trust_state: "trusted",
+        sync_mode: "metadata_only",
+        private_data_enabled: false,
+        private_change_sets_accepted: false,
+        credentials_available: false,
+        provider_secrets_available: false,
+        token_values_available: false,
+        private_keys_available: false,
+        clustering_enabled: false,
+        degraded_safely: false,
+        redacted_health: {
+          state: "healthy",
+          redacted: true
+        }
+      }
+    });
+  });
+
+  it("degrades an unknown platform safely", () => {
+    const result =
+      buildCrossPlatformNodeMetadataContract({
+        ...baseInput,
+        platform: "freebsd",
+        capability_claims: [
+          "node.capabilities.read",
+          "sync.health.redacted",
+          "change_sets.metadata.write"
+        ]
+      });
+
+    expect(result).toMatchObject({
+      valid: true,
+      reason_code: "valid",
+      contract: {
+        platform: "unknown",
+        link_state: "degraded",
+        trust_state: "limited",
+        sync_mode: "private_data_disabled",
+        capability_claims: [
+          "node.capabilities.read",
+          "sync.health.redacted"
+        ],
+        private_data_enabled: false,
+        private_change_sets_accepted: false,
+        clustering_enabled: false,
+        degraded_safely: true,
+        redacted_health: {
+          state: "degraded",
+          redacted: true
+        }
+      }
+    });
+  });
+
+  it.each([
+    ["missing_node_id", { node_id: "" }],
+    ["missing_device_label", { device_label: "" }],
+    ["invalid_capability_claim", {
+      capability_claims: [
+        "node.capabilities.read",
+        ""
+      ]
+    }]
+  ] as const)(
+    "rejects the %s path",
+    (reasonCode, overrides) => {
+      expect(
+        buildCrossPlatformNodeMetadataContract({
+          ...baseInput,
+          platform: "windows",
+          ...overrides,
+          capability_claims:
+            "capability_claims" in overrides
+              ? [...overrides.capability_claims]
+              : [...baseInput.capability_claims]
+        })
+      ).toEqual({
+        valid: false,
+        reason_code: reasonCode,
+        contract: null
+      });
+    }
+  );
+
+  it("never exposes platform-specific private-data shortcuts", () => {
+    for (
+      const platform of
+      ["windows", "linux", "macos", "android", "unknown-os"]
+    ) {
+      const result =
+        buildCrossPlatformNodeMetadataContract({
+          ...baseInput,
+          platform
+        });
+
+      expect(result.contract).not.toBeNull();
+
+      expect(result.contract).toMatchObject({
+        private_data_enabled: false,
+        private_change_sets_accepted: false,
+        credentials_available: false,
+        provider_secrets_available: false,
+        token_values_available: false,
+        private_keys_available: false,
+        clustering_enabled: false
+      });
+
+      const serialized =
+        JSON.stringify(result.contract);
+
+      expect(serialized).not.toContain('"credential_value":');
+      expect(serialized).not.toContain('"provider_secret_value":');
+      expect(serialized).not.toContain('"token_value":');
+      expect(serialized).not.toContain('"private_key_value":');
+      expect(serialized).not.toContain('"database_cluster":');
+    }
+  });
+
+  it("deduplicates capability claims on supported platforms", () => {
+    const result =
+      buildCrossPlatformNodeMetadataContract({
+        ...baseInput,
+        platform: "linux",
+        capability_claims: [
+          "node.capabilities.read",
+          "node.capabilities.read",
+          "sync.health.redacted"
+        ]
+      });
+
+    expect(result.contract?.capability_claims).toEqual([
+      "node.capabilities.read",
+      "sync.health.redacted"
+    ]);
   });
 });
