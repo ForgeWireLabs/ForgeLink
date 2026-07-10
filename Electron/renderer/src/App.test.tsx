@@ -14,6 +14,7 @@ import { buildSignedLinkEnvelopeReplayKey, validateSignedLinkEnvelopeFixture, ty
 import { validateMetadataChangeSetFixture, type MetadataChangeSetFixture } from "./metadataChangeSetValidator";
 import { buildCheckpointReplayKey, evaluateCheckpointReplayGuard, type CheckpointReplayGuardInput } from "./checkpointReplayGuard";
 import { serializeRedactedLinkedNodeAuditEvent, writeRedactedLinkedNodeAuditEvent, type RedactedLinkedNodeAuditInput } from "./redactedLinkedNodeAudit";
+import { queryAndroidLinkedNodeMetadata } from "./androidLinkedNodeMetadataQuery";
 
 const thread = { id: 1, canonical_number: "+15551234567", name: "Ada Lovelace", last_msg_ts: "2026-06-14T18:00:00.000Z", unread_count: 0 };
 const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
@@ -2099,5 +2100,219 @@ describe("Redacted linked-node audit event writer", () => {
         "The proposed checkpoint base is stale.",
       redacted: true
     });
+  });
+});
+
+
+describe("Android linked-node metadata query path", () => {
+  const nodeStatus = (
+    linkState:
+      | "local_only"
+      | "linked"
+      | "degraded"
+      | "stale"
+      | "revoked"
+  ) => ({
+    schema_version: 1,
+    node_id: "android-node-1",
+    platform: "android" as const,
+    device_label: "Moto One Hyper",
+    link_state: linkState,
+    trust_state:
+      linkState === "linked"
+        ? "trusted" as const
+        : linkState === "degraded"
+          ? "limited" as const
+          : linkState === "stale"
+            ? "stale" as const
+            : linkState === "revoked"
+              ? "revoked" as const
+              : "local" as const,
+    sync_mode:
+      linkState === "linked"
+        ? "metadata_only" as const
+        : "private_data_disabled" as const,
+    capability_claims: [
+      "node.capabilities.read",
+      "sync.health.redacted"
+    ],
+    authority_node_id:
+      linkState === "local_only"
+        ? null
+        : "desktop-authority-node",
+    linked_at:
+      linkState === "linked"
+        ? "2026-07-10T17:00:00.000Z"
+        : null,
+    last_seen_at:
+      linkState === "local_only"
+        ? null
+        : "2026-07-10T17:05:00.000Z",
+    revoked_at:
+      linkState === "revoked"
+        ? "2026-07-10T17:06:00.000Z"
+        : null,
+    stale_after:
+      linkState === "stale"
+        ? "2026-07-10T17:04:00.000Z"
+        : null,
+    detail:
+      "Redacted linked-node fixture."
+  });
+
+  const buildQueryFixture = (
+    linkState:
+      | "local_only"
+      | "linked"
+      | "degraded"
+      | "stale"
+      | "revoked"
+  ) => {
+    const status = nodeStatus(linkState);
+
+    const localStore =
+      buildAndroidLocalCommsStoreSnapshot(
+        status,
+        {
+          link_id:
+            linkState === "local_only"
+              ? null
+              : "link-desktop-android-1",
+          now: "2026-07-10T17:05:00.000Z"
+        }
+      );
+
+    const desktopStatus =
+      linkState === "local_only"
+        ? null
+        : buildDesktopLinkedNodeStatus(
+            [status],
+            {
+              authority_node_id:
+                "desktop-authority-node",
+              last_checked_at:
+                "2026-07-10T17:05:30.000Z",
+              health_state:
+                linkState === "linked"
+                  ? "healthy"
+                  : linkState
+            }
+          );
+
+    return {
+      local_store: localStore,
+      desktop_status: desktopStatus
+    };
+  };
+
+  it.each([
+    ["local_only", false],
+    ["linked", false],
+    ["degraded", true],
+    ["stale", true],
+    ["revoked", true]
+  ] as const)(
+    "queries the %s lifecycle without private data",
+    (state, privateDataLocked) => {
+      const result =
+        queryAndroidLinkedNodeMetadata(
+          buildQueryFixture(state)
+        );
+
+      expect(result).toMatchObject({
+        schema_version: 1,
+        local_android_node_id: "android-node-1",
+        link_state: state,
+        lifecycle_state: state,
+        private_data_locked: privateDataLocked,
+        private_change_sets_accepted: false
+      });
+
+      expect(
+        result.redacted_sync_health.redacted
+      ).toBe(true);
+
+      expect(result.capability_claims).toContain(
+        "node.capabilities.read"
+      );
+
+      expect(result.recovery_hint).toBeTruthy();
+    }
+  );
+
+  it("combines Android-local and desktop capability metadata", () => {
+    const fixture = buildQueryFixture("linked");
+
+    fixture.local_store.capability_cache.push(
+      "android.local.metadata.read"
+    );
+
+    const result =
+      queryAndroidLinkedNodeMetadata(fixture);
+
+    expect(result.capability_claims).toEqual(
+      expect.arrayContaining([
+        "android.local.metadata.read",
+        "linked_nodes.list",
+        "sync.health.redacted",
+        "change_sets.private.reject"
+      ])
+    );
+  });
+
+  it("returns the desktop authority and redacted health", () => {
+    const result =
+      queryAndroidLinkedNodeMetadata(
+        buildQueryFixture("linked")
+      );
+
+    expect(result).toMatchObject({
+      authority_node_id: "desktop-authority-node",
+      sync_mode: "metadata_only",
+      redacted_sync_health: {
+        state: "healthy",
+        redacted: true,
+        last_checked_at:
+          "2026-07-10T17:05:30.000Z"
+      }
+    });
+  });
+
+  it("rejects a desktop status that enables private-data behavior", () => {
+    const fixture = buildQueryFixture("linked");
+
+    const unsafeDesktop = {
+      ...fixture.desktop_status!,
+      sync_health: {
+        ...fixture.desktop_status!.sync_health,
+        accepts_private_change_sets: true as false
+      }
+    };
+
+    expect(() =>
+      queryAndroidLinkedNodeMetadata({
+        ...fixture,
+        desktop_status: unsafeDesktop
+      })
+    ).toThrow(
+      "Desktop linked-node status violates the metadata-only query boundary."
+    );
+  });
+
+  it("returns no raw communication payload or secret material", () => {
+    const result =
+      queryAndroidLinkedNodeMetadata(
+        buildQueryFixture("degraded")
+      );
+
+    const serialized = JSON.stringify(result);
+
+    expect(serialized).not.toContain("message_body");
+    expect(serialized).not.toContain("contact_number");
+    expect(serialized).not.toContain("attachment_body");
+    expect(serialized).not.toContain("credential_value");
+    expect(serialized).not.toContain("provider_secret");
+    expect(serialized).not.toContain("token_value");
+    expect(serialized).not.toContain("private_key");
   });
 });
