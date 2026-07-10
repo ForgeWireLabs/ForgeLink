@@ -526,6 +526,10 @@ describe("React renderer parity", () => {
     expect(screen.getByText("Platform: android")).toBeTruthy();
     expect(screen.getByText("Sync mode: No comms sync")).toBeTruthy();
     expect(screen.getByText("Private data sync: private-data policy pending")).toBeTruthy();
+    expect(screen.getByText("Lifecycle status: Local only")).toBeTruthy();
+    expect(screen.getByText("Private data locked: no")).toBeTruthy();
+    expect(screen.getByText("Linked operations paused: no")).toBeTruthy();
+    expect(screen.getByText("Recovery: Pair or link only when operator policy allows it.")).toBeTruthy();
     expect(screen.getByText("Calls: available local")).toBeTruthy();
     expect(screen.getByText("Signals: available local")).toBeTruthy();
     expect(screen.getByText("Decisions: available local")).toBeTruthy();
@@ -538,8 +542,10 @@ describe("React renderer parity", () => {
     const invoke = vi.fn(async (command: string) => {
       if (command === "forgelink_agent_channels") return [agentChannel];
       if (command === "forgelink_attention_policy") return attentionPolicy;
+      if (command === "forgelink_get_status") return { running: true, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored", needs_onboarding: false };
+      if (command === "forgelink_backend_connection") return { baseUrl: "http://127.0.0.1:5055", apiToken: "renderer-api-token" };
       if (command === "forgelink_pairing_status") return { state: "paired_limited", label: "Paired limited", detail: "This Android device is paired for limited cockpit capabilities.", capabilities: ["push_notifications"] };
-      return {};
+      throw new Error(`unsupported command ${command}`);
     }) as unknown as <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
     window.__TAURI__ = { core: { invoke } };
     vi.mocked(fetch).mockRejectedValue(new Error("desktop offline"));
@@ -554,6 +560,9 @@ describe("React renderer parity", () => {
     expect(screen.getByText("Push notifications: requires link")).toBeTruthy();
     expect(screen.getByText("Device pairing: paired limited")).toBeTruthy();
     expect(screen.getByText("Private data sync: private-data policy pending")).toBeTruthy();
+    expect(screen.getByText("Lifecycle status: Local only")).toBeTruthy();
+    expect(screen.getByText("Private data locked: no")).toBeTruthy();
+    expect(screen.getByText("Linked operations paused: no")).toBeTruthy();
   });
 
 
@@ -579,11 +588,71 @@ describe("React renderer parity", () => {
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
 
     expect((await screen.findAllByText(`Node link: ${label}`)).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(`Lifecycle status: ${label}`)).toBeTruthy();
     expect(screen.getByText(detail)).toBeTruthy();
-    if (linkState === "linked") expect(await screen.findByText("Comms sync: available linked")).toBeTruthy();
-    if (linkState === "revoked") expect(await screen.findByText("Comms sync: unavailable because revoked")).toBeTruthy();
-    if (linkState === "stale") expect(await screen.findByText("Comms sync: unavailable because stale")).toBeTruthy();
+    if (linkState === "linked") {
+      expect(await screen.findByText("Comms sync: available linked")).toBeTruthy();
+      expect(screen.getByText("Private data locked: no")).toBeTruthy();
+      expect(screen.getByText("Linked operations paused: no")).toBeTruthy();
+      expect(screen.getByText("Recovery: Continue metadata-only operation unless policy changes.")).toBeTruthy();
+    }
+    if (linkState === "degraded") {
+      expect(screen.getByText("Private data locked: yes")).toBeTruthy();
+      expect(screen.getByText("Linked operations paused: no")).toBeTruthy();
+      expect(screen.getByText("Recovery: Review redacted health and revalidate before resuming linked operations.")).toBeTruthy();
+    }
+    if (linkState === "revoked") {
+      expect(await screen.findByText("Comms sync: unavailable because revoked")).toBeTruthy();
+      expect(screen.getByText("Private data locked: yes")).toBeTruthy();
+      expect(screen.getByText("Linked operations paused: yes")).toBeTruthy();
+      expect(screen.getByText("Recovery: Create a new operator-approved link to resume linked operations.")).toBeTruthy();
+    }
+    if (linkState === "stale") {
+      expect(await screen.findByText("Comms sync: unavailable because stale")).toBeTruthy();
+      expect(screen.getByText("Private data locked: yes")).toBeTruthy();
+      expect(screen.getByText("Linked operations paused: yes")).toBeTruthy();
+      expect(screen.getByText("Recovery: Revalidate the peer before linked operations resume.")).toBeTruthy();
+    }
     expect(screen.getByText("Private data sync: private-data policy pending")).toBeTruthy();
+  });
+
+  it("surfaces lifecycle timestamps for stale and revoked linked-node status", async () => {
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "forgelink_agent_channels") return [agentChannel];
+      if (command === "forgelink_attention_policy") return attentionPolicy;
+      if (command === "forgelink_pairing_status") return { state: "paired_limited", label: "Paired limited", detail: "This Android device is paired for limited cockpit capabilities.", capabilities: ["push_notifications"] };
+      if (command === "forgelink_node_link_status") return {
+        schema_version: 1,
+        node_id: "android-node-1",
+        platform: "android",
+        device_label: "Moto One Hyper",
+        link_state: "revoked",
+        trust_state: "revoked",
+        sync_mode: "private_data_disabled",
+        capability_claims: ["cockpit.local", "sync.metadata"],
+        authority_node_id: "desktop-node-1",
+        linked_at: null,
+        last_seen_at: "2026-07-10T00:01:00.000Z",
+        revoked_at: "2026-07-10T00:05:00.000Z",
+        stale_after: "2026-07-10T01:00:00.000Z",
+        detail: "This ForgeLink node link has been revoked. Linked capabilities are unavailable."
+      };
+      return {};
+    }) as unknown as <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
+    window.__TAURI__ = { core: { invoke } };
+    vi.mocked(fetch).mockRejectedValue(new Error("desktop offline"));
+
+    render(<App/>);
+
+    expect(await screen.findByText(/Android full cockpit runtime is active/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(await screen.findByText("Lifecycle status: Revoked")).toBeTruthy();
+    expect(screen.getByText("Private data locked: yes")).toBeTruthy();
+    expect(screen.getByText("Linked operations paused: yes")).toBeTruthy();
+    expect(screen.getByText("Last seen: 2026-07-10T00:01:00.000Z")).toBeTruthy();
+    expect(screen.getByText("Stale after: 2026-07-10T01:00:00.000Z")).toBeTruthy();
+    expect(screen.getByText("Revoked at: 2026-07-10T00:05:00.000Z")).toBeTruthy();
   });
 
   it("backs up, exports, restores, and applies local retention from settings", async () => {
