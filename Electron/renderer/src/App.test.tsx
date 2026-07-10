@@ -12,6 +12,7 @@ import { buildRedactedLinkedNodeLifecycleStatus, linkedNodeLifecycleLocksPrivate
 import { evaluatePrivateDataPolicyGate, type PrivateDataPolicyGateInput } from "./privateDataPolicyGate";
 import { buildSignedLinkEnvelopeReplayKey, validateSignedLinkEnvelopeFixture, type SignedLinkEnvelopeFixture } from "./signedLinkEnvelopeValidator";
 import { validateMetadataChangeSetFixture, type MetadataChangeSetFixture } from "./metadataChangeSetValidator";
+import { buildCheckpointReplayKey, evaluateCheckpointReplayGuard, type CheckpointReplayGuardInput } from "./checkpointReplayGuard";
 
 const thread = { id: 1, canonical_number: "+15551234567", name: "Ada Lovelace", last_msg_ts: "2026-06-14T18:00:00.000Z", unread_count: 0 };
 const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
@@ -1724,5 +1725,184 @@ describe("Metadata change-set fixture validator", () => {
     expect(serialized).not.toContain("credential_value");
     expect(serialized).not.toContain("private_key_value");
     expect(serialized).not.toContain("database_dump");
+  });
+});
+
+
+describe("Checkpoint and replay guard fixtures", () => {
+  const validGuardInput = (
+    overrides: Partial<CheckpointReplayGuardInput> = {}
+  ): CheckpointReplayGuardInput => ({
+    checkpoint_id: "checkpoint-002",
+    previous_checkpoint_hash: "sha256:checkpoint-000",
+    proposed_base_checkpoint_hash: "sha256:checkpoint-001",
+    current_checkpoint_hash: "sha256:checkpoint-001",
+    result_checkpoint_hash: "sha256:checkpoint-002",
+    link_id: "link-desktop-android-1",
+    policy_id: "policy.metadata-only.1",
+    source_node_id: "desktop-node-1",
+    target_node_id: "android-node-1",
+    operation: "change_set_offer",
+    nonce: "nonce-checkpoint-001",
+    link_state: "linked",
+    previous_checkpoint_required: true,
+    ...overrides
+  });
+
+  it("accepts current checkpoint lineage with a new replay tuple", () => {
+    expect(
+      evaluateCheckpointReplayGuard(validGuardInput())
+    ).toEqual({
+      accepted: true,
+      reason_code: "accepted",
+      redacted_reason:
+        "Checkpoint lineage and replay protections accept the metadata fixture.",
+      replay_key:
+        "desktop-node-1:android-node-1:link-desktop-android-1:change_set_offer:nonce-checkpoint-001",
+      audit_event_type: "checkpoint_replay_guard.accepted"
+    });
+  });
+
+  it("rejects a duplicate nonce tuple", () => {
+    const input = validGuardInput();
+    const replayKey = buildCheckpointReplayKey(input);
+
+    expect(
+      evaluateCheckpointReplayGuard(input, {
+        seen_replay_keys: new Set([replayKey])
+      })
+    ).toMatchObject({
+      accepted: false,
+      reason_code: "duplicate_nonce_tuple",
+      replay_key: replayKey,
+      audit_event_type: "checkpoint_replay_guard.rejected"
+    });
+  });
+
+  it("rejects a stale base checkpoint", () => {
+    expect(
+      evaluateCheckpointReplayGuard(
+        validGuardInput({
+          proposed_base_checkpoint_hash:
+            "sha256:checkpoint-stale"
+        })
+      )
+    ).toMatchObject({
+      accepted: false,
+      reason_code: "stale_checkpoint"
+    });
+  });
+
+  it.each([
+    ["link_degraded", { link_state: "degraded" }],
+    ["link_stale", { link_state: "stale" }],
+    ["link_lost", { link_state: "lost" }],
+    ["link_revoked", { link_state: "revoked" }],
+    ["link_revoked", { link_state: "wipe_pending" }],
+    ["link_revoked", { link_state: "wiped" }]
+  ] as const)(
+    "rejects the %s lifecycle path",
+    (reasonCode, overrides) => {
+      expect(
+        evaluateCheckpointReplayGuard(
+          validGuardInput(
+            overrides as Partial<CheckpointReplayGuardInput>
+          )
+        )
+      ).toMatchObject({
+        accepted: false,
+        reason_code: reasonCode,
+        audit_event_type: "checkpoint_replay_guard.rejected"
+      });
+    }
+  );
+
+  it("rejects missing previous checkpoint lineage when required", () => {
+    expect(
+      evaluateCheckpointReplayGuard(
+        validGuardInput({
+          previous_checkpoint_hash: null
+        })
+      )
+    ).toMatchObject({
+      accepted: false,
+      reason_code: "missing_previous_checkpoint"
+    });
+  });
+
+  it("permits a missing previous hash for an initial checkpoint", () => {
+    expect(
+      evaluateCheckpointReplayGuard(
+        validGuardInput({
+          previous_checkpoint_hash: null,
+          previous_checkpoint_required: false
+        })
+      )
+    ).toMatchObject({
+      accepted: true,
+      reason_code: "accepted"
+    });
+  });
+
+  it("rejects a result checkpoint that does not advance state", () => {
+    expect(
+      evaluateCheckpointReplayGuard(
+        validGuardInput({
+          result_checkpoint_hash: "sha256:checkpoint-001"
+        })
+      )
+    ).toMatchObject({
+      accepted: false,
+      reason_code: "checkpoint_result_unchanged"
+    });
+  });
+
+  it.each([
+    ["missing_checkpoint_id", { checkpoint_id: "" }],
+    ["missing_link_id", { link_id: "" }],
+    ["missing_policy_id", { policy_id: "" }],
+    ["missing_source_node_id", { source_node_id: "" }],
+    ["missing_target_node_id", { target_node_id: "" }],
+    ["missing_operation", { operation: "" }],
+    ["missing_nonce", { nonce: "" }],
+    ["missing_base_checkpoint", {
+      proposed_base_checkpoint_hash: ""
+    }],
+    ["missing_current_checkpoint", {
+      current_checkpoint_hash: ""
+    }],
+    ["missing_result_checkpoint", {
+      result_checkpoint_hash: ""
+    }]
+  ] as const)(
+    "rejects the %s path",
+    (reasonCode, overrides) => {
+      expect(
+        evaluateCheckpointReplayGuard(
+          validGuardInput(
+            overrides as Partial<CheckpointReplayGuardInput>
+          )
+        )
+      ).toMatchObject({
+        accepted: false,
+        reason_code: reasonCode,
+        audit_event_type: "checkpoint_replay_guard.rejected"
+      });
+    }
+  );
+
+  it("returns redacted results without private payloads", () => {
+    const result = evaluateCheckpointReplayGuard(
+      validGuardInput({
+        proposed_base_checkpoint_hash:
+          "sha256:checkpoint-stale"
+      })
+    );
+
+    expect(result.redacted_reason).toBeTruthy();
+    expect(result).not.toHaveProperty("payload");
+    expect(result).not.toHaveProperty("messages");
+    expect(result).not.toHaveProperty("credentials");
+    expect(result).not.toHaveProperty("tokens");
   });
 });
