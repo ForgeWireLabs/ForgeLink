@@ -11,6 +11,7 @@ import { DESKTOP_LINKED_NODE_FORBIDDEN_DATA_CLASSES, buildDesktopLinkedNodeStatu
 import { buildRedactedLinkedNodeLifecycleStatus, linkedNodeLifecycleLocksPrivateData, linkedNodeLifecyclePausesLinkedOperations } from "./linkedNodeLifecycle";
 import { evaluatePrivateDataPolicyGate, type PrivateDataPolicyGateInput } from "./privateDataPolicyGate";
 import { buildSignedLinkEnvelopeReplayKey, validateSignedLinkEnvelopeFixture, type SignedLinkEnvelopeFixture } from "./signedLinkEnvelopeValidator";
+import { validateMetadataChangeSetFixture, type MetadataChangeSetFixture } from "./metadataChangeSetValidator";
 
 const thread = { id: 1, canonical_number: "+15551234567", name: "Ada Lovelace", last_msg_ts: "2026-06-14T18:00:00.000Z", unread_count: 0 };
 const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
@@ -1501,5 +1502,227 @@ describe("Signed link envelope fixture validator", () => {
       valid: false,
       reason_code: "missing_signature_value"
     });
+  });
+});
+
+
+describe("Metadata change-set fixture validator", () => {
+  const validChangeSet = (
+    overrides: Partial<MetadataChangeSetFixture> = {}
+  ): MetadataChangeSetFixture => ({
+    schema_version: 1,
+    change_set_id: "change-set-001",
+    source_node_id: "desktop-node-1",
+    target_node_id: "android-node-1",
+    link_id: "link-desktop-android-1",
+    policy_id: "policy.metadata-only.1",
+    checkpoint_base_hash: "sha256:checkpoint-base-1",
+    checkpoint_result_hash: "sha256:checkpoint-result-1",
+    envelope_hash: "sha256:envelope-1",
+    data_classes: [
+      "node_link_status",
+      "change_set_metadata"
+    ],
+    sync_mode: "metadata_only",
+    created_at: "2026-07-10T16:00:00.000Z",
+    expires_at: "2026-07-10T16:10:00.000Z",
+    operation_count: 2,
+    payload_hash: "sha256:payload-1",
+    redaction_profile: "metadata_only_v1",
+    audit_parent_hash: "sha256:audit-parent-1",
+    operations: [
+      {
+        operation_id: "operation-001",
+        data_class: "node_link_status",
+        operation_type: "observe",
+        operation_timestamp: "2026-07-10T16:01:00.000Z",
+        operation_hash: "sha256:operation-001",
+        redacted: true
+      },
+      {
+        operation_id: "operation-002",
+        data_class: "change_set_metadata",
+        operation_type: "upsert_metadata",
+        operation_timestamp: "2026-07-10T16:02:00.000Z",
+        operation_hash: "sha256:operation-002",
+        redacted: true
+      }
+    ],
+    ...overrides
+  });
+
+  const validationOptions = {
+    now: "2026-07-10T16:05:00.000Z",
+    max_operations: 128
+  };
+
+  it("accepts a bounded metadata-only communication change set", () => {
+    expect(
+      validateMetadataChangeSetFixture(
+        validChangeSet(),
+        validationOptions
+      )
+    ).toEqual({
+      valid: true,
+      reason_code: "valid",
+      redacted_reason:
+        "The metadata change-set fixture satisfies the bounded communication-sync contract.",
+      audit_event_type: "metadata_change_set.accepted"
+    });
+  });
+
+  it.each([
+    ["missing_change_set_id", { change_set_id: "" }],
+    ["missing_policy_id", { policy_id: "" }],
+    ["missing_checkpoint_base_hash", { checkpoint_base_hash: "" }],
+    ["missing_checkpoint_result_hash", { checkpoint_result_hash: "" }],
+    ["checkpoint_hash_unchanged", {
+      checkpoint_result_hash: "sha256:checkpoint-base-1"
+    }],
+    ["missing_envelope_hash", { envelope_hash: "" }],
+    ["missing_payload_hash", { payload_hash: "" }],
+    ["missing_audit_parent_hash", { audit_parent_hash: "" }],
+    ["missing_redaction_profile", { redaction_profile: "" }],
+    ["unsupported_sync_mode", { sync_mode: "whole_database_copy" }],
+    ["operation_count_mismatch", { operation_count: 1 }],
+    ["change_set_expired", {
+      expires_at: "2026-07-10T16:04:00.000Z"
+    }]
+  ] as const)(
+    "rejects the %s path",
+    (reasonCode, overrides) => {
+      expect(
+        validateMetadataChangeSetFixture(
+          validChangeSet(
+            overrides as Partial<MetadataChangeSetFixture>
+          ),
+          validationOptions
+        )
+      ).toMatchObject({
+        valid: false,
+        reason_code: reasonCode,
+        audit_event_type: "metadata_change_set.rejected"
+      });
+    }
+  );
+
+  it.each([
+    "raw_private_data",
+    "raw_messages",
+    "contacts",
+    "calls",
+    "call_history",
+    "attachments",
+    "raw_signal_content",
+    "credentials",
+    "provider_secrets",
+    "tokens",
+    "private_keys",
+    "desktop_database",
+    "database_dump"
+  ])("rejects forbidden data class %s", dataClass => {
+    expect(
+      validateMetadataChangeSetFixture(
+        validChangeSet({
+          data_classes: [dataClass],
+          operation_count: 0,
+          operations: []
+        }),
+        validationOptions
+      )
+    ).toMatchObject({
+      valid: false,
+      reason_code: "forbidden_data_class"
+    });
+  });
+
+  it("rejects an operation outside declared metadata classes", () => {
+    expect(
+      validateMetadataChangeSetFixture(
+        validChangeSet({
+          operations: [
+            {
+              operation_id: "operation-001",
+              data_class: "audit_event",
+              operation_type: "observe",
+              operation_timestamp:
+                "2026-07-10T16:01:00.000Z",
+              operation_hash: "sha256:operation-001",
+              redacted: true
+            },
+            {
+              operation_id: "operation-002",
+              data_class: "change_set_metadata",
+              operation_type: "upsert_metadata",
+              operation_timestamp:
+                "2026-07-10T16:02:00.000Z",
+              operation_hash: "sha256:operation-002",
+              redacted: true
+            }
+          ]
+        }),
+        validationOptions
+      )
+    ).toMatchObject({
+      valid: false,
+      reason_code: "operation_data_class_mismatch"
+    });
+  });
+
+  it("rejects duplicate operation identifiers", () => {
+    const changeSet = validChangeSet();
+
+    expect(
+      validateMetadataChangeSetFixture(
+        {
+          ...changeSet,
+          operations: [
+            changeSet.operations[0],
+            {
+              ...changeSet.operations[1],
+              operation_id: "operation-001"
+            }
+          ]
+        },
+        validationOptions
+      )
+    ).toMatchObject({
+      valid: false,
+      reason_code: "duplicate_operation_id"
+    });
+  });
+
+  it("rejects operations that are not explicitly redacted", () => {
+    const changeSet = validChangeSet();
+
+    expect(
+      validateMetadataChangeSetFixture(
+        {
+          ...changeSet,
+          operations: [
+            {
+              ...changeSet.operations[0],
+              redacted: false as true
+            },
+            changeSet.operations[1]
+          ]
+        },
+        validationOptions
+      )
+    ).toMatchObject({
+      valid: false,
+      reason_code: "operation_not_redacted"
+    });
+  });
+
+  it("contains no raw communication payload or database copy", () => {
+    const changeSet = validChangeSet();
+    const serialized = JSON.stringify(changeSet);
+
+    expect(serialized).not.toContain("message_body");
+    expect(serialized).not.toContain("contact_number");
+    expect(serialized).not.toContain("credential_value");
+    expect(serialized).not.toContain("private_key_value");
+    expect(serialized).not.toContain("database_dump");
   });
 });
