@@ -178,6 +178,54 @@ fn update_channel(mut channels: Vec<Value>, channel_id: &str, updater: impl FnOn
     (channels, created)
 }
 
+fn desktop_linked_node_status() -> Value {
+    json!({
+        "schema_version": 1,
+        "authority_node_id": "desktop-authority-node",
+        "linked_nodes": [],
+        "sync_health": {
+            "state": "local_only",
+            "redacted": true,
+            "detail": "Desktop linked-node status exposes redacted metadata only and accepts no private change sets.",
+            "last_checked_at": null,
+            "accepts_private_change_sets": false,
+            "private_data_sync_enabled": false,
+            "broad_background_sync_enabled": false,
+            "clustering_enabled": false
+        },
+        "accepted_data_classes": [
+            "node_link_status",
+            "capability_cache",
+            "sync_checkpoint_metadata",
+            "redacted_sync_health",
+            "wipe_status"
+        ],
+        "forbidden_data_classes": [
+            "raw_private_data",
+            "raw_messages",
+            "contacts",
+            "calls",
+            "signal_content",
+            "attachments",
+            "credentials",
+            "provider_secrets",
+            "tokens"
+        ],
+        "capability_claims": [
+            "linked_nodes.list",
+            "node.capabilities.read",
+            "sync.health.redacted",
+            "change_sets.private.reject"
+        ],
+        "detail": "Desktop authority metadata command. Android can query linked-node status and redacted sync health without private data, credentials, provider secrets, broad background sync, or clustering."
+    })
+}
+
+#[tauri::command]
+fn forgelink_desktop_linked_node_status() -> Value {
+    desktop_linked_node_status()
+}
+
 #[tauri::command]
 fn forgelink_backend_connection() -> Value {
     json!({ "baseUrl": base_url(), "apiToken": api_token() })
@@ -352,6 +400,7 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             forgelink_backend_connection,
+            forgelink_desktop_linked_node_status,
             forgelink_get_status,
             forgelink_start_local_only,
             forgelink_start_server,
@@ -392,6 +441,77 @@ mod tests {
         let mut path = std::env::temp_dir();
         path.push(format!("forgelink-tauri-mobile-runtime-{}-{}", name, now_marker().replace(':', "-")));
         path
+    }
+
+    #[test]
+    fn desktop_linked_node_status_returns_redacted_metadata_only() {
+        let status = desktop_linked_node_status();
+
+        assert_eq!(status["schema_version"], json!(1));
+        assert_eq!(status["authority_node_id"], json!("desktop-authority-node"));
+        assert_eq!(status["linked_nodes"], json!([]));
+        assert_eq!(status["sync_health"]["state"], json!("local_only"));
+        assert_eq!(status["sync_health"]["redacted"], json!(true));
+        assert_eq!(
+            status["sync_health"]["accepts_private_change_sets"],
+            json!(false)
+        );
+        assert_eq!(
+            status["sync_health"]["private_data_sync_enabled"],
+            json!(false)
+        );
+        assert_eq!(
+            status["sync_health"]["broad_background_sync_enabled"],
+            json!(false)
+        );
+        assert_eq!(
+            status["sync_health"]["clustering_enabled"],
+            json!(false)
+        );
+
+        let accepted = status["accepted_data_classes"]
+            .as_array()
+            .expect("accepted metadata classes");
+        assert!(accepted.contains(&json!("node_link_status")));
+        assert!(accepted.contains(&json!("capability_cache")));
+        assert!(accepted.contains(&json!("sync_checkpoint_metadata")));
+        assert!(accepted.contains(&json!("redacted_sync_health")));
+        assert!(accepted.contains(&json!("wipe_status")));
+
+        let forbidden = status["forbidden_data_classes"]
+            .as_array()
+            .expect("forbidden private data classes");
+        assert!(forbidden.contains(&json!("raw_private_data")));
+        assert!(forbidden.contains(&json!("raw_messages")));
+        assert!(forbidden.contains(&json!("contacts")));
+        assert!(forbidden.contains(&json!("credentials")));
+        assert!(forbidden.contains(&json!("provider_secrets")));
+        assert!(forbidden.contains(&json!("tokens")));
+    }
+
+    #[test]
+    fn desktop_linked_node_command_rejects_private_change_sets() {
+        let status = forgelink_desktop_linked_node_status();
+
+        assert_eq!(
+            status["sync_health"]["accepts_private_change_sets"],
+            json!(false)
+        );
+        assert_eq!(
+            status["capability_claims"],
+            json!([
+                "linked_nodes.list",
+                "node.capabilities.read",
+                "sync.health.redacted",
+                "change_sets.private.reject"
+            ])
+        );
+
+        let serialized = serde_json::to_string(&status).expect("serialize status");
+        assert!(!serialized.contains("message_body"));
+        assert!(!serialized.contains("contact_number"));
+        assert!(!serialized.contains("credential_value"));
+        assert!(!serialized.contains("provider_secret_value"));
     }
 
     #[test]
