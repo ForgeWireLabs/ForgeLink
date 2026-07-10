@@ -13,6 +13,7 @@ import { evaluatePrivateDataPolicyGate, type PrivateDataPolicyGateInput } from "
 import { buildSignedLinkEnvelopeReplayKey, validateSignedLinkEnvelopeFixture, type SignedLinkEnvelopeFixture } from "./signedLinkEnvelopeValidator";
 import { validateMetadataChangeSetFixture, type MetadataChangeSetFixture } from "./metadataChangeSetValidator";
 import { buildCheckpointReplayKey, evaluateCheckpointReplayGuard, type CheckpointReplayGuardInput } from "./checkpointReplayGuard";
+import { serializeRedactedLinkedNodeAuditEvent, writeRedactedLinkedNodeAuditEvent, type RedactedLinkedNodeAuditInput } from "./redactedLinkedNodeAudit";
 
 const thread = { id: 1, canonical_number: "+15551234567", name: "Ada Lovelace", last_msg_ts: "2026-06-14T18:00:00.000Z", unread_count: 0 };
 const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
@@ -1904,5 +1905,199 @@ describe("Checkpoint and replay guard fixtures", () => {
     expect(result).not.toHaveProperty("messages");
     expect(result).not.toHaveProperty("credentials");
     expect(result).not.toHaveProperty("tokens");
+  });
+});
+
+
+describe("Redacted linked-node audit event writer", () => {
+  const validAuditInput = (
+    overrides: Partial<RedactedLinkedNodeAuditInput> = {}
+  ): RedactedLinkedNodeAuditInput => ({
+    event_id: "audit-event-001",
+    event_type: "change_set.accepted",
+    source_node_id: "desktop-node-1",
+    target_node_id: "android-node-1",
+    link_id: "link-desktop-android-1",
+    policy_id: "policy.metadata-only.1",
+    data_classes: [
+      "node_link_status",
+      "change_set_metadata"
+    ],
+    sync_mode: "metadata_only",
+    checkpoint_hash: "sha256:checkpoint-002",
+    change_set_hash: "sha256:change-set-001",
+    envelope_hash: "sha256:envelope-001",
+    decision: "accepted",
+    reason_code: "valid",
+    redacted_reason:
+      "The bounded metadata change set passed validation.",
+    created_at: "2026-07-10T17:00:00.000Z",
+    audit_parent_hash: "sha256:audit-parent-001",
+    nonce_hash: "sha256:nonce-001",
+    ...overrides
+  });
+
+  it("writes a bounded redacted audit event", () => {
+    const result =
+      writeRedactedLinkedNodeAuditEvent(validAuditInput());
+
+    expect(result.written).toBe(true);
+    expect(result.reason_code).toBe("written");
+    expect(result.event).toEqual({
+      schema_version: 1,
+      event_id: "audit-event-001",
+      event_type: "change_set.accepted",
+      source_node_id: "desktop-node-1",
+      target_node_id: "android-node-1",
+      link_id: "link-desktop-android-1",
+      policy_id: "policy.metadata-only.1",
+      data_classes: [
+        "node_link_status",
+        "change_set_metadata"
+      ],
+      sync_mode: "metadata_only",
+      checkpoint_hash: "sha256:checkpoint-002",
+      change_set_hash: "sha256:change-set-001",
+      envelope_hash: "sha256:envelope-001",
+      decision: "accepted",
+      reason_code: "valid",
+      redacted_reason:
+        "The bounded metadata change set passed validation.",
+      created_at: "2026-07-10T17:00:00.000Z",
+      audit_parent_hash: "sha256:audit-parent-001",
+      nonce_hash: "sha256:nonce-001",
+      redacted: true
+    });
+  });
+
+  it.each([
+    "link.requested",
+    "link.accepted",
+    "link.revoked",
+    "link.degraded",
+    "link.stale",
+    "link.lost",
+    "wipe.requested",
+    "wipe.acknowledged",
+    "policy.allowed",
+    "policy.denied",
+    "envelope.accepted",
+    "envelope.rejected",
+    "change_set.accepted",
+    "change_set.rejected",
+    "change_set.quarantined",
+    "checkpoint.accepted",
+    "checkpoint.rejected",
+    "rollback.requested",
+    "rollback.completed",
+    "rollback.rejected"
+  ])("supports audit event type %s", eventType => {
+    expect(
+      writeRedactedLinkedNodeAuditEvent(
+        validAuditInput({ event_type: eventType })
+      )
+    ).toMatchObject({
+      written: true,
+      reason_code: "written"
+    });
+  });
+
+  it.each([
+    ["invalid_event_id", { event_id: "" }],
+    ["unsupported_event_type", {
+      event_type: "database.replicated"
+    }],
+    ["missing_source_node_id", { source_node_id: "" }],
+    ["missing_target_node_id", { target_node_id: "" }],
+    ["missing_link_id", { link_id: "" }],
+    ["missing_reason_code", { reason_code: "" }],
+    ["missing_redacted_reason", { redacted_reason: "" }],
+    ["invalid_created_at", { created_at: "not-a-date" }],
+    ["invalid_data_classes", { data_classes: [] }],
+    ["invalid_sync_mode", {
+      sync_mode: "whole_database_copy"
+    }]
+  ] as const)(
+    "rejects the %s path",
+    (reasonCode, overrides) => {
+      expect(
+        writeRedactedLinkedNodeAuditEvent(
+          validAuditInput(
+            overrides as Partial<RedactedLinkedNodeAuditInput>
+          )
+        )
+      ).toEqual({
+        written: false,
+        reason_code: reasonCode,
+        event: null
+      });
+    }
+  );
+
+  it.each([
+    "raw_private_data",
+    "raw_messages",
+    "messages",
+    "contacts",
+    "calls",
+    "call_history",
+    "attachments",
+    "signal_content",
+    "raw_signal_content",
+    "credentials",
+    "provider_secrets",
+    "tokens",
+    "private_keys",
+    "desktop_database",
+    "database_dump"
+  ])("rejects forbidden audit data class %s", dataClass => {
+    expect(
+      writeRedactedLinkedNodeAuditEvent(
+        validAuditInput({ data_classes: [dataClass] })
+      )
+    ).toEqual({
+      written: false,
+      reason_code: "forbidden_data_class",
+      event: null
+    });
+  });
+
+  it("serializes without raw payloads or secret fields", () => {
+    const result =
+      writeRedactedLinkedNodeAuditEvent(validAuditInput());
+
+    expect(result.event).not.toBeNull();
+
+    const serialized =
+      serializeRedactedLinkedNodeAuditEvent(result.event!);
+
+    expect(serialized).not.toContain("message_body");
+    expect(serialized).not.toContain("contact_number");
+    expect(serialized).not.toContain("credential_value");
+    expect(serialized).not.toContain("token_value");
+    expect(serialized).not.toContain("private_key_value");
+    expect(serialized).not.toContain("signature_value");
+    expect(serialized).not.toContain("payload");
+  });
+
+  it("records rejection decisions with a redacted reason", () => {
+    const result = writeRedactedLinkedNodeAuditEvent(
+      validAuditInput({
+        event_type: "checkpoint.rejected",
+        decision: "rejected",
+        reason_code: "stale_checkpoint",
+        redacted_reason:
+          "The proposed checkpoint base is stale."
+      })
+    );
+
+    expect(result.event).toMatchObject({
+      event_type: "checkpoint.rejected",
+      decision: "rejected",
+      reason_code: "stale_checkpoint",
+      redacted_reason:
+        "The proposed checkpoint base is stale.",
+      redacted: true
+    });
   });
 });
