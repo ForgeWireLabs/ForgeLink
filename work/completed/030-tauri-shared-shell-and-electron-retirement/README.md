@@ -1,8 +1,8 @@
 ---
 audience: maintainers and implementation agents
-status: active
-last_verified: 2026-06-30
-source_of_truth: work/active/030-tauri-shared-shell-and-electron-retirement/README.md; work/active/030-tauri-shared-shell-and-electron-retirement/work-item.json
+status: completed
+last_verified: 2026-07-10
+source_of_truth: work/completed/030-tauri-shared-shell-and-electron-retirement/README.md; work/completed/030-tauri-shared-shell-and-electron-retirement/work-item.json
 ---
 
 # Work Item 030: Tauri Shared Shell and Electron Retirement
@@ -188,6 +188,27 @@ interaction tests, Tauri desktop smoke evidence, mobile decision-flow evidence
 from emulator/device or a documented waiver, distribution/update notes, rollback
 notes, and `python .local/validate_system.py`.
 
+## Closeout
+
+Work item 030 is complete as of 2026-07-10.
+
+It completed the Tauri shared-shell foundation and defined the Electron retirement
+gate. It did **not** claim full production parity or remove Electron. Those remaining
+steps are intentionally split into work item 032, **Tauri Production Parity and
+Electron Retirement**.
+
+Closeout boundaries:
+
+- the shared React/Web cockpit and Tauri bridge/scaffolds are established;
+- the mobile full-cockpit direction and restricted decision-terminal mode are locked;
+- Tauri distribution, validation, and rollback contracts are recorded;
+- Android emulator and physical-device launch evidence exists;
+- Electron remains in place until work item 032 proves production parity;
+- signed public distribution remains certificate-gated through work item 011 PR-014.
+
+Rollback remains straightforward: retain the existing Electron compatibility shell
+while Tauri parity work proceeds. No Electron files are removed by this closeout.
+
 ## Evidence log
 
 | date | item | evidence | result |
@@ -203,3 +224,4 @@ notes, and `python .local/validate_system.py`.
 | 2026-07-03 | TAURI-007 complete | Added `Tauri/validation-rollback-evidence.json` and `docs/tauri-validation-rollback-evidence.md` as the validation/rollback matrix for the shared bridge, Tauri desktop shell, mobile decision flow, distribution/update guards, and rollback path. Added Tauri command-level Rust smoke tests and `Electron/tauri-validation.test.js` to enforce the matrix in `npm test`. Renderer build/tests, Tauri scaffold/distribution/validation tests, Rust `cargo check`, Rust `cargo test`, full Electron suite, and RepoPact/local validation passed. | TAURI-007 satisfied (evidence 20260703-tauri007-validation-rollback). Mobile renderer decision-flow coverage is automated; a follow-up host pass proved the live Android emulator/operator-status seam (evidence 20260703-tauri007-android-emulator-smoke). Packaged Tauri APK/IPA device smoke remains required before public/mobile shipping. |
 | 2026-07-03 | TAURI-007 Android emulator smoke | Started AVD `forge_moto_one_hyper_lab_api35` from `C:\Android\Sdk`, waited for `sys.boot_completed=1`, confirmed Android 15 / SDK 35 / `ranchu`, and ran `C:\Projects\moto-one-hyper\scripts\show_forgelink_operator_status.ps1 -RequestId tauri007-emulator-smoke-001`. The bridge returned `ok:true`, `authority: readonly-emulator-inspection`, `bridge_version: rom_lab.forgelink_operator_status.v1`, boot completed, package count 40, and sanitized network/storage/activity summaries. | Live read-only Android emulator/device-health seam confirmed (evidence 20260703-tauri007-android-emulator-smoke). No raw device mutation, APK install, or private DB replication claimed. |
 | 2026-07-07 | Physical Moto One Hyper APK smoke + scope enforcement | Built the Tauri 2 Android APK, locally signed it with the local-only ForgeLink dev keystore, installed it on the physical Moto One Hyper (`motorola_one_hyper`, `def_retail`, package `com.forgewire.forgelink`), and launched it successfully through ADB/monkey. The visible mobile banner "The local service is unavailable. Failed to fetch." is recorded as the next full-cockpit runtime parity gap, not as a reason to downgrade Android to a companion/approval-only client. Added `docs/agent-directives/android-full-cockpit.md` to make decision 0017 and work item 030 binding for future agents. | Physical APK install/launch path proven. Next work: Android full-cockpit runtime parity, beginning with mobile-safe handling/replacement of desktop-local-service assumptions. |
+| 2026-07-10 | work-item closeout | All TAURI-001 through TAURI-009 criteria are satisfied; ledger scope was reconciled and remaining production parity/Electron removal transferred to work item 032. | Work item 030 completed without removing Electron. |

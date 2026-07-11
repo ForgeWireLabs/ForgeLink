@@ -1,6 +1,13 @@
-﻿# ForgeLink Proposed Implementation Work Items
+# ForgeLink Proposed Implementation Work Items
 
 Last verified: 2026-07-10
+
+## Identifier Clarification
+
+`LNI-*` identifiers are report-local **Linked-Node Implementation** slice identifiers.
+They are not RepoPact work-ledger IDs. The original WI-prefixed 021–032 labels
+collided with real ForgeLink ledger items and were repaired during the 2026-07-10
+ledger reconciliation.
 
 ## Purpose
 
@@ -62,7 +69,7 @@ At the end of this implementation phase, ForgeLink should have a visible, tested
 
 Private communication data should still not move at the end of this phase.
 
-## Proposed Work Item 021 - Redacted Linked-Node Lifecycle Status Model
+## Proposed Implementation Slice LNI-001 - Redacted Linked-Node Lifecycle Status Model
 
 ### Type
 
@@ -138,7 +145,7 @@ The model should include:
 
 Model redacted linked node lifecycle states
 
-## Proposed Work Item 022 - Settings Lifecycle Status Rows
+## Proposed Implementation Slice LNI-002 - Settings Lifecycle Status Rows
 
 ### Type
 
@@ -150,7 +157,7 @@ Surface linked-node lifecycle state in Settings so the operator can see revoked,
 
 ### Scope
 
-Add Settings UI rows that render redacted lifecycle status from the WI021 model.
+Add Settings UI rows that render redacted lifecycle status from the LNI-001 model.
 
 Rows should show:
 
@@ -211,7 +218,7 @@ Minimum labels should include:
 
 Show linked node lifecycle status rows
 
-## Proposed Work Item 023 - Android App-Local Metadata Persistence Fixture
+## Proposed Implementation Slice LNI-003 - Android App-Local Metadata Persistence Fixture
 
 ### Type
 
@@ -275,7 +282,7 @@ Do not add full production persistence until the test fixture shape is stable.
 
 Add Android local metadata persistence fixture
 
-## Proposed Work Item 024 - Desktop Linked-Node Metadata Command Stub
+## Proposed Implementation Slice LNI-004 - Desktop Linked-Node Metadata Command Stub
 
 ### Type
 
@@ -335,7 +342,7 @@ Depending on current structure, this may be:
 
 Implement desktop linked node metadata command
 
-## Proposed Work Item 025 - Deny-By-Default Private Data Policy Gate Helper
+## Proposed Implementation Slice LNI-005 - Deny-By-Default Private Data Policy Gate Helper
 
 ### Type
 
@@ -429,7 +436,7 @@ The default decision is deny.
 
 Add private data policy gate helper
 
-## Proposed Work Item 026 - Signed Envelope Fixture Validator
+## Proposed Implementation Slice LNI-006 - Signed Envelope Fixture Validator
 
 ### Type
 
@@ -508,7 +515,7 @@ It may validate fixture signature shape and canonical payload shape.
 
 Validate signed link envelope fixtures
 
-## Proposed Work Item 027 - Metadata Change-Set Fixture Validator
+## Proposed Implementation Slice LNI-007 - Metadata Change-Set Fixture Validator
 
 ### Type
 
@@ -580,7 +587,7 @@ Allowed data classes:
 
 Validate metadata change-set fixtures
 
-## Proposed Work Item 028 - Checkpoint and Replay Guard Fixtures
+## Proposed Implementation Slice LNI-008 - Checkpoint and Replay Guard Fixtures
 
 ### Type
 
@@ -634,7 +641,7 @@ Replay tuple:
 
 Add checkpoint replay guard fixtures
 
-## Proposed Work Item 029 - Redacted Audit Event Writer Fixture
+## Proposed Implementation Slice LNI-009 - Redacted Audit Event Writer Fixture
 
 ### Type
 
@@ -704,7 +711,7 @@ Required event fields:
 
 Add redacted linked node audit fixtures
 
-## Proposed Work Item 030 - Android Linked-Node Metadata Query Path
+## Proposed Implementation Slice LNI-010 - Android Linked-Node Metadata Query Path
 
 ### Type
 
@@ -759,7 +766,7 @@ Query should return:
 
 Add Android linked node metadata query
 
-## Proposed Work Item 031 - Cross-Platform Shell Contract Parity
+## Proposed Implementation Slice LNI-011 - Cross-Platform Shell Contract Parity
 
 ### Type
 
@@ -806,11 +813,11 @@ Add contract fixtures proving each platform can express:
 
 Test cross-platform node metadata contracts
 
-## Proposed Work Item 032 - Lifecycle Implementation Closeout
+## Proposed Implementation Slice LNI-012 - Lifecycle Implementation Closeout
 
 ### Type
 
-Report-only closeout after WI021-WI031 are implemented.
+Report-only closeout after LNI-001-LNI-011 are implemented.
 
 ### Purpose
 
@@ -844,24 +851,24 @@ Close linked node lifecycle implementation phase
 
 ## Recommended Execution Order
 
-1. WI021 - Redacted Linked-Node Lifecycle Status Model
-2. WI022 - Settings Lifecycle Status Rows
-3. WI023 - Android App-Local Metadata Persistence Fixture
-4. WI024 - Desktop Linked-Node Metadata Command Stub
-5. WI025 - Deny-By-Default Private Data Policy Gate Helper
-6. WI026 - Signed Envelope Fixture Validator
-7. WI027 - Metadata Change-Set Fixture Validator
-8. WI028 - Checkpoint and Replay Guard Fixtures
-9. WI029 - Redacted Audit Event Writer Fixture
-10. WI030 - Android Linked-Node Metadata Query Path
-11. WI031 - Cross-Platform Shell Contract Parity
-12. WI032 - Lifecycle Implementation Closeout
+1. LNI-001 - Redacted Linked-Node Lifecycle Status Model
+2. LNI-002 - Settings Lifecycle Status Rows
+3. LNI-003 - Android App-Local Metadata Persistence Fixture
+4. LNI-004 - Desktop Linked-Node Metadata Command Stub
+5. LNI-005 - Deny-By-Default Private Data Policy Gate Helper
+6. LNI-006 - Signed Envelope Fixture Validator
+7. LNI-007 - Metadata Change-Set Fixture Validator
+8. LNI-008 - Checkpoint and Replay Guard Fixtures
+9. LNI-009 - Redacted Audit Event Writer Fixture
+10. LNI-010 - Android Linked-Node Metadata Query Path
+11. LNI-011 - Cross-Platform Shell Contract Parity
+12. LNI-012 - Lifecycle Implementation Closeout
 
 ## Build Bias
 
-Only WI032 should be report-only by default.
+Only LNI-012 should be report-only by default.
 
-WI021 through WI031 should produce code, tests, fixtures, or visible UI.
+LNI-001 through LNI-011 should produce code, tests, fixtures, or visible UI.
 
 Reports are allowed only when needed to close implementation evidence, not to delay building.
 

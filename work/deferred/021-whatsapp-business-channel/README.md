@@ -1,8 +1,8 @@
 ---
 audience: maintainers and implementation agents
-status: active
-last_verified: 2026-06-20
-source_of_truth: work/active/021-whatsapp-business-channel/README.md; work/active/021-whatsapp-business-channel/work-item.json
+status: deferred
+last_verified: 2026-07-10
+source_of_truth: work/deferred/021-whatsapp-business-channel/README.md; work/deferred/021-whatsapp-business-channel/work-item.json
 ---
 
 # Work Item 021: WhatsApp Business Channel
@@ -10,6 +10,17 @@ source_of_truth: work/active/021-whatsapp-business-channel/README.md; work/activ
 ## Goal
 
 Add WhatsApp Business as a later official business-channel adapter for opted-in contacts. It should support ForgeLink's local contact, policy, and audit model without making WhatsApp the primary private operator boundary.
+
+## Deferred Status
+
+This work item remains valid but is intentionally deferred as of 2026-07-10.
+
+**Reason:** Implementation depends on real business-account/provider prerequisites and a concrete opted-in deployment that do not yet exist.
+
+**Reactivation condition:** Reactivate when a real business account and provider prerequisites exist, templates and opt-in requirements are understood, and a concrete deployment requires WhatsApp Business.
+
+No implementation is authorized while this item is deferred. Its acceptance criteria
+remain pending, and its work-item ID remains permanently reserved.
 
 ## Scope
 

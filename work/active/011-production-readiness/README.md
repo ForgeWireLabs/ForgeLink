@@ -1,7 +1,7 @@
 ---
 audience: maintainers and implementation agents
 status: active
-last_verified: 2026-06-30
+last_verified: 2026-07-10
 source_of_truth: AGENTS.md; work/active/011-production-readiness/_audit/alignment-report.md
 ---
 
@@ -65,16 +65,17 @@ in [`work-item.json`](work-item.json); this is the human summary.
   which is held until signing so the channel is not unauthenticated. Everything that
   does not require the certificate is now done; a manual-download release is fine
   now. Overlaps
-  017 OCX-020. Work item 030 is now the long-term shell strategy: PR-014 should
-  preserve the current Electron baseline for near-term desktop releases, but
-  should not deepen Electron-only assumptions that make Tauri 2 migration harder.
+  017 OCX-020. Work item 030 completed the Tauri shared-shell foundation and retirement-gate
+  definition. Work item 032 now owns production parity and actual Electron removal.
+  PR-014 is explicitly **Tauri-first**: Electron packaging is maintenance-only until
+  retirement, unsigned development/test artifacts remain valid evidence, and no new
+  release work should deepen Electron-only assumptions.
   **Scope clarification ([decision 0018](../../../decisions/0018-signing-cert-is-a-distribution-gate-not-a-dev-blocker.md)):**
   the remaining certificate + signed-feed work is a **public-distribution hardening
-  gate held on an operator-supplied external dependency** — it is **not** a blocker
-  for work item 030 (Tauri scaffolding proceeds on unsigned/dev builds) or for the
-  019–024 channel adapters. 011 stays **active with cert-limited scope** (complete
-  except for that external dependency) rather than blocked or deferred; it is
-  revisited when the certificate arrives.
+  gate held on an operator-supplied external dependency**. It does not block Tauri
+  parity work, metadata-only linked-node hardening, local webhook/LAN work, or RSS/Atom
+  hardening. 011 stays **active with cert-limited scope** and is revisited when the
+  certificate arrives.
 
 ## Priority order
 
@@ -121,7 +122,7 @@ in [`work-item.json`](work-item.json); this is the human summary.
 - [x] **PR-011 Expand security verification.** Add proxy-aware webhook signature tests, local API threat tests, secret scanning, dependency scanning, and diagnostic redaction tests.
 - [ ] **PR-012 Complete accessibility.** Keyboard-only navigation, focus restoration, screen-reader labels, WCAG AA contrast, zoom, reduced motion, and high-contrast behavior.
 - [x] **PR-013 Build the test pyramid.** Backend HTTP integration tests, renderer interaction tests, Electron lifecycle tests, installer tests, and opt-in Twilio sandbox/live tests.
-- [ ] **PR-014 Establish releases.** Real icon, signed installer, version metadata, release notes, checksums, update strategy, rollback, and reproducible release checklist for the current desktop baseline while coordinating long-term Tauri 2 distribution with work item 030.
+- [ ] **PR-014 Establish Tauri-first releases.** Maintain real icon, version metadata, release notes, checksums, update strategy, rollback, and a reproducible release checklist. Tauri is the primary release target; Electron packaging is maintenance-only until work item 032 completes parity and retirement. Unsigned development/test artifacts are valid evidence; signed public distribution remains certificate-gated.
 - [x] **PR-015 Add support diagnostics.** User-triggered health report with versions and status while excluding credentials, messages, contacts, and media by default.
 
 ## Deferred product decision

@@ -80,7 +80,7 @@
     },
     {
       "id": "PR-014",
-      "text": "Establish releases for the current desktop baseline: real icon, signed installer, version metadata, release notes, checksums, update strategy, rollback, and reproducible release checklist, while coordinating long-term Tauri 2 distribution with work item 030.",
+      "text": "Establish Tauri-first releases for the current desktop baseline: real icon, version metadata, release notes, checksums, update strategy, rollback, and a reproducible release checklist. Tauri is the primary release target; Electron packaging is maintenance-only until retirement under work item 032. Unsigned development and test artifacts are valid evidence, while signed public distribution remains gated on an operator-provided certificate.",
       "state": "pending",
       "evidence": []
     },
@@ -100,5 +100,5 @@
     }
   ],
   "created": "2026-06-17",
-  "updated": "2026-06-27"
+  "updated": "2026-07-10"
 }

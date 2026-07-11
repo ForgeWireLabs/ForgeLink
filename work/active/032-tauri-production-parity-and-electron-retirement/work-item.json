@@ -1,0 +1,98 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "032",
+  "title": "Tauri Production Parity and Electron Retirement",
+  "status": "active",
+  "owner_scope": "work",
+  "affected_scopes": [
+    "work",
+    "desktop",
+    "ui",
+    "mobile",
+    "local-runtime",
+    "data",
+    "security",
+    "release",
+    "docs",
+    "tooling"
+  ],
+  "depends_on": [
+    "011",
+    "030"
+  ],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-07-10T23:00:00Z",
+    "note": "Created during ledger reconciliation before production-parity implementation or Electron removal. Work item 030 established the shared-shell foundation and retirement gate; this item owns satisfying that gate and performing the actual retirement."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "TPR-001",
+      "text": "Inventory every Electron-only API, workflow, lifecycle assumption, packaging path, and operator dependency that must be replaced or explicitly retired.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TPR-002",
+      "text": "Prove onboarding and local-service lifecycle parity in Tauri, including startup, authenticated discovery, port conflicts, bounded restart, clean shutdown, and operator recovery.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TPR-003",
+      "text": "Prove secure-storage parity for credentials and protected settings without exposing secrets to renderer state, logs, diagnostics, exports, or screenshots.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TPR-004",
+      "text": "Prove notifications, deep links, navigation restoration, and single-instance behavior or document platform-specific replacements and limits.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TPR-005",
+      "text": "Prove backup, restore, retention, diagnostics, corruption recovery, and data-safety parity without copying the private desktop database to mobile nodes.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TPR-006",
+      "text": "Produce reproducible Tauri release artifacts with version metadata, release notes, checksums, update and rollback contracts, and certificate-gated public signing.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TPR-007",
+      "text": "Validate a packaged Windows Tauri build through clean-machine or equivalent isolated installation, launch, onboarding, service, cockpit, update, rollback, and uninstall checks.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TPR-008",
+      "text": "Record Linux and macOS build, packaging, capability, signing, update, and support posture with tested evidence or explicit bounded limitations.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TPR-009",
+      "text": "Remove Electron runtime, packaging, generated renderer assumptions, dependencies, tests, and documentation only after the parity gate is satisfied.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TPR-010",
+      "text": "Run post-removal regression, migration, packaged-runtime, rollback, and repository scans proving ForgeLink operates without Electron and can recover from the release transition.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TPR-011",
+      "text": "Complete documentation and ledger closeout covering supported platforms, installation, updates, rollback, data safety, known limitations, and remaining risks.",
+      "state": "pending",
+      "evidence": []
+    }
+  ],
+  "created": "2026-07-10",
+  "updated": "2026-07-10"
+}

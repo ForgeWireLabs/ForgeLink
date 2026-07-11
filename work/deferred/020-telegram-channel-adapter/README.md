@@ -1,8 +1,8 @@
 ---
 audience: maintainers and implementation agents
-status: active
-last_verified: 2026-06-20
-source_of_truth: work/active/020-telegram-channel-adapter/README.md; work/active/020-telegram-channel-adapter/work-item.json
+status: deferred
+last_verified: 2026-07-10
+source_of_truth: work/deferred/020-telegram-channel-adapter/README.md; work/deferred/020-telegram-channel-adapter/work-item.json
 ---
 
 # Work Item 020: Telegram Channel Adapter
@@ -10,6 +10,17 @@ source_of_truth: work/active/020-telegram-channel-adapter/README.md; work/active
 ## Goal
 
 Add Telegram as an explicitly configured bidirectional chat adapter for demos, developer workflows, and contacts who choose it. Telegram is not a private operator boundary by default.
+
+## Deferred Status
+
+This work item remains valid but is intentionally deferred as of 2026-07-10.
+
+**Reason:** Higher-priority local-first adapter, linked-node hardening, and Tauri retirement work should complete before adding another external provider.
+
+**Reactivation condition:** Reactivate when a concrete operator deployment requires Telegram, or after higher-priority local-first and shell-retirement work is complete.
+
+No implementation is authorized while this item is deferred. Its acceptance criteria
+remain pending, and its work-item ID remains permanently reserved.
 
 ## Scope
 

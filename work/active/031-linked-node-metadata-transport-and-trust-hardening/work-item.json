@@ -1,0 +1,113 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "031",
+  "title": "Linked-Node Metadata Transport and Trust Hardening",
+  "status": "active",
+  "owner_scope": "work",
+  "affected_scopes": [
+    "work",
+    "backend",
+    "desktop",
+    "mobile",
+    "local-runtime",
+    "data",
+    "security",
+    "policy",
+    "audit",
+    "docs",
+    "tooling"
+  ],
+  "depends_on": [
+    "015",
+    "016",
+    "017",
+    "030"
+  ],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-07-10T23:00:00Z",
+    "note": "Created during ledger reconciliation before production linked-node transport, cryptography, durable replay, checkpoint, audit, quarantine, wipe, rollback, or recovery implementation begins."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "LNH-001",
+      "text": "Implement production node identity and device-key lifecycle with explicit creation, storage, rotation, revocation, and recovery boundaries.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "LNH-002",
+      "text": "Define canonical linked-node envelope serialization with deterministic bytes, versioning, bounds, and compatibility tests.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "LNH-003",
+      "text": "Implement production signing and signature verification without placing private keys or secret material in renderer state, diagnostics, fixtures, or logs.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "LNH-004",
+      "text": "Implement durable replay protection that survives restart and rejects duplicate, expired, stale, revoked, and wipe-state envelopes.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "LNH-005",
+      "text": "Persist metadata-only checkpoints with lineage, idempotency, corruption detection, bounded retention, and rollback-safe recovery.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "LNH-006",
+      "text": "Persist a redacted audit chain for lifecycle, policy, envelope, change-set, quarantine, replay, checkpoint, wipe, rollback, and recovery decisions.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "LNH-007",
+      "text": "Implement a bounded authenticated metadata transport that permits only approved metadata classes and never copies a database or private communication payload.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "LNH-008",
+      "text": "Implement metadata change-set staging, idempotency, validation, quarantine, acknowledgement, and rejection handling.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "LNH-009",
+      "text": "Add operator-visible trust, link, revoke, relink, capability, lifecycle, and recovery surfaces with deny-by-default actions.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "LNH-010",
+      "text": "Integrate revocation, wipe, rollback, stale, lost, degraded, and recovery behavior across transport, persistence, audit, and operator surfaces.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "LNH-011",
+      "text": "Add end-to-end metadata-only integration tests across desktop and Android-linked-node fixtures and supported platform contracts.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "LNH-012",
+      "text": "Complete a security and privacy threat review covering identity, cryptography, replay, transport, storage, audit, revocation, wipe, rollback, recovery, and operator error.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "LNH-013",
+      "text": "Record a separate evidence-based private-data readiness decision; completing this item must not enable private communication-data movement automatically.",
+      "state": "pending",
+      "evidence": []
+    }
+  ],
+  "created": "2026-07-10",
+  "updated": "2026-07-10"
+}

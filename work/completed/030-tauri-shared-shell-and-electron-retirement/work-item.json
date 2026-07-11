@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/work-item.schema.json",
   "id": "030",
   "title": "Tauri Shared Shell and Electron Retirement",
-  "status": "active",
+  "status": "completed",
   "owner_scope": "work",
   "affected_scopes": [
     "work",
@@ -103,5 +103,5 @@
     }
   ],
   "created": "2026-06-27",
-  "updated": "2026-07-03"
+  "updated": "2026-07-10"
 }

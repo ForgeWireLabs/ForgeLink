@@ -47,13 +47,31 @@
       "notes": "Completed operator cockpit and native experience arc; all 21 OCX criteria satisfied; scoped contract retained under completed work."
     },
     {
-      "path": "work/active/030-tauri-shared-shell-and-electron-retirement",
+      "path": "work/completed/030-tauri-shared-shell-and-electron-retirement",
       "owner": "planning-agent",
-      "contract": "work/active/030-tauri-shared-shell-and-electron-retirement/AGENTS.md",
-      "last_reviewed": "2026-06-27",
-      "next_review": "2026-09-27",
+      "contract": "work/completed/030-tauri-shared-shell-and-electron-retirement/AGENTS.md",
+      "last_reviewed": "2026-07-10",
+      "next_review": "2026-10-10",
       "alignment": "current",
-      "notes": "Tauri 2 shared shell and Electron-retirement arc; scoped contract under active work."
+      "notes": "Completed Tauri 2 shared-shell foundation and Electron-retirement gate; scoped contract retained under completed work. Actual production parity and Electron removal are owned by active work item 032."
+    },
+    {
+      "path": "work/active/031-linked-node-metadata-transport-and-trust-hardening",
+      "owner": "planning-agent",
+      "contract": "work/active/031-linked-node-metadata-transport-and-trust-hardening/AGENTS.md",
+      "last_reviewed": "2026-07-10",
+      "next_review": "2026-10-10",
+      "alignment": "current",
+      "notes": "Active metadata-only linked-node transport and trust-hardening arc; private communication-data movement remains disabled."
+    },
+    {
+      "path": "work/active/032-tauri-production-parity-and-electron-retirement",
+      "owner": "planning-agent",
+      "contract": "work/active/032-tauri-production-parity-and-electron-retirement/AGENTS.md",
+      "last_reviewed": "2026-07-10",
+      "next_review": "2026-10-10",
+      "alignment": "current",
+      "notes": "Active Tauri production-parity and Electron-retirement arc; Electron removal remains gated on recorded parity, release, rollback, and data-safety evidence."
     },
     {
       "path": "Tauri",

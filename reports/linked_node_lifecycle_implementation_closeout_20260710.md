@@ -2,15 +2,22 @@
 
 Last verified: 2026-07-10
 
-## Work Item
+## Identifier Clarification
 
-WI032 — Lifecycle Implementation Closeout
+`LNI-*` identifiers are report-local **Linked-Node Implementation** slice identifiers.
+They are not RepoPact work-ledger IDs. The original WI-prefixed 021–032 labels
+collided with real ForgeLink ledger items and were repaired during the 2026-07-10
+ledger reconciliation.
+
+## Implementation Slice
+
+LNI-012 — Lifecycle Implementation Closeout
 
 ## Status
 
 Complete.
 
-This report closes the first build-forward linked-node implementation phase covering WI021 through WI031.
+This report closes the first build-forward linked-node implementation phase covering LNI-001 through LNI-011.
 
 The phase established a metadata-only, policy-gated foundation for ForgeLink communication-node relationships across desktop and Android surfaces.
 
@@ -58,7 +65,7 @@ Each node remains authoritative for its own local database and local retention, 
 
 ## Implemented Work Ledger
 
-### WI021 — Redacted Linked-Node Lifecycle Status Model
+### LNI-001 — Redacted Linked-Node Lifecycle Status Model
 
 Commit: `56db620 Model redacted linked node lifecycle states`
 
@@ -79,7 +86,7 @@ Safety posture:
 - stale, lost, revoked, wipe-pending, and wiped states pause linked operations;
 - lifecycle state never grants private-data access.
 
-### WI022 — Settings Lifecycle Status Rows
+### LNI-002 — Settings Lifecycle Status Rows
 
 Commit: `6f1d05e Show linked node lifecycle status rows`
 
@@ -90,7 +97,7 @@ Safety posture:
 - unsafe lifecycle states are visible instead of silently degrading;
 - no raw private communication data or secrets are rendered.
 
-### WI023 — Android App-Local Metadata Persistence Fixture
+### LNI-003 — Android App-Local Metadata Persistence Fixture
 
 Commit: `e60fc44 Add Android local metadata persistence fixture`
 
@@ -113,7 +120,7 @@ Safety posture:
 - desktop database copying remains disabled;
 - unsupported or private data classes are rejected.
 
-### WI024 — Desktop Linked-Node Metadata Command
+### LNI-004 — Desktop Linked-Node Metadata Command
 
 Commit: `7077482 Implement desktop linked node metadata command`
 
@@ -135,7 +142,7 @@ Safety posture:
 - broad background synchronization is disabled;
 - clustering is disabled.
 
-### WI025 — Deny-by-Default Private-Data Policy Gate
+### LNI-005 — Deny-by-Default Private-Data Policy Gate
 
 Commit: `b6f07fb Add private data policy gate helper`
 
@@ -147,7 +154,7 @@ Safety posture:
 - pairing, linking, and metadata synchronization do not grant private-data permission;
 - an allowed result represents policy eligibility only and moves no payload.
 
-### WI026 — Signed Link-Envelope Fixture Validator
+### LNI-006 — Signed Link-Envelope Fixture Validator
 
 Commit: `31cb8f2 Validate signed link envelope fixtures`
 
@@ -161,7 +168,7 @@ Safety posture:
 - fixture signature shape is checked without production cryptography;
 - no private key or secret material is included.
 
-### WI027 — Metadata Change-Set Fixture Validator
+### LNI-007 — Metadata Change-Set Fixture Validator
 
 Commit: `a2749e9 Validate metadata change set fixtures`
 
@@ -175,7 +182,7 @@ Safety posture:
 - operations must be explicitly redacted;
 - operation counts are bounded.
 
-### WI028 — Checkpoint and Replay Guard Fixtures
+### LNI-008 — Checkpoint and Replay Guard Fixtures
 
 Commit: `7fe1d02 Add checkpoint replay guard fixtures`
 
@@ -195,7 +202,7 @@ Safety posture:
 - checkpoint lineage must match current accepted state;
 - result checkpoints must advance state.
 
-### WI029 — Redacted Linked-Node Audit Fixtures
+### LNI-009 — Redacted Linked-Node Audit Fixtures
 
 Commit: `7e491aa Add redacted linked node audit fixtures`
 
@@ -209,7 +216,7 @@ Safety posture:
 - raw nonce secrets are not recorded;
 - private communication data, credentials, tokens, keys, and database dumps reject.
 
-### WI030 — Android Linked-Node Metadata Query
+### LNI-010 — Android Linked-Node Metadata Query
 
 Commit: `28c7777 Add Android linked node metadata query`
 
@@ -229,7 +236,7 @@ Safety posture:
 - unsafe desktop status shapes reject;
 - private-data behavior cannot be enabled through the fixture shape alone.
 
-### WI031 — Cross-Platform Node Metadata Contracts
+### LNI-011 — Cross-Platform Node Metadata Contracts
 
 Commit: `f7d80c5 Test cross-platform node metadata contracts`
 
@@ -431,7 +438,7 @@ Begin a new metadata-only hardening phase:
 
 ## Final Closeout
 
-WI021 through WI031 are implemented and committed.
+LNI-001 through LNI-011 are implemented and committed.
 
 The linked-node lifecycle implementation phase is complete.
 

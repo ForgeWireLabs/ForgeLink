@@ -116,41 +116,53 @@ If an item is abandoned, superseded, merged, split, or rejected, keep its ID and
 
 ## Current Active Work
 
-As of the current ledger update, the main active product arcs are:
+As of the 2026-07-10 ledger reconciliation, the active product arcs are:
 
 ```text
 011-production-readiness
+023-rss-atom-signal-follow-up
+024-local-webhook-lan-integrations
+031-linked-node-metadata-transport-and-trust-hardening
+032-tauri-production-parity-and-electron-retirement
 ```
 
-Turns the original Twilio Phone / ForgeLink application into a secure, installable, recoverable Windows desktop messaging application with predictable operations and trustworthy releases. Its only remaining baseline gate is release/distribution strategy unless additional evidence is added.
+`011` remains active only for the Tauri-first release/public-signing baseline in
+PR-014. Unsigned development and test artifacts are valid evidence; signed public
+distribution remains gated on the operator-provided certificate.
+
+`023` and `024` remain the active local-first adapter priorities, with local
+webhook/LAN integrations ahead of RSS/Atom hardening.
+
+`031` owns the production identity, cryptography, durable replay/checkpoint/audit,
+bounded authenticated metadata transport, quarantine, wipe, rollback, recovery,
+operator trust controls, integration testing, and threat review that must precede any
+private-data readiness decision.
+
+`032` owns Tauri production parity and actual Electron removal. Electron remains a
+compatibility shell until the parity gate is proven.
+
+The following provider adapters remain valid but are intentionally deferred:
 
 ```text
-030-tauri-shared-shell-and-electron-retirement
+020-telegram-channel-adapter
+021-whatsapp-business-channel
+022-discord-channel-adapter
 ```
 
-Defines the Tauri 2 shared desktop/mobile shell path: one reusable cockpit UI,
-Tauri desktop/mobile scaffolding, app-bridge boundaries, signed distribution and
-update strategy, and the explicit parity gate for retiring Electron.
-
-Completed upstream foundation:
+Completed foundation relevant to the current roadmap:
 
 ```text
 015-communication-channels-and-voice
-```
-
-Defines the ForgeLink-owned communications runtime, provider-neutral channels, telecom edge adapters, rich contact metadata, restored voice capability, mobile companion protocol direction, local-only operation, provider conformance testing, schema-migration coordination, and direct-telecom research. Active governance, cockpit, and adapter work depends on this completed item.
-
-```text
 016-agent-human-governance
-```
-
-Defines the completed agent-human governance layer: Human Cards, agent identity, evidence packs, approval templates, risk tiers, decision memory, audit/replay, communication firewall, redaction profiles, external contact consent, untrusted-agent-content handling, key management, and ForgeWire Fabric HITL routing through ForgeLink.
-
-```text
 017-operator-cockpit-and-native-experience
+018-email-channel-adapter
+019-push-notification-channel
+025-ledger-integrity-enforcement
+030-tauri-shared-shell-and-electron-retirement
 ```
 
-Defines the completed operator cockpit: Decisions/People/Agents/Channels navigation, triage lanes, operator modes, presence, mobile decision terminal UX (the restricted mode of the full mobile cockpit per decision 0017), batching, fatigue budget, reputation UI, local injection-resistant summaries, scoped MCP resources, reviewed outbox, channel redaction previews, sample workspace, reproducible killer demo, public narrative, and distribution/update strategy. All 21 OCX criteria are satisfied.
+Work item 030 completed the Tauri shared-shell foundation and retirement-gate
+definition. It did not remove Electron; that work is explicitly owned by 032.
 
 ## Lifecycle States
 

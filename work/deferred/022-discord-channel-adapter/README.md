@@ -1,8 +1,8 @@
 ---
 audience: maintainers and implementation agents
-status: active
-last_verified: 2026-06-20
-source_of_truth: work/active/022-discord-channel-adapter/README.md; work/active/022-discord-channel-adapter/work-item.json
+status: deferred
+last_verified: 2026-07-10
+source_of_truth: work/deferred/022-discord-channel-adapter/README.md; work/deferred/022-discord-channel-adapter/work-item.json
 ---
 
 # Work Item 022: Discord Channel Adapter
@@ -10,6 +10,17 @@ source_of_truth: work/active/022-discord-channel-adapter/README.md; work/active/
 ## Goal
 
 Add Discord as a team/community channel adapter for status and collaboration contexts. Discord must not become the default private operator approval channel or a place where private agent details are exposed automatically.
+
+## Deferred Status
+
+This work item remains valid but is intentionally deferred as of 2026-07-10.
+
+**Reason:** The shared-channel privacy boundary should not consume priority before local-first integrations, linked-node hardening, and Tauri parity.
+
+**Reactivation condition:** Reactivate when a real allow-listed team or community deployment requires Discord and explicitly accepts the shared-channel privacy boundary.
+
+No implementation is authorized while this item is deferred. Its acceptance criteria
+remain pending, and its work-item ID remains permanently reserved.
 
 ## Scope
 
