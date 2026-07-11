@@ -934,6 +934,134 @@ test("registers, rotates, and revokes decision/audit device keys (AGH-025)", () 
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
+// Production linked-node identity lifecycle (work item 031, LNH-001): creation is
+// insert-only, rotation preserves identity, revocation is terminal, and recovery
+// registers a replacement identity without key escrow or history rewriting.
+test("enforces production linked-node identity lifecycle boundaries (LNH-001)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-linked-node-identity-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  const fingerprint1 = `sha256:${"A".repeat(43)}`;
+  const fingerprint2 = `sha256:${"B".repeat(43)}`;
+  const fingerprint3 = `sha256:${"C".repeat(43)}`;
+  try {
+    const created = database.registerLinkedNodeIdentity({
+      id: "desktop-primary",
+      label: "Primary desktop",
+      public_key: "ed25519-public-key-material-generation-one",
+      public_key_fingerprint: fingerprint1,
+      secure_key_ref: "forgelink:device-key:desktop-primary:v1"
+    });
+    assert.equal(created.trust_state, "active");
+    assert.equal(created.key_algorithm, "ed25519");
+    assert.equal(created.key_generation, 1);
+    assert.equal(created.recovery_state, "ready");
+    assert.equal(database.linkedNodeIdentityReadiness(created.id).ready, true);
+
+    assert.throws(() => database.registerLinkedNodeIdentity({
+      id: "desktop-primary",
+      public_key: "different-public-key-material-that-is-long-enough",
+      public_key_fingerprint: fingerprint2,
+      secure_key_ref: "forgelink:device-key:desktop-primary:v1"
+    }), /already exists/);
+    assert.throws(() => database.registerLinkedNodeIdentity({
+      id: "unsafe-node",
+      public_key: "ed25519-public-key-material-generation-one",
+      public_key_fingerprint: fingerprint1,
+      secure_key_ref: "forgelink:device-key:unsafe-node:v1",
+      private_key: "must-not-cross-boundary"
+    } as never), /Private key material/);
+
+    const rotated = database.rotateLinkedNodeIdentity("desktop-primary", {
+      public_key: "ed25519-public-key-material-generation-two",
+      public_key_fingerprint: fingerprint2,
+      secure_key_ref: "forgelink:device-key:desktop-primary:v2"
+    });
+    assert.equal(rotated.key_generation, 2);
+    assert.equal(rotated.public_key_fingerprint, fingerprint2);
+    assert.equal(rotated.secure_key_ref, "forgelink:device-key:desktop-primary:v2");
+    assert.throws(() => database.rotateLinkedNodeIdentity("desktop-primary", {
+      public_key: "ed25519-public-key-material-generation-three",
+      public_key_fingerprint: fingerprint2,
+      secure_key_ref: "forgelink:device-key:desktop-primary:v3"
+    }), /new public key fingerprint/);
+
+    const revoked = database.revokeLinkedNodeIdentity("desktop-primary", "device reported lost");
+    assert.equal(revoked.trust_state, "revoked");
+    assert.equal(revoked.recovery_state, "replacement_required");
+    assert.equal(revoked.revocation_reason, "device reported lost");
+    assert.equal(database.linkedNodeIdentityReadiness(revoked.id).reason, "revoked");
+    assert.throws(() => database.rotateLinkedNodeIdentity("desktop-primary", {
+      public_key: "ed25519-public-key-material-generation-three",
+      public_key_fingerprint: fingerprint3,
+      secure_key_ref: "forgelink:device-key:desktop-primary:v3"
+    }), /cannot be rotated/);
+
+    const recovered = database.recoverLinkedNodeIdentity("desktop-primary", {
+      id: "desktop-replacement",
+      label: "Replacement desktop",
+      public_key: "ed25519-public-key-material-replacement-one",
+      public_key_fingerprint: fingerprint3,
+      secure_key_ref: "forgelink:device-key:desktop-replacement:v1"
+    });
+    assert.equal(recovered.revoked.trust_state, "revoked");
+    assert.equal(recovered.revoked.recovery_state, "replacement_registered");
+    assert.equal(recovered.revoked.replaced_by_device_id, "desktop-replacement");
+    assert.equal(recovered.replacement.trust_state, "active");
+    assert.equal(database.linkedNodeIdentityReadiness("desktop-replacement").ready, true);
+
+    const columns = database.connection.prepare("PRAGMA table_info(device_keys)").all() as Array<{ name: string }>;
+    assert.equal(columns.some((column) => /private|secret|seed/i.test(column.name)), false);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("upgrades the v26 device registry to v27 without losing identities (LNH-001)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-device-key-v26-upgrade-"));
+  const path = join(directory, "phone.sqlite3");
+  let database: PhoneDatabase | undefined;
+  try {
+    database = new PhoneDatabase(path);
+    database.registerLinkedNodeIdentity({
+      id: "legacy-device",
+      label: "Legacy device",
+      public_key: "ed25519-public-key-material-generation-one",
+      public_key_fingerprint: `sha256:${"D".repeat(43)}`,
+      secure_key_ref: "forgelink:device-key:legacy-device:v1"
+    });
+    database.close();
+    database = undefined;
+
+    const legacy = new DatabaseSync(path);
+    legacy.exec(`
+      CREATE TABLE device_keys_v26 (
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL DEFAULT '',
+        public_key TEXT NOT NULL DEFAULT '',
+        trust_state TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL,
+        rotated_at TEXT NOT NULL,
+        revoked_at TEXT,
+        last_seen_at TEXT
+      );
+      INSERT INTO device_keys_v26(id, label, public_key, trust_state, created_at, rotated_at, revoked_at, last_seen_at)
+        SELECT id, label, public_key, trust_state, created_at, rotated_at, revoked_at, last_seen_at FROM device_keys;
+      DROP TABLE device_keys;
+      ALTER TABLE device_keys_v26 RENAME TO device_keys;
+      PRAGMA user_version=26;
+    `);
+    legacy.close();
+
+    database = new PhoneDatabase(path);
+    assert.equal(database.state.schemaVersion, 27);
+    assert.ok(database.state.migrationBackup && existsSync(database.state.migrationBackup));
+    const preserved = database.deviceKey("legacy-device")!;
+    assert.equal(preserved.label, "Legacy device");
+    assert.equal(preserved.key_algorithm, "ed25519");
+    assert.equal(preserved.key_generation, 1);
+    assert.equal(preserved.recovery_state, "legacy_reenrollment_required");
+    assert.equal(database.linkedNodeIdentityReadiness("legacy-device").reason, "missing_fingerprint");
+  } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 // End-to-end governance loop (work item 016, AGH-027): request -> risk -> evidence
 // -> decision -> outcome -> audit -> replay holds together beyond per-primitive tests.
 test("runs the full governance loop end to end (AGH-027)", () => {

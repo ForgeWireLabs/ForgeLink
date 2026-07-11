@@ -6,7 +6,7 @@ import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 import { CLOUD_SUMMARY_DISABLED, SUMMARY_CONTENT_TRUST, SUMMARY_NOTICE, SUMMARY_PROVENANCE, summarizeThread, ThreadSummary } from "./summary";
 
-export const CURRENT_SCHEMA_VERSION = 26;
+export const CURRENT_SCHEMA_VERSION = 27;
 
 export interface ThreadRow {
   id: number;
@@ -535,6 +535,44 @@ export interface DeviceKeyInput {
   public_key?: string;
 }
 
+// Work item 031, LNH-001 builds on the existing device registry instead of creating
+// a parallel identity store. The database holds only public material and an opaque
+// secure-storage reference. It never accepts or persists private key bytes.
+export const LINKED_NODE_KEY_ALGORITHMS = ["ed25519"] as const;
+export type LinkedNodeKeyAlgorithm = typeof LINKED_NODE_KEY_ALGORITHMS[number];
+export const LINKED_NODE_RECOVERY_STATES = [
+  "legacy_reenrollment_required",
+  "ready",
+  "replacement_required",
+  "replacement_registered"
+] as const;
+export type LinkedNodeRecoveryState = typeof LINKED_NODE_RECOVERY_STATES[number];
+
+export interface LinkedNodeIdentityInput {
+  id: string;
+  label?: string;
+  key_algorithm?: LinkedNodeKeyAlgorithm;
+  public_key: string;
+  public_key_fingerprint: string;
+  secure_key_ref: string;
+}
+
+export interface LinkedNodeIdentityReadiness {
+  ready: boolean;
+  reason:
+    | "ready"
+    | "not_found"
+    | "revoked"
+    | "legacy_reenrollment_required"
+    | "replacement_required"
+    | "replacement_registered"
+    | "missing_public_key"
+    | "missing_fingerprint"
+    | "missing_secure_key_ref"
+    | "unsupported_algorithm";
+  identity: DeviceKeyRow | null;
+}
+
 export interface DeviceKeyRow {
   id: string;
   label: string;
@@ -544,6 +582,13 @@ export interface DeviceKeyRow {
   rotated_at: string;
   revoked_at: string | null;
   last_seen_at: string | null;
+  key_algorithm: string;
+  public_key_fingerprint: string;
+  secure_key_ref: string;
+  key_generation: number;
+  recovery_state: string;
+  revocation_reason: string;
+  replaced_by_device_id: string;
 }
 
 // External-contact consent ledger (work item 016, AGH-021): whether an agent may
@@ -1443,6 +1488,25 @@ export class PhoneDatabase {
         `);
         version = 26;
         this.connection.exec("PRAGMA user_version=26");
+      }
+      if (version === 26) {
+        // Production linked-node identity lifecycle metadata (work item 031,
+        // LNH-001; schema v27 per decision 0011). Existing AGH-025 rows are retained
+        // but fail closed as legacy_reenrollment_required until the operator creates
+        // a production identity whose private key is held outside SQLite.
+        this.connection.exec(`
+          ALTER TABLE device_keys ADD COLUMN key_algorithm TEXT NOT NULL DEFAULT 'ed25519';
+          ALTER TABLE device_keys ADD COLUMN public_key_fingerprint TEXT NOT NULL DEFAULT '';
+          ALTER TABLE device_keys ADD COLUMN secure_key_ref TEXT NOT NULL DEFAULT '';
+          ALTER TABLE device_keys ADD COLUMN key_generation INTEGER NOT NULL DEFAULT 1;
+          ALTER TABLE device_keys ADD COLUMN recovery_state TEXT NOT NULL DEFAULT 'legacy_reenrollment_required';
+          ALTER TABLE device_keys ADD COLUMN revocation_reason TEXT NOT NULL DEFAULT '';
+          ALTER TABLE device_keys ADD COLUMN replaced_by_device_id TEXT NOT NULL DEFAULT '';
+          CREATE INDEX IF NOT EXISTS idx_device_keys_trust_recovery
+            ON device_keys(trust_state, recovery_state);
+        `);
+        version = 27;
+        this.connection.exec("PRAGMA user_version=27");
       }
       this.connection.exec("COMMIT");
     } catch (error) {
@@ -3102,6 +3166,155 @@ export class PhoneDatabase {
     const now = utcNow();
     if (this.connection.prepare("UPDATE device_keys SET trust_state='revoked', revoked_at=?, rotated_at=? WHERE id=?").run(now, now, String(id || "").trim()).changes !== 1) throw new Error("Device key not found.");
     return this.deviceKey(id)!;
+  }
+
+  // --- Production linked-node identity lifecycle (work item 031, LNH-001) ----
+
+  private validateLinkedNodeIdentityInput(input: LinkedNodeIdentityInput, generation: number): {
+    id: string;
+    label: string;
+    keyAlgorithm: LinkedNodeKeyAlgorithm;
+    publicKey: string;
+    fingerprint: string;
+    secureKeyRef: string;
+  } {
+    const runtime = input as LinkedNodeIdentityInput & Record<string, unknown>;
+    for (const forbidden of ["private_key", "privateKey", "secret_key", "secretKey", "seed", "key_material"]) {
+      if (Object.prototype.hasOwnProperty.call(runtime, forbidden)) {
+        throw new Error("Private key material must never enter the ForgeLink database boundary.");
+      }
+    }
+    const id = String(input.id || "").trim();
+    if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(id)) throw new Error("Invalid linked-node id.");
+    const keyAlgorithm = String(input.key_algorithm || "ed25519") as LinkedNodeKeyAlgorithm;
+    if (!LINKED_NODE_KEY_ALGORITHMS.includes(keyAlgorithm)) throw new Error("Unsupported linked-node key algorithm.");
+    const publicKey = String(input.public_key || "").trim();
+    if (publicKey.length < 32 || publicKey.length > 4000) throw new Error("Linked-node public key is missing or out of bounds.");
+    const fingerprint = String(input.public_key_fingerprint || "").trim();
+    if (!/^sha256:[A-Za-z0-9_-]{43}$/.test(fingerprint)) throw new Error("Linked-node public key fingerprint must be sha256 base64url.");
+    const secureKeyRef = String(input.secure_key_ref || "").trim();
+    const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const expectedRef = new RegExp(`^forgelink:device-key:${escapedId}:v${generation}$`);
+    if (!expectedRef.test(secureKeyRef)) throw new Error(`secure_key_ref must identify ${id} generation ${generation}.`);
+    return {
+      id,
+      label: String(input.label || "").slice(0, 200),
+      keyAlgorithm,
+      publicKey,
+      fingerprint,
+      secureKeyRef
+    };
+  }
+
+  // Create is insert-only. An existing identity cannot be silently overwritten;
+  // rotation is a separate, explicit lifecycle operation.
+  registerLinkedNodeIdentity(input: LinkedNodeIdentityInput): DeviceKeyRow {
+    const material = this.validateLinkedNodeIdentityInput(input, 1);
+    if (this.deviceKey(material.id)) throw new Error("Linked-node identity already exists; rotate or recover it explicitly.");
+    const now = utcNow();
+    this.connection.prepare(`
+      INSERT INTO device_keys(
+        id, label, public_key, trust_state, created_at, rotated_at, revoked_at,
+        last_seen_at, key_algorithm, public_key_fingerprint, secure_key_ref,
+        key_generation, recovery_state, revocation_reason, replaced_by_device_id
+      ) VALUES(?, ?, ?, 'active', ?, ?, NULL, ?, ?, ?, ?, 1, 'ready', '', '')
+    `).run(
+      material.id,
+      material.label,
+      material.publicKey,
+      now,
+      now,
+      now,
+      material.keyAlgorithm,
+      material.fingerprint,
+      material.secureKeyRef
+    );
+    return this.deviceKey(material.id)!;
+  }
+
+  linkedNodeIdentityReadiness(id: string): LinkedNodeIdentityReadiness {
+    const identity = this.deviceKey(String(id || "").trim()) || null;
+    if (!identity) return { ready: false, reason: "not_found", identity: null };
+    if (identity.trust_state === "revoked") return { ready: false, reason: "revoked", identity };
+    if (!LINKED_NODE_KEY_ALGORITHMS.includes(identity.key_algorithm as LinkedNodeKeyAlgorithm)) {
+      return { ready: false, reason: "unsupported_algorithm", identity };
+    }
+    if (!identity.public_key) return { ready: false, reason: "missing_public_key", identity };
+    if (!identity.public_key_fingerprint) return { ready: false, reason: "missing_fingerprint", identity };
+    if (!identity.secure_key_ref) return { ready: false, reason: "missing_secure_key_ref", identity };
+    if (identity.recovery_state !== "ready") {
+      return { ready: false, reason: identity.recovery_state as LinkedNodeIdentityReadiness["reason"], identity };
+    }
+    return { ready: true, reason: "ready", identity };
+  }
+
+  // Rotation preserves node identity and history while moving to an independent
+  // secure-storage reference. Revoked identities cannot be rotated back to active.
+  rotateLinkedNodeIdentity(id: string, input: Omit<LinkedNodeIdentityInput, "id" | "label">): DeviceKeyRow {
+    const existing = this.deviceKey(String(id || "").trim());
+    if (!existing) throw new Error("Linked-node identity not found.");
+    if (existing.trust_state === "revoked") throw new Error("Revoked linked-node identities cannot be rotated; register a replacement through recovery.");
+    if (existing.recovery_state !== "ready") throw new Error("Linked-node identity must be reenrolled before rotation.");
+    const generation = Number(existing.key_generation) + 1;
+    const material = this.validateLinkedNodeIdentityInput({ ...input, id: existing.id, label: existing.label }, generation);
+    if (material.secureKeyRef === existing.secure_key_ref) throw new Error("Rotation requires a new secure key reference.");
+    if (material.fingerprint === existing.public_key_fingerprint) throw new Error("Rotation requires a new public key fingerprint.");
+    const now = utcNow();
+    this.connection.prepare(`
+      UPDATE device_keys
+      SET public_key=?, key_algorithm=?, public_key_fingerprint=?, secure_key_ref=?,
+          key_generation=?, rotated_at=?, last_seen_at=?
+      WHERE id=?
+    `).run(
+      material.publicKey,
+      material.keyAlgorithm,
+      material.fingerprint,
+      material.secureKeyRef,
+      generation,
+      now,
+      now,
+      existing.id
+    );
+    return this.deviceKey(existing.id)!;
+  }
+
+  // Revocation is terminal for this identity. Recovery never resurrects or rewrites
+  // it; recovery registers a new identity and links the historical record forward.
+  revokeLinkedNodeIdentity(id: string, reason: string): DeviceKeyRow {
+    const existing = this.deviceKey(String(id || "").trim());
+    if (!existing) throw new Error("Linked-node identity not found.");
+    if (existing.trust_state === "revoked") return existing;
+    const boundedReason = String(reason || "").trim().slice(0, 500);
+    if (!boundedReason) throw new Error("Linked-node revocation requires a reason.");
+    const now = utcNow();
+    this.connection.prepare(`
+      UPDATE device_keys
+      SET trust_state='revoked', revoked_at=?, last_seen_at=?, recovery_state='replacement_required',
+          revocation_reason=?
+      WHERE id=?
+    `).run(now, now, boundedReason, existing.id);
+    return this.deviceKey(existing.id)!;
+  }
+
+  recoverLinkedNodeIdentity(revokedId: string, replacement: LinkedNodeIdentityInput): {
+    revoked: DeviceKeyRow;
+    replacement: DeviceKeyRow;
+  } {
+    const existing = this.deviceKey(String(revokedId || "").trim());
+    if (!existing) throw new Error("Revoked linked-node identity not found.");
+    if (existing.trust_state !== "revoked" || existing.recovery_state !== "replacement_required") {
+      throw new Error("Linked-node recovery requires a revoked identity awaiting replacement.");
+    }
+    if (String(replacement.id || "").trim() === existing.id) {
+      throw new Error("Recovery must register a new linked-node identity; revoked identities are never resurrected.");
+    }
+    const created = this.registerLinkedNodeIdentity(replacement);
+    this.connection.prepare(`
+      UPDATE device_keys
+      SET recovery_state='replacement_registered', replaced_by_device_id=?
+      WHERE id=?
+    `).run(created.id, existing.id);
+    return { revoked: this.deviceKey(existing.id)!, replacement: created };
   }
 
   // --- Decision memory (work item 016, AGH-014) -------------------------------

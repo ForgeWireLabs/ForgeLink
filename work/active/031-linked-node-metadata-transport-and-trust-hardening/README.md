@@ -84,5 +84,6 @@ relationship.
 
 ## Evidence Log
 
-No implementation evidence yet. This item was created before production hardening work
-begins.
+| Date | Criterion | Evidence | Result |
+| --- | --- | --- | --- |
+| 2026-07-11 | LNH-001 slice 1 | Claimed schema v27 and began extending the existing `device_keys` registry with algorithm, fingerprint, opaque secure-key reference, generation, revocation reason, replacement linkage, and fail-closed recovery state. Added lifecycle and v26-to-v27 migration tests. | Implementation started. LNH-001 remains pending until OS-backed private-key generation/storage and application integration are complete. |
