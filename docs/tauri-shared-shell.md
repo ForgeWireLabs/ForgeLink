@@ -66,6 +66,14 @@ The scaffold responses are local-only/degraded until the Tauri shell owns the
 full backend lifecycle. A real local API connection can be pointed at
 `FORGELINK_LOCAL_API_URL` and `FORGELINK_LOCAL_API_TOKEN`.
 
+Desktop linked-node private keys are stored as authenticated encrypted blobs in the
+operator-owned local vault. `FORGELINK_IDENTITY_VAULT_DIR` selects the exact vault;
+`FORGELINK_LOCAL_ROOT/keys/linked-node-identities` is the secondary resolution path.
+The Windows development fallback is
+`C:\Projects\ForgeLink-local\keys\linked-node-identities`. The native OS
+credential manager stores only the vault-wrapping key. Public APIs and the renderer
+receive public key metadata and opaque `secure_key_ref` values, never private bytes.
+
 ## Mobile Decisions
 
 Mobile decision actions use the same governed approval records, device-key
