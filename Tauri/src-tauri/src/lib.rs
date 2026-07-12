@@ -1,4 +1,5 @@
 mod node_identity;
+mod node_identity_lifecycle;
 
 use serde_json::{json, Value};
 use std::{
@@ -224,17 +225,23 @@ fn desktop_linked_node_status() -> Value {
 }
 
 #[tauri::command]
-fn forgelink_provision_linked_node_identity(
-    payload: node_identity::NodeIdentityRequest,
-) -> Result<node_identity::NodeIdentityPublic, String> {
-    node_identity::provision_os_identity(&payload).map_err(|error| error.code().to_string())
+fn forgelink_create_linked_node_identity(
+    payload: node_identity_lifecycle::CreateLinkedNodeIdentityRequest,
+) -> Result<
+    node_identity_lifecycle::LinkedNodeLifecycleResult,
+    node_identity_lifecycle::LinkedNodeLifecycleFailure,
+> {
+    node_identity_lifecycle::create_with_local_backend(&base_url(), &api_token(), payload)
 }
 
 #[tauri::command]
-fn forgelink_delete_linked_node_identity_secret(
-    payload: node_identity::NodeIdentityRequest,
-) -> Result<node_identity::NodeIdentitySecretDeletion, String> {
-    node_identity::delete_os_identity_secret(&payload).map_err(|error| error.code().to_string())
+fn forgelink_rotate_linked_node_identity(
+    payload: node_identity_lifecycle::RotateLinkedNodeIdentityRequest,
+) -> Result<
+    node_identity_lifecycle::LinkedNodeLifecycleResult,
+    node_identity_lifecycle::LinkedNodeLifecycleFailure,
+> {
+    node_identity_lifecycle::rotate_with_local_backend(&base_url(), &api_token(), payload)
 }
 
 #[tauri::command]
@@ -416,8 +423,8 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             forgelink_backend_connection,
-            forgelink_provision_linked_node_identity,
-            forgelink_delete_linked_node_identity_secret,
+            forgelink_create_linked_node_identity,
+            forgelink_rotate_linked_node_identity,
             forgelink_desktop_linked_node_status,
             forgelink_get_status,
             forgelink_start_local_only,

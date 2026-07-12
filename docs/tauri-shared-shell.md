@@ -81,6 +81,15 @@ until the database validator rejects them, so private bytes cannot be silently i
 or persisted. The older `/api/device-keys` AGH-025 routes remain a separate legacy
 decision-attribution surface and do not weaken the linked-node lifecycle contract.
 
+The Tauri shell exposes only orchestrated linked-node identity creation and rotation
+commands. It provisions a generation-scoped key in the encrypted local vault, then
+commits the corresponding public metadata through the loopback launch-authenticated
+backend. A failed backend create or rotation deletes the newly provisioned key before
+returning failure. After a committed rotation, deletion of the retired generation is
+reported separately through `retired_secret_deleted` and `cleanup_required`; the active
+database record always points at the new generation. The former low-level provision and
+delete commands are no longer exposed to renderer invocation.
+
 ## Mobile Decisions
 
 Mobile decision actions use the same governed approval records, device-key
