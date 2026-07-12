@@ -1198,6 +1198,108 @@ test("hardens ingress, labels agent content, and exposes the agent governance co
     const revoked = await fetch(`${localUrl}/api/device-keys/desktop-1/revoke`, { method: "POST", headers: authorized() }).then((r) => r.json()) as { device: { trust_state: string } };
     assert.equal(revoked.device.trust_state, "revoked");
 
+    // LNH-001 slice 3: the stronger linked-node lifecycle is a separate,
+    // launch-only API and rejects private material at the database boundary.
+    const linkedMaterial = (id: string, generation: number, marker: string) => ({
+      key_algorithm: "ed25519",
+      public_key: marker.repeat(43),
+      public_key_fingerprint: `sha256:${marker.repeat(43)}`,
+      secure_key_ref: `forgelink:device-key:${id}:v${generation}`
+    });
+
+    assert.equal((await fetch(`${localUrl}/api/linked-node-identities/linked-desktop-1/readiness`)).status, 401);
+    assert.equal((await fetch(`${localUrl}/api/linked-node-identities`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "linked-desktop-1", label: "Linked desktop", ...linkedMaterial("linked-desktop-1", 1, "A") })
+    })).status, 401);
+
+    const forbidden = await fetch(`${localUrl}/api/linked-node-identities`, {
+      method: "POST",
+      headers: authorized({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        id: "linked-private-rejected",
+        label: "Must not persist",
+        ...linkedMaterial("linked-private-rejected", 1, "P"),
+        private_key: "must-never-enter-storage"
+      })
+    });
+    assert.equal(forbidden.status, 400);
+    const forbiddenBody = await forbidden.json() as { error: string };
+    assert.match(forbiddenBody.error, /Private key material/);
+
+    const linkedCreateResponse = await fetch(`${localUrl}/api/linked-node-identities`, {
+      method: "POST",
+      headers: authorized({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        id: "linked-desktop-1",
+        label: "Linked desktop",
+        ...linkedMaterial("linked-desktop-1", 1, "A")
+      })
+    });
+    assert.equal(linkedCreateResponse.status, 201);
+    const linkedCreated = await linkedCreateResponse.json() as {
+      identity: { id: string; trust_state: string; key_generation: number; recovery_state: string; secure_key_ref: string }
+    };
+    assert.equal(linkedCreated.identity.id, "linked-desktop-1");
+    assert.equal(linkedCreated.identity.trust_state, "active");
+    assert.equal(linkedCreated.identity.key_generation, 1);
+    assert.equal(linkedCreated.identity.recovery_state, "ready");
+    assert.equal(linkedCreated.identity.secure_key_ref, "forgelink:device-key:linked-desktop-1:v1");
+
+    const linkedReadiness = await fetch(`${localUrl}/api/linked-node-identities/linked-desktop-1/readiness`, {
+      headers: authorized()
+    }).then((r) => r.json()) as { readiness: { ready: boolean; reason: string } };
+    assert.equal(linkedReadiness.readiness.ready, true);
+    assert.equal(linkedReadiness.readiness.reason, "ready");
+
+    const linkedRotated = await fetch(`${localUrl}/api/linked-node-identities/linked-desktop-1/rotate`, {
+      method: "POST",
+      headers: authorized({ "Content-Type": "application/json" }),
+      body: JSON.stringify(linkedMaterial("linked-desktop-1", 2, "B"))
+    }).then((r) => r.json()) as {
+      identity: { key_generation: number; public_key_fingerprint: string; secure_key_ref: string }
+    };
+    assert.equal(linkedRotated.identity.key_generation, 2);
+    assert.equal(linkedRotated.identity.public_key_fingerprint, `sha256:${"B".repeat(43)}`);
+    assert.equal(linkedRotated.identity.secure_key_ref, "forgelink:device-key:linked-desktop-1:v2");
+
+    const linkedRevoked = await fetch(`${localUrl}/api/linked-node-identities/linked-desktop-1/revoke`, {
+      method: "POST",
+      headers: authorized({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ reason: "operator-requested replacement" })
+    }).then((r) => r.json()) as {
+      identity: { trust_state: string; recovery_state: string; revocation_reason: string }
+    };
+    assert.equal(linkedRevoked.identity.trust_state, "revoked");
+    assert.equal(linkedRevoked.identity.recovery_state, "replacement_required");
+    assert.equal(linkedRevoked.identity.revocation_reason, "operator-requested replacement");
+
+    const linkedRecoveredResponse = await fetch(`${localUrl}/api/linked-node-identities/linked-desktop-1/recover`, {
+      method: "POST",
+      headers: authorized({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        replacement: {
+          id: "linked-desktop-2",
+          label: "Replacement desktop",
+          ...linkedMaterial("linked-desktop-2", 1, "C")
+        }
+      })
+    });
+    assert.equal(linkedRecoveredResponse.status, 201);
+    const linkedRecovered = await linkedRecoveredResponse.json() as {
+      recovery: {
+        revoked: { recovery_state: string; replaced_by_device_id: string };
+        replacement: { id: string; trust_state: string; recovery_state: string; key_generation: number };
+      };
+    };
+    assert.equal(linkedRecovered.recovery.revoked.recovery_state, "replacement_registered");
+    assert.equal(linkedRecovered.recovery.revoked.replaced_by_device_id, "linked-desktop-2");
+    assert.equal(linkedRecovered.recovery.replacement.id, "linked-desktop-2");
+    assert.equal(linkedRecovered.recovery.replacement.trust_state, "active");
+    assert.equal(linkedRecovered.recovery.replacement.recovery_state, "ready");
+    assert.equal(linkedRecovered.recovery.replacement.key_generation, 1);
+
     // AGH-023: the public webhook ingress is rate-limited; a flood eventually 429s
     // (and the gate runs before signature handling, so earlier hits are 403s).
     const statuses: number[] = [];

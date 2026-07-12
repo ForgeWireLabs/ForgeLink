@@ -1324,6 +1324,79 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
         return sendJson(response, { ok: true, device: database.revokeDeviceKey(deviceRevokeMatch[1]) });
       }
+
+      // Production linked-node identity lifecycle (work item 031, LNH-001):
+      // launch-authenticated only. The original payload is preserved so forbidden
+      // private-key fields reach the database boundary and are rejected rather than
+      // silently filtered. Only public key metadata and opaque secure references persist.
+      if (request.method === "POST" && url.pathname === "/api/linked-node-identities") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const identity = database.registerLinkedNodeIdentity({
+          ...payload,
+          id: typeof payload.id === "string" ? payload.id : "",
+          label: typeof payload.label === "string" ? payload.label : "",
+          key_algorithm: typeof payload.key_algorithm === "string" ? payload.key_algorithm : "ed25519",
+          public_key: typeof payload.public_key === "string" ? payload.public_key : "",
+          public_key_fingerprint: typeof payload.public_key_fingerprint === "string" ? payload.public_key_fingerprint : "",
+          secure_key_ref: typeof payload.secure_key_ref === "string" ? payload.secure_key_ref : ""
+        } as Parameters<PhoneDatabase["registerLinkedNodeIdentity"]>[0]);
+        return sendJson(response, { ok: true, identity }, 201);
+      }
+
+      const linkedIdentityReadinessMatch = url.pathname.match(/^\/api\/linked-node-identities\/([A-Za-z0-9_.:-]{1,80})\/readiness$/);
+      if (request.method === "GET" && linkedIdentityReadinessMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, {
+          ok: true,
+          readiness: database.linkedNodeIdentityReadiness(linkedIdentityReadinessMatch[1])
+        });
+      }
+
+      const linkedIdentityRotateMatch = url.pathname.match(/^\/api\/linked-node-identities\/([A-Za-z0-9_.:-]{1,80})\/rotate$/);
+      if (request.method === "POST" && linkedIdentityRotateMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const identity = database.rotateLinkedNodeIdentity(linkedIdentityRotateMatch[1], {
+          ...payload,
+          key_algorithm: typeof payload.key_algorithm === "string" ? payload.key_algorithm : "ed25519",
+          public_key: typeof payload.public_key === "string" ? payload.public_key : "",
+          public_key_fingerprint: typeof payload.public_key_fingerprint === "string" ? payload.public_key_fingerprint : "",
+          secure_key_ref: typeof payload.secure_key_ref === "string" ? payload.secure_key_ref : ""
+        } as Parameters<PhoneDatabase["rotateLinkedNodeIdentity"]>[1]);
+        return sendJson(response, { ok: true, identity });
+      }
+
+      const linkedIdentityRevokeMatch = url.pathname.match(/^\/api\/linked-node-identities\/([A-Za-z0-9_.:-]{1,80})\/revoke$/);
+      if (request.method === "POST" && linkedIdentityRevokeMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const identity = database.revokeLinkedNodeIdentity(
+          linkedIdentityRevokeMatch[1],
+          typeof payload.reason === "string" ? payload.reason : ""
+        );
+        return sendJson(response, { ok: true, identity });
+      }
+
+      const linkedIdentityRecoverMatch = url.pathname.match(/^\/api\/linked-node-identities\/([A-Za-z0-9_.:-]{1,80})\/recover$/);
+      if (request.method === "POST" && linkedIdentityRecoverMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request);
+        const replacementPayload = payload.replacement && typeof payload.replacement === "object" && !Array.isArray(payload.replacement)
+          ? payload.replacement as Record<string, unknown>
+          : {};
+        const recovery = database.recoverLinkedNodeIdentity(linkedIdentityRecoverMatch[1], {
+          ...replacementPayload,
+          id: typeof replacementPayload.id === "string" ? replacementPayload.id : "",
+          label: typeof replacementPayload.label === "string" ? replacementPayload.label : "",
+          key_algorithm: typeof replacementPayload.key_algorithm === "string" ? replacementPayload.key_algorithm : "ed25519",
+          public_key: typeof replacementPayload.public_key === "string" ? replacementPayload.public_key : "",
+          public_key_fingerprint: typeof replacementPayload.public_key_fingerprint === "string" ? replacementPayload.public_key_fingerprint : "",
+          secure_key_ref: typeof replacementPayload.secure_key_ref === "string" ? replacementPayload.secure_key_ref : ""
+        } as Parameters<PhoneDatabase["recoverLinkedNodeIdentity"]>[1]);
+        return sendJson(response, { ok: true, recovery }, 201);
+      }
+
       if (request.method === "POST" && url.pathname === "/api/data/retention") {
         const payload = await readJson(request);
         const days = Number(payload.days);

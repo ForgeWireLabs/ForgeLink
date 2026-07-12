@@ -74,6 +74,13 @@ The Windows development fallback is
 credential manager stores only the vault-wrapping key. Public APIs and the renderer
 receive public key metadata and opaque `secure_key_ref` values, never private bytes.
 
+The authenticated local backend exposes a launch-only lifecycle surface at
+`/api/linked-node-identities`: create, readiness, rotation, revocation, and
+replacement-based recovery. These routes preserve forbidden private-material fields
+until the database validator rejects them, so private bytes cannot be silently ignored
+or persisted. The older `/api/device-keys` AGH-025 routes remain a separate legacy
+decision-attribution surface and do not weaken the linked-node lifecycle contract.
+
 ## Mobile Decisions
 
 Mobile decision actions use the same governed approval records, device-key
