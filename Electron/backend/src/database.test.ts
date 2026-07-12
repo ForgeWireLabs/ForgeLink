@@ -1014,6 +1014,47 @@ test("enforces production linked-node identity lifecycle boundaries (LNH-001)", 
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
+test("rolls back replacement registration when linked-node recovery linking fails (LNH-001)", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-linked-node-recovery-rollback-"));
+  const path = join(directory, "phone.sqlite3");
+  const database = new PhoneDatabase(path);
+  try {
+    database.registerLinkedNodeIdentity({
+      id: "desktop-primary",
+      label: "Primary desktop",
+      public_key: "ed25519-public-key-material-generation-one",
+      public_key_fingerprint: `sha256:${"A".repeat(43)}`,
+      secure_key_ref: "forgelink:device-key:desktop-primary:v1"
+    });
+    database.revokeLinkedNodeIdentity("desktop-primary", "device reported lost");
+    database.connection.exec(`
+      CREATE TRIGGER abort_linked_node_recovery_link
+      BEFORE UPDATE OF recovery_state, replaced_by_device_id ON device_keys
+      WHEN OLD.id='desktop-primary' AND NEW.recovery_state='replacement_registered'
+      BEGIN
+        SELECT RAISE(ABORT, 'forced linked-node recovery link failure');
+      END;
+    `);
+
+    assert.throws(() => database.recoverLinkedNodeIdentity("desktop-primary", {
+      id: "desktop-replacement",
+      label: "Replacement desktop",
+      public_key: "ed25519-public-key-material-replacement-one",
+      public_key_fingerprint: `sha256:${"B".repeat(43)}`,
+      secure_key_ref: "forgelink:device-key:desktop-replacement:v1"
+    }), /forced linked-node recovery link failure/);
+
+    assert.equal(database.deviceKey("desktop-replacement"), undefined);
+    const revoked = database.deviceKey("desktop-primary");
+    assert.ok(revoked);
+    assert.equal(revoked.recovery_state, "replacement_required");
+    assert.equal(revoked.replaced_by_device_id, "");
+  } finally {
+    database.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("upgrades the v26 device registry to v27 without losing identities (LNH-001)", () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-device-key-v26-upgrade-"));
   const path = join(directory, "phone.sqlite3");

@@ -3300,21 +3300,31 @@ export class PhoneDatabase {
     revoked: DeviceKeyRow;
     replacement: DeviceKeyRow;
   } {
-    const existing = this.deviceKey(String(revokedId || "").trim());
-    if (!existing) throw new Error("Revoked linked-node identity not found.");
-    if (existing.trust_state !== "revoked" || existing.recovery_state !== "replacement_required") {
-      throw new Error("Linked-node recovery requires a revoked identity awaiting replacement.");
+    this.connection.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = this.deviceKey(String(revokedId || "").trim());
+      if (!existing) throw new Error("Revoked linked-node identity not found.");
+      if (existing.trust_state !== "revoked" || existing.recovery_state !== "replacement_required") {
+        throw new Error("Linked-node recovery requires a revoked identity awaiting replacement.");
+      }
+      if (String(replacement.id || "").trim() === existing.id) {
+        throw new Error("Recovery must register a new linked-node identity; revoked identities are never resurrected.");
+      }
+      const created = this.registerLinkedNodeIdentity(replacement);
+      const linked = this.connection.prepare(`
+        UPDATE device_keys
+        SET recovery_state='replacement_registered', replaced_by_device_id=?
+        WHERE id=?
+      `).run(created.id, existing.id);
+      if (linked.changes !== 1) throw new Error("Linked-node recovery failed to link the revoked identity.");
+      const revoked = this.deviceKey(existing.id);
+      if (!revoked) throw new Error("Linked-node recovery commit could not be verified.");
+      this.connection.exec("COMMIT");
+      return { revoked, replacement: created };
+    } catch (error) {
+      this.connection.exec("ROLLBACK");
+      throw error;
     }
-    if (String(replacement.id || "").trim() === existing.id) {
-      throw new Error("Recovery must register a new linked-node identity; revoked identities are never resurrected.");
-    }
-    const created = this.registerLinkedNodeIdentity(replacement);
-    this.connection.prepare(`
-      UPDATE device_keys
-      SET recovery_state='replacement_registered', replaced_by_device_id=?
-      WHERE id=?
-    `).run(created.id, existing.id);
-    return { revoked: this.deviceKey(existing.id)!, replacement: created };
   }
 
   // --- Decision memory (work item 016, AGH-014) -------------------------------
