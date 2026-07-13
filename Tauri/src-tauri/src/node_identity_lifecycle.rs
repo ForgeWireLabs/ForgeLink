@@ -25,6 +25,14 @@ pub struct RotateLinkedNodeIdentityRequest {
     pub id: String,
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct RecoverLinkedNodeIdentityRequest {
+    pub revoked_id: String,
+    pub replacement_id: String,
+    #[serde(default)]
+    pub replacement_label: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LinkedNodeIdentityRecord {
     pub id: String,
@@ -43,12 +51,25 @@ pub struct LinkedNodeIdentityRecord {
     pub replaced_by_device_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct LinkedNodeRecoveryRecord {
+    revoked: LinkedNodeIdentityRecord,
+    replacement: LinkedNodeIdentityRecord,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct LinkedNodeLifecycleResult {
     pub operation: String,
     pub identity: LinkedNodeIdentityRecord,
     pub retired_secret_deleted: Option<bool>,
     pub cleanup_required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct LinkedNodeRecoveryResult {
+    pub operation: String,
+    pub revoked: LinkedNodeIdentityRecord,
+    pub replacement: LinkedNodeIdentityRecord,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -125,6 +146,11 @@ struct ReadinessEnvelope {
     readiness: LinkedNodeIdentityReadiness,
 }
 
+#[derive(Debug, Deserialize)]
+struct RecoveryEnvelope {
+    recovery: LinkedNodeRecoveryRecord,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BackendFailure {
     Unavailable,
@@ -182,6 +208,11 @@ trait LinkedNodeBackend {
         id: &str,
         payload: &LinkedNodeIdentityMaterial,
     ) -> Result<LinkedNodeIdentityRecord, BackendFailure>;
+    fn recover(
+        &self,
+        revoked_id: &str,
+        payload: &LinkedNodeIdentityMaterial,
+    ) -> Result<LinkedNodeRecoveryRecord, BackendFailure>;
 }
 
 #[derive(Debug)]
@@ -294,6 +325,24 @@ impl LinkedNodeBackend for LoopbackBackend {
         )?;
         Ok(envelope.identity)
     }
+
+    fn recover(
+        &self,
+        revoked_id: &str,
+        payload: &LinkedNodeIdentityMaterial,
+    ) -> Result<LinkedNodeRecoveryRecord, BackendFailure> {
+        let envelope: RecoveryEnvelope = self.send(
+            self.authorized(
+                self.client
+                    .post(format!(
+                        "{}/api/linked-node-identities/{revoked_id}/recover",
+                        self.base_url
+                    ))
+                    .json(&serde_json::json!({ "replacement": payload })),
+            ),
+        )?;
+        Ok(envelope.recovery)
+    }
 }
 
 fn validate_id(value: &str) -> Result<String, LinkedNodeLifecycleFailure> {
@@ -351,6 +400,28 @@ fn compensate_new_secret<V: IdentityVault>(
             LinkedNodeLifecycleFailure::with_rollback(rollback_failure_code, phase, false)
         }
     }
+}
+
+fn verify_committed_recovery(
+    committed: &LinkedNodeRecoveryRecord,
+    revoked_id: &str,
+    replacement_id: &str,
+    public: &NodeIdentityPublic,
+) -> Result<(), LinkedNodeLifecycleFailure> {
+    verify_committed_identity(&committed.replacement, public, "backend_recover_commit")?;
+    if committed.revoked.id != revoked_id
+        || committed.revoked.trust_state != "revoked"
+        || committed.revoked.recovery_state != "replacement_registered"
+        || committed.revoked.replaced_by_device_id != replacement_id
+        || committed.replacement.trust_state != "active"
+        || committed.replacement.recovery_state != "ready"
+    {
+        return Err(LinkedNodeLifecycleFailure::new(
+            "linked_node_identity_backend_contract_mismatch",
+            "backend_recover_commit",
+        ));
+    }
+    Ok(())
 }
 
 fn create_identity<V: IdentityVault, B: LinkedNodeBackend>(
@@ -465,6 +536,83 @@ fn rotate_identity<V: IdentityVault, B: LinkedNodeBackend>(
     })
 }
 
+fn recover_identity<V: IdentityVault, B: LinkedNodeBackend>(
+    vault: &V,
+    backend: &B,
+    input: RecoverLinkedNodeIdentityRequest,
+) -> Result<LinkedNodeRecoveryResult, LinkedNodeLifecycleFailure> {
+    let revoked_id = validate_id(&input.revoked_id)?;
+    let replacement_id = validate_id(&input.replacement_id)?;
+    if revoked_id == replacement_id {
+        return Err(LinkedNodeLifecycleFailure::new(
+            "linked_node_identity_recovery_requires_new_id",
+            "input_validation",
+        ));
+    }
+
+    let readiness = backend.readiness(&revoked_id).map_err(|error| {
+        LinkedNodeLifecycleFailure::new(error.code(), "backend_recovery_readiness")
+    })?;
+    let revoked = readiness.identity.ok_or_else(|| {
+        LinkedNodeLifecycleFailure::new(
+            "linked_node_identity_backend_contract_mismatch",
+            "backend_recovery_readiness",
+        )
+    })?;
+    if revoked.id != revoked_id {
+        return Err(LinkedNodeLifecycleFailure::new(
+            "linked_node_identity_backend_contract_mismatch",
+            "backend_recovery_readiness",
+        ));
+    }
+    if readiness.ready
+        || readiness.reason != "revoked"
+        || revoked.trust_state != "revoked"
+        || revoked.recovery_state != "replacement_required"
+        || !revoked.replaced_by_device_id.is_empty()
+    {
+        return Err(LinkedNodeLifecycleFailure::new(
+            "linked_node_identity_not_recoverable",
+            format!("backend_recovery_readiness:{}", readiness.reason),
+        ));
+    }
+
+    let replacement_request = NodeIdentityRequest {
+        id: replacement_id.clone(),
+        generation: 1,
+    };
+    let public = vault
+        .provision(&replacement_request)
+        .map_err(|error| vault_failure(error, "vault_provision_recovery"))?;
+    let material = LinkedNodeIdentityMaterial::from_public(&public, input.replacement_label);
+
+    let committed = match backend.recover(&revoked_id, &material) {
+        Ok(recovery) => recovery,
+        Err(error @ BackendFailure::Rejected) => {
+            return Err(compensate_new_secret(
+                vault,
+                &replacement_request,
+                error,
+                "backend_recover",
+                "linked_node_identity_recover_rollback_failed",
+            ))
+        }
+        Err(error) => {
+            return Err(LinkedNodeLifecycleFailure::new(
+                error.code(),
+                "backend_recover_ambiguous",
+            ))
+        }
+    };
+    verify_committed_recovery(&committed, &revoked_id, &replacement_id, &public)?;
+
+    Ok(LinkedNodeRecoveryResult {
+        operation: "recover".to_string(),
+        revoked: committed.revoked,
+        replacement: committed.replacement,
+    })
+}
+
 pub fn create_with_local_backend(
     base_url: &str,
     token: &str,
@@ -481,6 +629,15 @@ pub fn rotate_with_local_backend(
 ) -> Result<LinkedNodeLifecycleResult, LinkedNodeLifecycleFailure> {
     let backend = LoopbackBackend::new(base_url, token)?;
     rotate_identity(&OsIdentityVault, &backend, input)
+}
+
+pub fn recover_with_local_backend(
+    base_url: &str,
+    token: &str,
+    input: RecoverLinkedNodeIdentityRequest,
+) -> Result<LinkedNodeRecoveryResult, LinkedNodeLifecycleFailure> {
+    let backend = LoopbackBackend::new(base_url, token)?;
+    recover_identity(&OsIdentityVault, &backend, input)
 }
 
 #[cfg(test)]
@@ -570,10 +727,14 @@ mod tests {
         readiness: LinkedNodeIdentityReadiness,
         fail_create: bool,
         fail_rotate: bool,
+        fail_recover: bool,
+        ambiguous_recover_failure: bool,
         mismatch_create: bool,
         mismatch_rotate: bool,
+        mismatch_recover: bool,
         created: Mutex<Vec<LinkedNodeIdentityMaterial>>,
         rotated: Mutex<Vec<LinkedNodeIdentityMaterial>>,
+        recovered: Mutex<Vec<LinkedNodeIdentityMaterial>>,
     }
 
     impl FakeBackend {
@@ -582,10 +743,14 @@ mod tests {
                 readiness,
                 fail_create: false,
                 fail_rotate: false,
+                fail_recover: false,
+                ambiguous_recover_failure: false,
                 mismatch_create: false,
                 mismatch_rotate: false,
+                mismatch_recover: false,
                 created: Mutex::new(Vec::new()),
                 rotated: Mutex::new(Vec::new()),
+                recovered: Mutex::new(Vec::new()),
             }
         }
 
@@ -641,6 +806,36 @@ mod tests {
             }
             Ok(record)
         }
+
+        fn recover(
+            &self,
+            revoked_id: &str,
+            payload: &LinkedNodeIdentityMaterial,
+        ) -> Result<LinkedNodeRecoveryRecord, BackendFailure> {
+            if self.ambiguous_recover_failure {
+                return Err(BackendFailure::InvalidResponse);
+            }
+            if self.fail_recover {
+                return Err(BackendFailure::Rejected);
+            }
+            self.recovered
+                .lock()
+                .expect("recovered")
+                .push(payload.clone());
+            let replacement = Self::record(payload);
+            let mut revoked = current_identity(revoked_id, 1);
+            revoked.trust_state = "revoked".to_string();
+            revoked.recovery_state = "replacement_registered".to_string();
+            revoked.revocation_reason = "device reported lost".to_string();
+            revoked.replaced_by_device_id = payload.id.clone();
+            if self.mismatch_recover {
+                revoked.replaced_by_device_id = "unexpected-replacement".to_string();
+            }
+            Ok(LinkedNodeRecoveryRecord {
+                revoked,
+                replacement,
+            })
+        }
     }
 
     fn current_identity(id: &str, generation: u32) -> LinkedNodeIdentityRecord {
@@ -664,6 +859,18 @@ mod tests {
             ready: true,
             reason: "ready".to_string(),
             identity: Some(current_identity(id, generation)),
+        }
+    }
+
+    fn revoked_awaiting_replacement(id: &str, generation: u32) -> LinkedNodeIdentityReadiness {
+        let mut identity = current_identity(id, generation);
+        identity.trust_state = "revoked".to_string();
+        identity.recovery_state = "replacement_required".to_string();
+        identity.revocation_reason = "device reported lost".to_string();
+        LinkedNodeIdentityReadiness {
+            ready: false,
+            reason: "revoked".to_string(),
+            identity: Some(identity),
         }
     }
 
@@ -851,6 +1058,169 @@ mod tests {
 
         assert_eq!(failure.code, "linked_node_identity_not_ready");
         assert!(!vault.contains("desktop-primary", 2));
+    }
+
+    #[test]
+    fn recovery_provisions_replacement_and_links_revoked_identity() {
+        let vault = FakeVault::default();
+        vault.insert_existing("desktop-primary", 1);
+        let backend = FakeBackend::new(revoked_awaiting_replacement("desktop-primary", 1));
+
+        let result = recover_identity(
+            &vault,
+            &backend,
+            RecoverLinkedNodeIdentityRequest {
+                revoked_id: "desktop-primary".to_string(),
+                replacement_id: "desktop-replacement".to_string(),
+                replacement_label: "Replacement desktop".to_string(),
+            },
+        )
+        .expect("recover");
+
+        assert_eq!(result.operation, "recover");
+        assert_eq!(result.revoked.id, "desktop-primary");
+        assert_eq!(result.revoked.trust_state, "revoked");
+        assert_eq!(result.revoked.recovery_state, "replacement_registered");
+        assert_eq!(result.revoked.replaced_by_device_id, "desktop-replacement");
+        assert_eq!(result.replacement.id, "desktop-replacement");
+        assert_eq!(result.replacement.key_generation, 1);
+        assert!(vault.contains("desktop-primary", 1));
+        assert!(vault.contains("desktop-replacement", 1));
+
+        let serialized = serde_json::to_string(&result).expect("serialize recovery");
+        assert!(!serialized.contains("private_key"));
+        assert!(!serialized.contains("secret_key"));
+        assert!(!serialized.contains("seed"));
+    }
+
+    #[test]
+    fn recovery_rolls_back_replacement_when_backend_rejects() {
+        let vault = FakeVault::default();
+        vault.insert_existing("desktop-primary", 1);
+        let mut backend = FakeBackend::new(revoked_awaiting_replacement("desktop-primary", 1));
+        backend.fail_recover = true;
+
+        let failure = recover_identity(
+            &vault,
+            &backend,
+            RecoverLinkedNodeIdentityRequest {
+                revoked_id: "desktop-primary".to_string(),
+                replacement_id: "desktop-replacement".to_string(),
+                replacement_label: String::new(),
+            },
+        )
+        .expect_err("backend rejection");
+
+        assert_eq!(failure.code, "linked_node_identity_backend_rejected");
+        assert_eq!(failure.phase, "backend_recover");
+        assert!(failure.rollback_attempted);
+        assert_eq!(failure.rollback_succeeded, Some(true));
+        assert!(vault.contains("desktop-primary", 1));
+        assert!(!vault.contains("desktop-replacement", 1));
+    }
+
+    #[test]
+    fn ambiguous_recovery_failure_preserves_replacement_secret() {
+        let vault = FakeVault::default();
+        vault.insert_existing("desktop-primary", 1);
+        let mut backend = FakeBackend::new(revoked_awaiting_replacement("desktop-primary", 1));
+        backend.ambiguous_recover_failure = true;
+
+        let failure = recover_identity(
+            &vault,
+            &backend,
+            RecoverLinkedNodeIdentityRequest {
+                revoked_id: "desktop-primary".to_string(),
+                replacement_id: "desktop-replacement".to_string(),
+                replacement_label: String::new(),
+            },
+        )
+        .expect_err("ambiguous backend failure");
+
+        assert_eq!(
+            failure.code,
+            "linked_node_identity_backend_invalid_response"
+        );
+        assert_eq!(failure.phase, "backend_recover_ambiguous");
+        assert!(!failure.rollback_attempted);
+        assert_eq!(failure.rollback_succeeded, None);
+        assert!(vault.contains("desktop-primary", 1));
+        assert!(vault.contains("desktop-replacement", 1));
+    }
+
+    #[test]
+    fn committed_recovery_contract_mismatch_preserves_replacement_secret() {
+        let vault = FakeVault::default();
+        vault.insert_existing("desktop-primary", 1);
+        let mut backend = FakeBackend::new(revoked_awaiting_replacement("desktop-primary", 1));
+        backend.mismatch_recover = true;
+
+        let failure = recover_identity(
+            &vault,
+            &backend,
+            RecoverLinkedNodeIdentityRequest {
+                revoked_id: "desktop-primary".to_string(),
+                replacement_id: "desktop-replacement".to_string(),
+                replacement_label: String::new(),
+            },
+        )
+        .expect_err("backend contract mismatch");
+
+        assert_eq!(
+            failure.code,
+            "linked_node_identity_backend_contract_mismatch"
+        );
+        assert_eq!(failure.phase, "backend_recover_commit");
+        assert!(!failure.rollback_attempted);
+        assert_eq!(failure.rollback_succeeded, None);
+        assert!(vault.contains("desktop-primary", 1));
+        assert!(vault.contains("desktop-replacement", 1));
+    }
+
+    #[test]
+    fn recovery_denies_non_recoverable_identity_before_vault_mutation() {
+        let vault = FakeVault::default();
+        let backend = FakeBackend::new(ready("desktop-primary", 1));
+
+        let failure = recover_identity(
+            &vault,
+            &backend,
+            RecoverLinkedNodeIdentityRequest {
+                revoked_id: "desktop-primary".to_string(),
+                replacement_id: "desktop-replacement".to_string(),
+                replacement_label: String::new(),
+            },
+        )
+        .expect_err("identity is not awaiting replacement");
+
+        assert_eq!(failure.code, "linked_node_identity_not_recoverable");
+        assert!(!failure.rollback_attempted);
+        assert!(!vault.contains("desktop-replacement", 1));
+    }
+
+    #[test]
+    fn recovery_rejects_reusing_revoked_id_before_vault_mutation() {
+        let vault = FakeVault::default();
+        let backend = FakeBackend::new(revoked_awaiting_replacement("desktop-primary", 1));
+
+        let failure = recover_identity(
+            &vault,
+            &backend,
+            RecoverLinkedNodeIdentityRequest {
+                revoked_id: "desktop-primary".to_string(),
+                replacement_id: "desktop-primary".to_string(),
+                replacement_label: String::new(),
+            },
+        )
+        .expect_err("recovery must use a new id");
+
+        assert_eq!(
+            failure.code,
+            "linked_node_identity_recovery_requires_new_id"
+        );
+        assert_eq!(failure.phase, "input_validation");
+        assert!(!failure.rollback_attempted);
+        assert!(!vault.contains("desktop-primary", 1));
     }
 
     #[test]

@@ -245,6 +245,16 @@ fn forgelink_rotate_linked_node_identity(
 }
 
 #[tauri::command]
+fn forgelink_recover_linked_node_identity(
+    payload: node_identity_lifecycle::RecoverLinkedNodeIdentityRequest,
+) -> Result<
+    node_identity_lifecycle::LinkedNodeRecoveryResult,
+    node_identity_lifecycle::LinkedNodeLifecycleFailure,
+> {
+    node_identity_lifecycle::recover_with_local_backend(&base_url(), &api_token(), payload)
+}
+
+#[tauri::command]
 fn forgelink_desktop_linked_node_status() -> Value {
     desktop_linked_node_status()
 }
@@ -425,6 +435,7 @@ pub fn run() {
             forgelink_backend_connection,
             forgelink_create_linked_node_identity,
             forgelink_rotate_linked_node_identity,
+            forgelink_recover_linked_node_identity,
             forgelink_desktop_linked_node_status,
             forgelink_get_status,
             forgelink_start_local_only,

@@ -81,14 +81,22 @@ until the database validator rejects them, so private bytes cannot be silently i
 or persisted. The older `/api/device-keys` AGH-025 routes remain a separate legacy
 decision-attribution surface and do not weaken the linked-node lifecycle contract.
 
-The Tauri shell exposes only orchestrated linked-node identity creation and rotation
-commands. It provisions a generation-scoped key in the encrypted local vault, then
-commits the corresponding public metadata through the loopback launch-authenticated
-backend. A failed backend create or rotation deletes the newly provisioned key before
-returning failure. After a committed rotation, deletion of the retired generation is
-reported separately through `retired_secret_deleted` and `cleanup_required`; the active
-database record always points at the new generation. The former low-level provision and
-delete commands are no longer exposed to renderer invocation.
+The Tauri shell exposes only orchestrated linked-node identity creation, rotation,
+and replacement-recovery commands. It provisions a generation-scoped key in the
+encrypted local vault, then commits the corresponding public metadata through the
+loopback launch-authenticated backend. Recovery first verifies that the old identity is
+revoked and still awaiting replacement, provisions generation 1 under a different ID,
+and verifies both the replacement metadata and the revoked record's forward link. An
+explicit backend rejection during recovery deletes the newly provisioned replacement
+key before returning failure. An unavailable or invalid response preserves that key
+because the database may already be committed and requires reconciliation instead of
+destructive rollback. A successful-but-mismatched backend response follows the same
+fail-closed preservation rule. Recovery never resurrects the revoked ID or automatically
+deletes its historical key. After a committed rotation, deletion of the retired
+generation is reported separately through `retired_secret_deleted` and
+`cleanup_required`; the active database record always points at the new generation.
+The former low-level provision and delete commands are no longer exposed to renderer
+invocation.
 
 ## Mobile Decisions
 
