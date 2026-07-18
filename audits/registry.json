@@ -74,6 +74,15 @@
       "notes": "Active Tauri production-parity and Electron-retirement arc; Electron removal remains gated on recorded parity, release, rollback, and data-safety evidence."
     },
     {
+      "path": "work/completed/033-canonical-dashboard-integrity",
+      "owner": "planning-agent",
+      "contract": "work/completed/033-canonical-dashboard-integrity/AGENTS.md",
+      "last_reviewed": "2026-07-18",
+      "next_review": "2026-10-16",
+      "alignment": "current",
+      "notes": "Completed canonical generated-dashboard validation, immutable RepoPact pin, deterministic failure proof, and adoption closeout."
+    },
+    {
       "path": "Tauri",
       "owner": "desktop-agent",
       "contract": "Tauri/AGENTS.md",

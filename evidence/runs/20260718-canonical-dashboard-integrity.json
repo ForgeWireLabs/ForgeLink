@@ -1,0 +1,59 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260718-canonical-dashboard-integrity",
+  "timestamp": "2026-07-18T18:19:28Z",
+  "work_item": "033",
+  "result": "passed",
+  "provenance": "concrete",
+  "criteria": ["CDI-001", "CDI-002", "CDI-003", "CDI-004"],
+  "summary": "Pinned RepoPact's upstream canonical-dashboard gate, proved the previously stale ForgeLink dashboard fails validation, regenerated it canonically, and restored a passing governed audit.",
+  "commands": [
+    {
+      "command": "python -m pip install -r requirements-repopact.txt",
+      "exit_code": 0,
+      "summary": "Installed immutable RepoPact commit 126264a1dcd20699063bf4163413ccfab574b6bc as package version 2.1.0."
+    },
+    {
+      "command": "python .local/validate_system.py (before dashboard regeneration)",
+      "exit_code": 1,
+      "summary": "Failed deterministically because audits/reports/dashboard.md was stale; the authoritative validator named the canonical regeneration command."
+    },
+    {
+      "command": "python -m repopact_cli dashboard --root .",
+      "exit_code": 0,
+      "summary": "Regenerated the only dashboard derived artifact from current ForgeLink source records."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact 2.1.0 canonical-dashboard validation plus ForgeLink schema-ladder and link/date checks passed."
+    },
+    {
+      "command": "python -m unittest discover -s tests -v (C:\\Projects\\repopact)",
+      "exit_code": 0,
+      "summary": "Upstream RepoPact suite passed 101 tests with 2 documented formal-model skips, including missing/stale rejection, deterministic generation, doctor repair, bootstrap/adoption/import/new/takeover compatibility, and conformance."
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "summary": "No whitespace errors were present in the ForgeLink adoption diff."
+    }
+  ],
+  "artifacts": [
+    "requirements-repopact.txt",
+    "scripts/REPOPACT_VERSION",
+    ".local/validate_system.py",
+    "CHANGELOG.md",
+    "audits/reports/dashboard.md",
+    "work/completed/033-canonical-dashboard-integrity/README.md",
+    "work/completed/033-canonical-dashboard-integrity/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "repopact_commit": "126264a1dcd20699063bf4163413ccfab574b6bc",
+    "repopact_version": "2.1.0",
+    "upstream_repository": "ForgeWireLabs/repopact"
+  }
+}

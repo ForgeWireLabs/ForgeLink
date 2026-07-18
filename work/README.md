@@ -116,7 +116,7 @@ If an item is abandoned, superseded, merged, split, or rejected, keep its ID and
 
 ## Current Active Work
 
-As of the 2026-07-10 ledger reconciliation, the active product arcs are:
+As of the 2026-07-18 ledger reconciliation, the active product arcs are:
 
 ```text
 011-production-readiness
@@ -159,10 +159,14 @@ Completed foundation relevant to the current roadmap:
 019-push-notification-channel
 025-ledger-integrity-enforcement
 030-tauri-shared-shell-and-electron-retirement
+033-canonical-dashboard-integrity
 ```
 
 Work item 030 completed the Tauri shared-shell foundation and retirement-gate
 definition. It did not remove Electron; that work is explicitly owned by 032.
+
+Work item 033 made the RepoPact dashboard a validated canonical projection. A stale
+or missing dashboard now fails the same audit used by commit and push gates.
 
 ## Lifecycle States
 

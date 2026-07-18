@@ -67,3 +67,11 @@ Consume RepoPact as a **pinned PyPI dependency**.
   history and is empty going forward.
 - This revisits the consumption-model choice in decision 0002 (orphan detection and
   other 0002 items already graduated upstream); 0002 remains as historical record.
+
+## Implementation update (2026-07-18)
+
+ForgeLink now permits the immutable dependency to be an exact upstream Git commit
+between formal PyPI releases. This preserves the decision's reproducibility and
+no-vendored-patch properties while allowing an integrity fix to land immediately.
+Work item 033 pins RepoPact `126264a` (`2.1.0`) for canonical dashboard validation;
+floating branches and version ranges remain prohibited.

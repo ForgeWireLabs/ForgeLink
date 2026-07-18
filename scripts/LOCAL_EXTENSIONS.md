@@ -20,7 +20,7 @@ ForgeLink originally **vendored** RepoPact under `scripts/` and `schemas/` (deci
 local patches inside the vendored files. That model ended with decision 0015; the
 notes below document what was carried and where it went.
 
-Pinned RepoPact version: [`REPOPACT_VERSION`](REPOPACT_VERSION) / `requirements-repopact.txt` (currently 2.0.2+d1d5f81).
+Pinned RepoPact version: [`REPOPACT_VERSION`](REPOPACT_VERSION) / `requirements-repopact.txt` (currently 2.1.0+126264a).
 
 ## Carried local patches
 

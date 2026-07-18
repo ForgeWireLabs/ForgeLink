@@ -1,0 +1,50 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "033",
+  "title": "Canonical Dashboard Integrity",
+  "status": "completed",
+  "owner_scope": "tooling",
+  "affected_scopes": [
+    "work",
+    "tooling",
+    "governance",
+    "evidence",
+    "audit",
+    "docs"
+  ],
+  "depends_on": [],
+  "provenance": "concrete",
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-07-18T18:16:39Z",
+    "note": "Created before adopting RepoPact's deterministic dashboard validation."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "CDI-001",
+      "text": "ForgeLink pins the upstream RepoPact commit that rejects missing or stale generated dashboards.",
+      "state": "satisfied",
+      "evidence": ["20260718-canonical-dashboard-integrity"]
+    },
+    {
+      "id": "CDI-002",
+      "text": "A deliberately stale ForgeLink dashboard fails the authoritative validator, and canonical regeneration restores a passing result.",
+      "state": "satisfied",
+      "evidence": ["20260718-canonical-dashboard-integrity"]
+    },
+    {
+      "id": "CDI-003",
+      "text": "ForgeLink's validation entry point, governing documentation, and generated dashboard report the pinned RepoPact contract accurately.",
+      "state": "satisfied",
+      "evidence": ["20260718-canonical-dashboard-integrity"]
+    },
+    {
+      "id": "CDI-004",
+      "text": "The completed adoption is recorded with reproducible evidence and the work ledger is reconciled.",
+      "state": "satisfied",
+      "evidence": ["20260718-canonical-dashboard-integrity"]
+    }
+  ],
+  "created": "2026-07-18",
+  "updated": "2026-07-18"
+}

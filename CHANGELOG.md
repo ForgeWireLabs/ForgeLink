@@ -7,6 +7,11 @@ versions tracked in `VERSION` and `Electron/package.json`.
 ## [Unreleased]
 
 ### Changed
+- Repository integrity: ForgeLink now pins RepoPact 2.1.0 at immutable commit
+  `126264a`; governance validation rejects a missing or stale generated dashboard,
+  and RepoPact mutation/repair commands regenerate the canonical projection. The
+  commit and push gates therefore cannot pass while dashboard work counts or active
+  items disagree with the source ledger (work item 033).
 - Responsive cockpit layout: metric and card grids now use fluid `auto-fit`
   columns, and the two-pane content layouts (calls, signals, mobile terminal)
   stack on narrow widths, so the UI reflows cleanly as the window resizes and

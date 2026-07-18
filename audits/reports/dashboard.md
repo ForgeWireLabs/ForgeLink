@@ -1,8 +1,8 @@
 # Repository Dashboard
 
-> Generated from source records. Do not edit manually.
-> Generated: 2026-06-27
-> RepoPact spec version: 1.9.0
+> Canonically generated from source records. Do not edit manually.
+> Validation fails when this file differs from `repopact dashboard` output.
+> RepoPact spec version: 2.1.0+126264a
 
 ## Health
 
@@ -10,21 +10,22 @@
 | --- | ---: |
 | Invariants | 6 |
 | Frozen-surface entries | 5 |
-| Scope contracts | 8 |
-| Audit registry entries | 8 |
+| Scope contracts | 12 |
+| Audit registry entries | 12 |
 | Audit findings | 0 |
-| Decision records | 16 |
+| Decision records | 18 |
 | Policy records | 0 |
-| Evidence runs | 72 |
+| Evidence runs | 94 |
 
 ## Work
 
 | Status | Count |
 | --- | ---: |
-| active | 10 |
+| proposed | 0 |
+| active | 5 |
 | blocked | 0 |
-| deferred | 0 |
-| completed | 21 |
+| deferred | 3 |
+| completed | 26 |
 
 ## Audit freshness
 
@@ -33,12 +34,7 @@ All audit scopes are within their review cadence.
 ## Active items
 
 - 011: Production Readiness (active)
-- 017: Operator Cockpit and Native Experience (active)
-- 018: Email Channel Adapter (active)
-- 019: Push Notification Channel (active)
-- 020: Telegram Channel Adapter (active)
-- 021: WhatsApp Business Channel (active)
-- 022: Discord Channel Adapter (active)
 - 023: RSS Atom Signal Follow-Up (active)
 - 024: Local Webhook and LAN Integrations (active)
-- 030: Tauri Shared Shell and Electron Retirement (active)
+- 031: Linked-Node Metadata Transport and Trust Hardening (active)
+- 032: Tauri Production Parity and Electron Retirement (active)

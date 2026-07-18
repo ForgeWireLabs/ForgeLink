@@ -2,9 +2,10 @@
 
 RepoPact's validator is authoritative for governance records: contracts, owners,
 work items, formal evidence runs, the audit registry, decisions, policies,
-README<->manifest checkbox parity (1.6.0), and the opt-in preflight marker (1.9.0,
-enabled via governance/owners.json). As of decision 0015 RepoPact is consumed from
-PyPI (repopact==1.9.0) rather than vendored, so this invokes the installed
+README<->manifest checkbox parity (1.6.0), the opt-in preflight marker (1.9.0,
+enabled via governance/owners.json), and canonical generated-dashboard parity
+(2.1.0). As of decision 0015 RepoPact is consumed as an immutable installed package
+rather than vendored, so this invokes the installed
 ``repopact`` CLI. This script runs it first and fails if it fails, then layers the
 ForgeLink-only structural checks RepoPact still does not cover:
 
@@ -26,6 +27,7 @@ import re
 import subprocess
 import sys
 from datetime import date
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,10 +36,18 @@ LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 LAST_VERIFIED = re.compile(r"^last_verified:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
 
 
+def repopact_version() -> str:
+    """Report the installed immutable pin without duplicating a version literal."""
+    try:
+        return version("repopact")
+    except PackageNotFoundError:
+        return "not-installed"
+
+
 def run_repopact(errors: list[str]) -> None:
     """Run the authoritative RepoPact validator and fold its failures in.
 
-    RepoPact is consumed from PyPI (repopact==1.9.0; see requirements-repopact.txt
+    RepoPact is consumed as an immutable package pin (see requirements-repopact.txt
     and decision 0015), so this invokes the installed CLI rather than a vendored
     script. Run `pip install -r requirements-repopact.txt` if the import fails."""
     result = subprocess.run(
@@ -126,7 +136,7 @@ def main() -> int:
         return 1
 
     print("ForgeLink audit passed.")
-    print("- RepoPact governance validation (repopact==1.9.0, PyPI): passed")
+    print(f"- RepoPact governance validation (repopact=={repopact_version()}, pinned): passed")
     print("- Schema-ladder invariants (LIE-003): passed")
     print("- Markdown link/last_verified checks: passed")
     return 0
