@@ -75,3 +75,10 @@ between formal PyPI releases. This preserves the decision's reproducibility and
 no-vendored-patch properties while allowing an integrity fix to land immediately.
 Work item 033 pins RepoPact `126264a` (`2.1.0`) for canonical dashboard validation;
 floating branches and version ranges remain prohibited.
+
+Work item 034 returns ForgeLink to the decision's preferred formal-package path by
+pinning `repopact==2.2.0`. PyPI's published wheel and source-distribution hashes match
+the locally validated upstream release artifacts, and upstream tag `v2.2.0` resolves
+to release commit `2b3b549e915bbe69264ac59401cf533d11cc6532`. The package was uploaded
+directly with Twine because GitHub Actions publishing was billing-blocked; this changes
+release transport, not the exact-version pin or the validator semantics.

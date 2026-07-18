@@ -2,7 +2,7 @@
 
 > Canonically generated from source records. Do not edit manually.
 > Validation fails when this file differs from `repopact dashboard` output.
-> RepoPact spec version: 2.1.0+126264a
+> RepoPact spec version: 2.2.0
 
 ## Health
 
@@ -10,12 +10,12 @@
 | --- | ---: |
 | Invariants | 6 |
 | Frozen-surface entries | 5 |
-| Scope contracts | 12 |
-| Audit registry entries | 12 |
+| Scope contracts | 13 |
+| Audit registry entries | 13 |
 | Audit findings | 0 |
 | Decision records | 18 |
 | Policy records | 0 |
-| Evidence runs | 94 |
+| Evidence runs | 95 |
 
 ## Work
 
@@ -25,7 +25,7 @@
 | active | 5 |
 | blocked | 0 |
 | deferred | 3 |
-| completed | 26 |
+| completed | 27 |
 
 ## Audit freshness
 

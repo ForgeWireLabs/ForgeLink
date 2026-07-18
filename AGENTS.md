@@ -15,7 +15,7 @@ contracts (e.g. under `work/`) refine this root contract but cannot weaken it.
 ## Governed with RepoPact
 
 ForgeLink is governed with [RepoPact](https://github.com/ForgeWireLabs/repopact),
-consumed as a pinned upstream package (`2.1.0+126264a`, pinned in
+consumed as a pinned upstream package (`2.2.0`, pinned in
 `requirements-repopact.txt`; decision 0015). Validate with `python .local/validate_system.py` (it runs `repopact validate`
 plus ForgeLink's local checks). Run `pip install -r requirements-repopact.txt` on a
 fresh clone first. Derived artifacts (`audits/reports/dashboard.md`) are generated,

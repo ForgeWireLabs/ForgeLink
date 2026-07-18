@@ -1,0 +1,50 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "034",
+  "title": "Adopt RepoPact 2.2.0 Formal Release",
+  "status": "completed",
+  "owner_scope": "tooling",
+  "affected_scopes": [
+    "work",
+    "tooling",
+    "governance",
+    "evidence",
+    "audit",
+    "docs"
+  ],
+  "depends_on": ["033"],
+  "provenance": "concrete",
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-07-18T18:37:15Z",
+    "note": "Created before replacing the interim RepoPact commit pin with the formal 2.2.0 PyPI release."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "RP220-001",
+      "text": "ForgeLink replaces the interim git commit dependency with exact PyPI pin repopact==2.2.0 and aligns governing documentation.",
+      "state": "satisfied",
+      "evidence": ["20260718-repopact-2-2-0-formal-release"]
+    },
+    {
+      "id": "RP220-002",
+      "text": "Public PyPI metadata and the upstream v2.2.0 tag identify the dashboard-integrity release and its published artifacts.",
+      "state": "satisfied",
+      "evidence": ["20260718-repopact-2-2-0-formal-release"]
+    },
+    {
+      "id": "RP220-003",
+      "text": "Canonical dashboard generation, ForgeLink governance validation, and the complete pre-push gate pass with RepoPact 2.2.0 installed.",
+      "state": "satisfied",
+      "evidence": ["20260718-repopact-2-2-0-formal-release"]
+    },
+    {
+      "id": "RP220-004",
+      "text": "The formal-release adoption is recorded with reproducible evidence and the work ledger is reconciled.",
+      "state": "satisfied",
+      "evidence": ["20260718-repopact-2-2-0-formal-release"]
+    }
+  ],
+  "created": "2026-07-18",
+  "updated": "2026-07-18"
+}

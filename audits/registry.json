@@ -83,6 +83,15 @@
       "notes": "Completed canonical generated-dashboard validation, immutable RepoPact pin, deterministic failure proof, and adoption closeout."
     },
     {
+      "path": "work/completed/034-repopact-2-2-0-formal-release",
+      "owner": "planning-agent",
+      "contract": "work/completed/034-repopact-2-2-0-formal-release/AGENTS.md",
+      "last_reviewed": "2026-07-18",
+      "next_review": "2026-10-16",
+      "alignment": "current",
+      "notes": "Completed formal RepoPact 2.2.0 PyPI adoption, public package verification, governed validation, and closeout."
+    },
+    {
       "path": "Tauri",
       "owner": "desktop-agent",
       "contract": "Tauri/AGENTS.md",

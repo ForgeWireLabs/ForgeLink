@@ -160,6 +160,7 @@ Completed foundation relevant to the current roadmap:
 025-ledger-integrity-enforcement
 030-tauri-shared-shell-and-electron-retirement
 033-canonical-dashboard-integrity
+034-repopact-2-2-0-formal-release
 ```
 
 Work item 030 completed the Tauri shared-shell foundation and retirement-gate
@@ -167,6 +168,9 @@ definition. It did not remove Electron; that work is explicitly owned by 032.
 
 Work item 033 made the RepoPact dashboard a validated canonical projection. A stale
 or missing dashboard now fails the same audit used by commit and push gates.
+
+Work item 034 replaced the interim git commit dependency with the formal, exact 2.2.0
+PyPI release and proved ForgeLink retains canonical dashboard enforcement.
 
 ## Lifecycle States
 

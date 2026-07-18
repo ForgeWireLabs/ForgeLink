@@ -1,0 +1,56 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260718-repopact-2-2-0-formal-release",
+  "timestamp": "2026-07-18T18:39:33Z",
+  "work_item": "034",
+  "result": "passed",
+  "provenance": "concrete",
+  "criteria": ["RP220-001", "RP220-002", "RP220-003", "RP220-004"],
+  "summary": "Replaced ForgeLink's interim RepoPact git pin with the formal 2.2.0 PyPI release, verified public artifact/tag identity, and passed the complete governed pre-push gate.",
+  "commands": [
+    {
+      "command": "python -m pip install --no-cache-dir --upgrade --force-reinstall -r requirements-repopact.txt",
+      "exit_code": 0,
+      "summary": "Downloaded and installed exact public-index dependency repopact==2.2.0, replacing interim package version 2.1.0."
+    },
+    {
+      "command": "python -m pip show repopact && python -c \"from importlib.metadata import version; print(version('repopact'))\"",
+      "exit_code": 0,
+      "summary": "Installed distribution metadata reported RepoPact 2.2.0."
+    },
+    {
+      "command": "PyPI JSON metadata and git ls-remote verification",
+      "exit_code": 0,
+      "summary": "PyPI 2.2.0 exposes wheel SHA-256 a254a6b23af94d30118b53422082c7a1e52310e1e40c58e16c6cb3716fa8f3ba and sdist SHA-256 f137400f74b0fb743cffcf8b28dbe5d24b6a1fe13fc37b75af977f9745d437b8; upstream annotated tag v2.2.0 resolves to commit 2b3b549e915bbe69264ac59401cf533d11cc6532."
+    },
+    {
+      "command": "python -m repopact_cli dashboard --root . && python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "The formal package generated ForgeLink's canonical dashboard; RepoPact governance validation, schema-ladder invariants, and markdown link/date checks passed."
+    },
+    {
+      "command": "sh .githooks/pre-push",
+      "exit_code": 0,
+      "summary": "Complete pre-push gate passed: governance audit, 221 renderer tests, and 202 of 203 Node tests with the opt-in live Twilio credential test skipped."
+    }
+  ],
+  "artifacts": [
+    "requirements-repopact.txt",
+    "scripts/REPOPACT_VERSION",
+    "scripts/LOCAL_EXTENSIONS.md",
+    "AGENTS.md",
+    "decisions/0015-consume-repopact-from-pypi.md",
+    "audits/reports/dashboard.md",
+    "https://pypi.org/project/repopact/2.2.0/",
+    "https://github.com/ForgeWireLabs/repopact/tree/v2.2.0"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "python": "3.12",
+    "repopact_version": "2.2.0",
+    "upstream_commit": "2b3b549e915bbe69264ac59401cf533d11cc6532",
+    "publication_route": "operator-authorized direct PyPI upload because GitHub Actions publishing was billing-locked"
+  }
+}

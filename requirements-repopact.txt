@@ -12,5 +12,5 @@
 # source_of_truth warning (1.5.0); checkbox parity (1.6.0); deferred + rejected
 # decision statuses (1.8.0); opt-in preflight marker (1.9.0); proposed work
 # lifecycle state (2.0.2+d1d5f81); canonical generated-dashboard validation
-# (2.1.0+126264a, work item 033).
-repopact @ git+https://github.com/ForgeWireLabs/repopact@126264a1dcd20699063bf4163413ccfab574b6bc
+# (2.2.0, work items 033-034).
+repopact==2.2.0

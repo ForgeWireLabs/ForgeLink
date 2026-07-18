@@ -2,7 +2,7 @@
 
 > **Current model (decision [0015](../decisions/0015-consume-repopact-from-pypi.md)):**
 > ForgeLink **no longer vendors** the RepoPact validator. It is consumed from PyPI
-> (`2.0.2+d1d5f81`, pinned in [`requirements-repopact.txt`](../requirements-repopact.txt))
+> (`2.2.0`, pinned in [`requirements-repopact.txt`](../requirements-repopact.txt))
 > and invoked through `.local/validate_system.py`. **There are zero carried code
 > patches** — every former local extension has graduated upstream (see the table
 > below). Two things still live in-repo by design:
@@ -20,7 +20,7 @@ ForgeLink originally **vendored** RepoPact under `scripts/` and `schemas/` (deci
 local patches inside the vendored files. That model ended with decision 0015; the
 notes below document what was carried and where it went.
 
-Pinned RepoPact version: [`REPOPACT_VERSION`](REPOPACT_VERSION) / `requirements-repopact.txt` (currently 2.1.0+126264a).
+Pinned RepoPact version: [`REPOPACT_VERSION`](REPOPACT_VERSION) / `requirements-repopact.txt` (currently 2.2.0).
 
 ## Carried local patches
 
@@ -52,6 +52,7 @@ Recorded so they are not mistaken for missing local patches during a re-vendor:
 | `deferred` **and** `rejected` decision statuses | RepoPact 1.8.0 (RepoPact decision 0017) | ForgeLink decision [0014](../decisions/0014-deferred-decision-status.md); re-vendored in work item 028 |
 | Dashboard version decoupling (`generate_dashboard._spec_version` prefers `REPOPACT_VERSION`) | Present in upstream; vendored copy matches, no local carry | decision [0002](../decisions/0002-vendored-repopact-1-4-0-and-local-extensions.md) |
 | Opt-in `preflight` marker (config-driven, id/date threshold) | RepoPact 1.9.0 (RepoPact decision 0018) | ForgeLink decision [0015](../decisions/0015-consume-repopact-from-pypi.md); enabled via `governance/owners.json` |
+| Canonical dashboard projection validation and deterministic repair | RepoPact 2.2.0 (RepoPact decisions 0025; work item 026) | ForgeLink work items 033-034 |
 
 The remaining ForgeLink-local LIE-003 schema-ladder invariant (in `.local/`) is the
 last upstream candidate worth contributing.
