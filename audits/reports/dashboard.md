@@ -15,17 +15,17 @@
 | Audit findings | 0 |
 | Decision records | 18 |
 | Policy records | 0 |
-| Evidence runs | 95 |
+| Evidence runs | 96 |
 
 ## Work
 
 | Status | Count |
 | --- | ---: |
 | proposed | 0 |
-| active | 5 |
+| active | 4 |
 | blocked | 0 |
 | deferred | 3 |
-| completed | 27 |
+| completed | 28 |
 
 ## Audit freshness
 
@@ -34,7 +34,6 @@ All audit scopes are within their review cadence.
 ## Active items
 
 - 011: Production Readiness (active)
-- 023: RSS Atom Signal Follow-Up (active)
 - 024: Local Webhook and LAN Integrations (active)
 - 031: Linked-Node Metadata Transport and Trust Hardening (active)
 - 032: Tauri Production Parity and Electron Retirement (active)

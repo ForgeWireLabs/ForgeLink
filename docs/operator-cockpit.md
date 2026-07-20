@@ -11,6 +11,9 @@ ForgeLink's primary desktop navigation is organized around operator intent:
 - **Channels** is the communication hub. Messages, calls, trusted signals, and
   provider/channel readiness are reachable from here.
 
+Trusted signals (RSS/Atom) are a quiet reading lane only — not contacts and not
+approvals. See [trusted-signals.md](trusted-signals.md).
+
 Messages remain available from Channels -> Messages. Calls and trusted signal
 feeds are also available from Channels. Settings remains the place for local
 service health, data safety, provider credentials, attention policy, and detailed

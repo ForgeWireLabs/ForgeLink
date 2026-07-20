@@ -116,11 +116,10 @@ If an item is abandoned, superseded, merged, split, or rejected, keep its ID and
 
 ## Current Active Work
 
-As of the 2026-07-18 ledger reconciliation, the active product arcs are:
+As of the 2026-07-20 RSS/Atom follow-up closeout, the active product arcs are:
 
 ```text
 011-production-readiness
-023-rss-atom-signal-follow-up
 024-local-webhook-lan-integrations
 031-linked-node-metadata-transport-and-trust-hardening
 032-tauri-production-parity-and-electron-retirement
@@ -130,8 +129,8 @@ As of the 2026-07-18 ledger reconciliation, the active product arcs are:
 PR-014. Unsigned development and test artifacts are valid evidence; signed public
 distribution remains gated on the operator-provided certificate.
 
-`023` and `024` remain the active local-first adapter priorities, with local
-webhook/LAN integrations ahead of RSS/Atom hardening.
+`023` (RSS/Atom signal follow-up) is completed. `024` remains the active
+local-first adapter priority for webhook/LAN integrations.
 
 `031` owns the production identity, cryptography, durable replay/checkpoint/audit,
 bounded authenticated metadata transport, quarantine, wipe, rollback, recovery,

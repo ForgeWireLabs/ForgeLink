@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
+import { redactSignalUrlSecrets, signalSubscriptionHealth } from "./signals";
 import { CLOUD_SUMMARY_DISABLED, SUMMARY_CONTENT_TRUST, SUMMARY_NOTICE, SUMMARY_PROVENANCE, summarizeThread, ThreadSummary } from "./summary";
 
 export const CURRENT_SCHEMA_VERSION = 27;
@@ -1567,8 +1568,15 @@ export class PhoneDatabase {
       communication_firewall_rules: this.connection.prepare("SELECT * FROM communication_firewall_rules ORDER BY updated_at, id").all(),
       agent_outbound_drafts: this.connection.prepare("SELECT * FROM agent_outbound_drafts ORDER BY created_at, id").all(),
       consent_ledger: this.connection.prepare("SELECT * FROM consent_ledger ORDER BY contact_id, agent_id").all(),
-      signal_subscriptions: this.connection.prepare("SELECT * FROM signal_subscriptions ORDER BY title, id").all(),
-      signal_items: this.connection.prepare("SELECT * FROM signal_items ORDER BY received_at, id").all(),
+      // RSSF-007: redact URL userinfo and credential-like query params; keep titles/summaries as private local export content.
+      signal_subscriptions: (this.connection.prepare("SELECT * FROM signal_subscriptions ORDER BY title, id").all() as Array<Record<string, unknown>>).map((row) => ({
+        ...row,
+        url: redactSignalUrlSecrets(String(row.url || ""))
+      })),
+      signal_items: (this.connection.prepare("SELECT * FROM signal_items ORDER BY received_at, id").all() as Array<Record<string, unknown>>).map((row) => ({
+        ...row,
+        url: redactSignalUrlSecrets(String(row.url || ""))
+      })),
       email_messages: this.connection.prepare("SELECT * FROM email_messages ORDER BY ts, id").all(),
       mcp_tokens: this.connection.prepare("SELECT id, created_at, rotated_at, revoked_at, last_used_at, last_test_at, last_test_status FROM mcp_tokens ORDER BY id").all(),
       agent_channels: this.connection.prepare("SELECT channel_id, label, enabled, created_at, rotated_at, revoked_at, last_used_at, last_rejected_at, rejection_count, rate_limited_count FROM agent_channels ORDER BY channel_id").all()
@@ -3779,5 +3787,25 @@ export class PhoneDatabase {
       deleted += Number(this.connection.prepare("DELETE FROM signal_items WHERE subscription_id=? AND received_at < ?").run(subscription.id, cutoff).changes);
     }
     return deleted;
+  }
+
+  /** Counts-only signal health for diagnostics (RSSF-007). Never includes URLs, titles, or bodies. */
+  signalDiagnostics(now = Date.now()): { subscriptions: number; items: number; failed: number; stale: number; paused: number; healthy: number; never_fetched: number } {
+    const subscriptions = this.signalSubscriptions();
+    const items = Number((this.connection.prepare("SELECT COUNT(*) AS n FROM signal_items WHERE status <> 'archived'").get() as { n: number }).n);
+    let failed = 0;
+    let stale = 0;
+    let paused = 0;
+    let healthy = 0;
+    let never_fetched = 0;
+    for (const subscription of subscriptions) {
+      const health = signalSubscriptionHealth({ ...subscription, now });
+      if (health.state === "failed") failed += 1;
+      else if (health.state === "stale") stale += 1;
+      else if (health.state === "paused") paused += 1;
+      else if (health.state === "never_fetched") never_fetched += 1;
+      else healthy += 1;
+    }
+    return { subscriptions: subscriptions.length, items, failed, stale, paused, healthy, never_fetched };
   }
 }

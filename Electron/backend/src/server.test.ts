@@ -245,6 +245,15 @@ test("manages trusted signal subscriptions, bounded refresh, archive, and failed
     const subscriptions = await fetch(`${localUrl}/api/signals/subscriptions`, { headers: authorized() }).then((response) => response.json()) as Array<{ id: string; last_fetch_status: string; last_error: string }>;
     assert.equal(subscriptions.find((item) => item.id === bad.subscription.id)?.last_fetch_status, "failed");
     assert.match(subscriptions.find((item) => item.id === bad.subscription.id)?.last_error || "", /content type|readable/i);
+
+    // RSSF-005: feed refresh must not create agent approvals, messages, or decision records.
+    const agentMessages = await fetch(`${localUrl}/api/agent-messages`, { headers: authorized() }).then((response) => response.json()) as Array<unknown>;
+    assert.equal(agentMessages.length, 0);
+    const diag = await fetch(`${localUrl}/api/diagnostics`, { headers: authorized() }).then((response) => response.json()) as { signals: { subscriptions: number; items: number; failed: number } };
+    assert.equal(diag.signals.subscriptions, 2);
+    assert.equal(diag.signals.failed, 1);
+    assert.equal(JSON.stringify(diag).includes("example.test"), false);
+    assert.equal(JSON.stringify(diag).includes("Build note"), false);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await new Promise<void>((resolve) => feedServer.close(() => resolve()));

@@ -469,9 +469,14 @@ describe("React renderer parity", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Channels" }));
     await userEvent.click(await screen.findByRole("button", { name: "Open signals" }));
     expect(await screen.findByRole("heading", { name: "Signals" })).toBeTruthy();
+    expect(screen.getByText(/not contacts, not agent approvals/i)).toBeTruthy();
     expect(screen.getAllByText("Forge Signals").length).toBeGreaterThan(0);
+    expect(screen.getByText(/retain 30d/i)).toBeTruthy();
+    expect(screen.getByText(/signal lane/i)).toBeTruthy();
     expect(screen.getByText("Build note")).toBeTruthy();
     expect(screen.queryByText("Ada Lovelace")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Deny" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Open" }));
     expect(window.desktop?.openExternal).toHaveBeenCalledWith("https://example.com/build");
     await userEvent.click(screen.getByRole("button", { name: "Archive" }));

@@ -1151,15 +1151,23 @@ test("stores trusted signals separately with duplicate handling, export, archive
   const database = new PhoneDatabase(path);
   try {
     database.addMessage({ id: "SMS", number: "+15551234567", direction: "inbound", body: "person" });
-    const subscription = database.upsertSignalSubscription({ title: "Tech", url: "https://example.com/feed.xml", fetch_interval_minutes: 30, retention_days: 7 });
+    const subscription = database.upsertSignalSubscription({ title: "Tech", url: "https://example.com/feed.xml?api_key=secret-token", fetch_interval_minutes: 30, retention_days: 7 });
     assert.equal(subscription.enabled, true);
-    assert.equal(database.addSignalItem({ subscription_id: subscription.id, external_id: "item-1", title: "Signal", url: "https://example.com/item", summary: "<b>text</b>", published_at: "2026-06-15T00:00:00.000Z" }), true);
+    assert.equal(database.addSignalItem({ subscription_id: subscription.id, external_id: "item-1", title: "Signal", url: "https://example.com/item?token=abc", summary: "<b>text</b>", published_at: "2026-06-15T00:00:00.000Z" }), true);
     assert.equal(database.addSignalItem({ subscription_id: subscription.id, external_id: "item-1", title: "Signal duplicate", url: "https://example.com/item" }), false);
     assert.equal(database.signalItems().length, 1);
-    const exported = database.exportData() as { messages: Array<unknown>; signal_subscriptions: Array<{ id: string }>; signal_items: Array<{ title: string }> };
+    const exported = database.exportData() as { messages: Array<unknown>; signal_subscriptions: Array<{ id: string; url: string }>; signal_items: Array<{ title: string; url: string }> };
     assert.equal(exported.messages.length, 1);
     assert.equal(exported.signal_subscriptions[0].id, subscription.id);
+    assert.match(exported.signal_subscriptions[0].url, /api_key=REDACTED/);
+    assert.equal(exported.signal_subscriptions[0].url.includes("secret-token"), false);
     assert.equal(exported.signal_items[0].title, "Signal");
+    assert.match(exported.signal_items[0].url, /token=REDACTED/);
+    const diag = database.signalDiagnostics(Date.parse("2026-07-20T12:00:00.000Z"));
+    assert.equal(diag.subscriptions, 1);
+    assert.equal(diag.items, 1);
+    assert.equal(diag.never_fetched, 1);
+    assert.equal("url" in (diag as Record<string, unknown>), false);
     assert.equal(database.archiveSignalItem(database.signalItems()[0].id).status, "archived");
     assert.equal(database.signalItems().length, 0);
     database.addSignalItem({ subscription_id: subscription.id, external_id: "old", title: "Old", url: "https://example.com/old" });

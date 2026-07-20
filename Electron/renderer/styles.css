@@ -330,6 +330,11 @@ h1, h2, h3, p { margin: 0; }
 .signal-source strong, .signal-item h2 { display: block; min-width: 0; overflow-wrap: anywhere; }
 .signal-source span, .signal-source small { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .signal-source small { color: var(--muted-bright); }
+.signal-health { font-weight: 600; text-transform: lowercase; }
+.signal-health.ok { color: var(--ok, #6fbf7a); }
+.signal-health.warn { color: var(--warn, #d4a24c); }
+.signal-health.bad { color: var(--danger, #d36b6b); }
+.signal-health.muted { color: var(--muted); }
 .signal-actions, .signal-item-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .signal-item { padding: 16px; display: grid; gap: 10px; }
 .signal-item.muted { opacity: .72; }

@@ -1,0 +1,48 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260720-rss-atom-signal-follow-up",
+  "timestamp": "2026-07-20T21:55:00Z",
+  "work_item": "023",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Backend/renderer suite passed (208 pass, 1 skipped live Twilio). Coverage includes tracking-parameter stripping, malformed XML rejection, redirect/oversize fetch fixtures, stale health classification, export URL-secret redaction, diagnostics signal counts without feed content, signal refresh not creating agent messages, and Signals UI lane/retention/no-approve controls."
+    },
+    {
+      "command": "python -m repopact_cli dashboard --root .",
+      "exit_code": 0,
+      "summary": "Regenerated audits/reports/dashboard.md after moving 023 to completed."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Repository governance validation passed with 023 completed, evidence recorded, and dashboard current."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/signals.ts",
+    "Electron/backend/src/signals.test.ts",
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/styles.css",
+    "docs/trusted-signals.md",
+    "docs/operator-cockpit.md",
+    "CHANGELOG.md",
+    "work/completed/023-rss-atom-signal-follow-up/README.md",
+    "work/completed/023-rss-atom-signal-follow-up/work-item.json",
+    "work/completed/023-rss-atom-signal-follow-up/_audit/gap-review.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "runtime": "Node.js",
+    "security_note": "RSS/Atom remains a trusted-signal reading lane only. Authenticated feeds are planned, not implemented. Export redacts URL userinfo and credential-like query parameters; diagnostics expose counts/health only. Feed items cannot become approvals or quick actions."
+  }
+}

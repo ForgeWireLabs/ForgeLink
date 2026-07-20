@@ -504,7 +504,9 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         // Redacted by design (EMAIL-007): boolean only — never the SMTP host, address, or credentials.
         email_configured: emailConfigured(),
         // Redacted by design (PUSH-003/007): boolean only — never the push topic or token.
-        push_configured: pushConfigured()
+        push_configured: pushConfigured(),
+        // RSSF-007: counts and health states only — never feed URLs, titles, summaries, or item bodies.
+        signals: database.signalDiagnostics()
       });
       if (url.pathname === "/api/companion/pair" || url.pathname === "/api/companion/status") {
         // CLV-006 planning gate: disabled by default, authenticated (under /api/),
