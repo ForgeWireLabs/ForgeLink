@@ -6,13 +6,15 @@ import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 import {
   assertUnauthenticatedFeedUrl,
+  canonicalExternalId,
+  containsCredentialMaterial,
   redactExportExternalId,
   redactSignalUrlSecrets,
+  sanitizeItemUrl,
   sanitizeSignalError,
   signalSubscriptionHealth,
   stripCredentialMaterial,
-  toSignalSubscriptionDto,
-  urlContainsCredentialMaterial
+  toSignalSubscriptionDto
 } from "./signals";
 import { CLOUD_SUMMARY_DISABLED, SUMMARY_CONTENT_TRUST, SUMMARY_NOTICE, SUMMARY_PROVENANCE, summarizeThread, ThreadSummary } from "./summary";
 
@@ -3744,7 +3746,7 @@ export class PhoneDatabase {
     for (const row of rows) {
       let nextError = sanitizeSignalError(row.last_error || "");
       let dirty = nextError !== (row.last_error || "");
-      if (urlContainsCredentialMaterial(row.url)) {
+      if (containsCredentialMaterial(row.url)) {
         let nextUrl = stripCredentialMaterial(row.url);
         const conflict = this.connection.prepare("SELECT id FROM signal_subscriptions WHERE url=? AND id<>?").get(nextUrl, row.id) as { id: string } | undefined;
         if (conflict) nextUrl = `https://invalid.invalid/scrubbed-${row.id}`;
@@ -3758,18 +3760,30 @@ export class PhoneDatabase {
         changed += 1;
       }
     }
-    // Scrub credential-bearing item URLs / URL-shaped external ids left by older parsers.
-    const items = this.connection.prepare("SELECT id, url, external_id FROM signal_items").all() as Array<{ id: string; url: string; external_id: string }>;
+    // Migrate legacy URL/credential external ids into the parser's canonical identity scheme
+    // so the next refresh dedupes instead of re-inserting.
+    const items = this.connection.prepare("SELECT id, subscription_id, url, external_id FROM signal_items").all() as Array<{ id: string; subscription_id: string; url: string; external_id: string }>;
     for (const item of items) {
-      const nextUrl = stripCredentialMaterial(item.url);
+      const nextUrl = sanitizeItemUrl(item.url || item.external_id);
       let external = item.external_id;
-      if (/^https?:\/\//i.test(item.external_id) || urlContainsCredentialMaterial(item.external_id)) {
-        external = createHash("sha256").update(`legacy-external\n${item.external_id}`).digest("hex");
+      if (/^https?:\/\//i.test(item.external_id) || containsCredentialMaterial(item.external_id)) {
+        external = /^https?:\/\//i.test(item.external_id)
+          ? canonicalExternalId({ sanitizedUrl: sanitizeItemUrl(item.external_id) })
+          : canonicalExternalId({ rawGuid: item.external_id });
       }
-      if (nextUrl !== item.url || external !== item.external_id) {
+      if (nextUrl === item.url && external === item.external_id) continue;
+      const nextId = createHash("sha256").update(`${item.subscription_id}\n${external}`).digest("hex");
+      if (nextId === item.id) {
         this.connection.prepare("UPDATE signal_items SET url=?, external_id=? WHERE id=?").run(nextUrl.slice(0, 1000), external.slice(0, 1000), item.id);
-        changed += 1;
+      } else {
+        const collision = this.connection.prepare("SELECT id FROM signal_items WHERE id=?").get(nextId) as { id: string } | undefined;
+        if (collision) {
+          this.connection.prepare("DELETE FROM signal_items WHERE id=?").run(item.id);
+        } else {
+          this.connection.prepare("UPDATE signal_items SET id=?, url=?, external_id=? WHERE id=?").run(nextId, nextUrl.slice(0, 1000), external.slice(0, 1000), item.id);
+        }
       }
+      changed += 1;
     }
     return changed;
   }

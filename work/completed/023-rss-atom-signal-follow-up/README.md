@@ -43,17 +43,23 @@ Evidence must include a gap review, deterministic fixtures for any parser/fetch 
 
 ## Closeout — 2026-07-20
 
-All eight criteria satisfied; evidence `20260720-rss-atom-signal-follow-up`. Item moved to `work/completed/`.
+All eight criteria satisfied; evidence
+`20260720-rss-atom-signal-follow-up`,
+`20260720-rss-atom-signal-follow-up-hardening`, and
+`20260720-rss-atom-signal-follow-up-hardening-r2`. Item moved to `work/completed/`.
 
 ### Remaining risks
 
 - Manual refresh only (no automatic scheduler).
-- Operator-entered LAN/private feed URLs remain allowed; public→private redirect
-  pivots and metadata targets are blocked.
+- Operator-entered LAN/private feed URLs remain allowed when DNS resolves to
+  non-global addresses; public→private redirect pivots and metadata targets
+  (including direct initial URLs) are blocked; DNS answers are pinned for the
+  connection.
 - Authenticated feeds deferred until secure-settings credentials exist;
-  credential-bearing subscription URLs are rejected and legacy rows scrubbed.
-- Structural XML well-formedness is enforced without a full infoset/XML Schema
-  implementation; exotic but well-formed feeds may still fail field extraction.
+  credential-bearing subscription URLs (including fragments and expanded secret
+  parameter names) are rejected and legacy rows scrubbed/migrated.
+- XML is validated with a bounded parser (no DTD/entities); exotic but
+  well-formed feeds may still fail field extraction.
 
 ### Rollback
 

@@ -6,6 +6,7 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { AGENT_CONTENT_PROVENANCE, CURRENT_SCHEMA_VERSION, PhoneDatabase, REDACTION_PROFILES, redactEvidencePack, redactNotification, sanitizeAgentText } from "./database";
 import { normalizeNumber } from "./phone";
+import { canonicalExternalId, parseTrustedSignalFeed } from "./signals";
 
 test("normalizes US phone numbers", () => {
   assert.equal(normalizeNumber("(555) 123-4567"), "+15551234567");
@@ -1187,6 +1188,37 @@ test("stores trusted signals separately with duplicate handling, export, archive
     database.addSignalItem({ subscription_id: subscription.id, external_id: "old", title: "Old", url: "https://example.com/old" });
     database.connection.prepare("UPDATE signal_items SET received_at='2020-01-01T00:00:00.000Z' WHERE external_id='old'").run();
     assert.ok(database.applySignalRetention(subscription.id) >= 1);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("migrates legacy URL-fallback external ids so refresh does not duplicate", () => {
+  const directory = mkdtempSync(join(tmpdir(), "twilio-phone-signals-upgrade-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const subscription = database.upsertSignalSubscription({ title: "Upgrade", url: "https://example.com/upgrade.xml", fetch_interval_minutes: 30, retention_days: 30 });
+    const legacyUrl = "https://example.com/post?utm_source=feed&keep=1";
+    database.connection.prepare("INSERT INTO signal_items(id, subscription_id, external_id, title, url, summary, author, published_at, received_at, status) VALUES(?,?,?,?,?,?,?,?,?,?)").run(
+      "legacy-url-fallback",
+      subscription.id,
+      legacyUrl,
+      "Same item",
+      legacyUrl,
+      "body",
+      "",
+      "2026-07-20T00:00:00.000Z",
+      "2026-07-20T00:00:00.000Z",
+      "unread"
+    );
+    database.scrubSignalCredentialRows();
+    const migrated = database.connection.prepare("SELECT id, external_id, url FROM signal_items WHERE title=?").get("Same item") as { id: string; external_id: string; url: string };
+    const expectedExternal = canonicalExternalId({ sanitizedUrl: "https://example.com/post?keep=1" });
+    assert.equal(migrated.external_id, expectedExternal);
+    assert.equal(migrated.url.includes("utm_"), false);
+    const feed = `<?xml version="1.0"?><rss><channel><title>Upgrade</title><item><title>Same item</title><link>https://example.com/post?utm_source=feed&amp;keep=1</link><description>body</description></item></channel></rss>`;
+    const parsed = parseTrustedSignalFeed(feed, subscription.url);
+    assert.equal(parsed.items[0].external_id, expectedExternal);
+    assert.equal(database.addSignalItem({ ...parsed.items[0], subscription_id: subscription.id }), false);
+    assert.equal(database.signalItems().filter((item) => item.title === "Same item").length, 1);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 

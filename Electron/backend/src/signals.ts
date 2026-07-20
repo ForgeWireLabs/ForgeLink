@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { lookup as dnsLookupAll } from "node:dns/promises";
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
+import { XMLParser, XMLValidator } from "fast-xml-parser";
+import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from "undici";
 
 export const MAX_SIGNAL_BYTES = 1024 * 1024;
 export const MAX_SIGNAL_REDIRECTS = 3;
@@ -10,8 +12,26 @@ export const SIGNAL_STALE_MULTIPLIER = 2;
 const MAX_ITEMS = 100;
 
 const TRACKING_QUERY_KEYS = /^(utm_[^=]*|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|igshid|vero_id|_ga|yclid)$/i;
-export const SECRET_QUERY_KEYS = /^(api[_-]?key|token|access[_-]?token|auth|authorization|password|passwd|secret|session|sid|key)$/i;
+/** Query/fragment/parameter names that indicate credential material. */
+export const SECRET_QUERY_KEYS = /^(?:api[_-]?key|x[_-]?api[_-]?key|client[_-]?secret|client[_-]?id|access[_-]?token|refresh[_-]?token|id[_-]?token|token|auth|authorization|bearer|password|passwd|secret|session|sid|sig|signature|key|x[_-]?amz[_-].+|x[_-]?goog[_-].+)$/i;
+const CREDENTIAL_ASSIGNMENT = /(?:^|[?#&\/\s;,:])(?:api[_-]?key|x[_-]?api[_-]?key|client[_-]?secret|client[_-]?id|access[_-]?token|refresh[_-]?token|id[_-]?token|token|auth|authorization|bearer|password|passwd|secret|session|sid|sig|signature|key|x[_-]?amz[_-][\w-]+|x[_-]?goog[_-][\w-]+)\s*[:=]/i;
+const JWT_LIKE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 const METADATA_HOSTS = new Set(["metadata.google.internal", "metadata", "kubernetes.default", "kubernetes.default.svc"]);
+
+const NON_GLOBAL = new BlockList();
+NON_GLOBAL.addSubnet("0.0.0.0", 8, "ipv4");
+NON_GLOBAL.addSubnet("10.0.0.0", 8, "ipv4");
+NON_GLOBAL.addSubnet("127.0.0.0", 8, "ipv4");
+NON_GLOBAL.addSubnet("169.254.0.0", 16, "ipv4");
+NON_GLOBAL.addSubnet("172.16.0.0", 12, "ipv4");
+NON_GLOBAL.addSubnet("192.168.0.0", 16, "ipv4");
+NON_GLOBAL.addSubnet("100.64.0.0", 10, "ipv4");
+NON_GLOBAL.addSubnet("224.0.0.0", 4, "ipv4");
+NON_GLOBAL.addSubnet("::", 128, "ipv6");
+NON_GLOBAL.addSubnet("::1", 128, "ipv6");
+NON_GLOBAL.addSubnet("fc00::", 7, "ipv6");
+NON_GLOBAL.addSubnet("fe80::", 10, "ipv6");
+NON_GLOBAL.addSubnet("ff00::", 8, "ipv6");
 
 export interface ParsedSignalItem {
   external_id: string;
@@ -35,11 +55,14 @@ export interface SignalHealth {
 }
 
 export type SignalDnsLookup = (hostname: string) => Promise<string[]>;
+export type SignalFetch = (input: string | URL, init?: UndiciRequestInit) => Promise<Response>;
 
 let signalDnsLookup: SignalDnsLookup = async (hostname) => {
   const results = await dnsLookupAll(hostname, { all: true, verbatim: true });
   return results.map((row) => row.address);
 };
+
+let signalFetch: SignalFetch = undiciFetch as unknown as SignalFetch;
 
 /** Test seam for redirect/SSRF fixtures. Pass null to restore the default resolver. */
 export function setSignalDnsLookupForTests(lookup: SignalDnsLookup | null): void {
@@ -47,6 +70,11 @@ export function setSignalDnsLookupForTests(lookup: SignalDnsLookup | null): void
     const results = await dnsLookupAll(hostname, { all: true, verbatim: true });
     return results.map((row) => row.address);
   });
+}
+
+/** Test seam for fetch pinning. Pass null to restore undici fetch. */
+export function setSignalFetchForTests(fetchImpl: SignalFetch | null): void {
+  signalFetch = fetchImpl ?? (undiciFetch as unknown as SignalFetch);
 }
 
 function decodeEntities(value: string): string {
@@ -85,12 +113,35 @@ function normalizeIso(value: string): string | null {
   return Number.isFinite(time) ? new Date(time).toISOString() : null;
 }
 
-function fingerprint(...parts: string[]): string {
+export function fingerprint(...parts: string[]): string {
   return createHash("sha256").update(parts.filter(Boolean).join("\n")).digest("hex");
 }
 
 function looksLikeUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim());
+}
+
+export function isSecretQueryKey(key: string): boolean {
+  return SECRET_QUERY_KEYS.test(key);
+}
+
+/** Shared detector for URL userinfo, query, fragment, and non-URL key/value credential material. */
+export function containsCredentialMaterial(value: string): boolean {
+  if (!value) return false;
+  const trimmed = value.trim();
+  if (JWT_LIKE.test(trimmed)) return true;
+  if (CREDENTIAL_ASSIGNMENT.test(value)) return true;
+  try {
+    const url = new URL(value);
+    if (url.username || url.password) return true;
+    if (url.hash && (CREDENTIAL_ASSIGNMENT.test(url.hash) || JWT_LIKE.test(url.hash.replace(/^#/, "")))) return true;
+    for (const key of url.searchParams.keys()) {
+      if (isSecretQueryKey(key)) return true;
+    }
+    return false;
+  } catch {
+    return CREDENTIAL_ASSIGNMENT.test(value) || JWT_LIKE.test(trimmed);
+  }
 }
 
 /** Strip common tracking/analytics query parameters from feed item URLs. */
@@ -107,7 +158,7 @@ export function stripTrackingParams(value: string): string {
   }
 }
 
-/** Remove userinfo and credential-like query parameters from a URL (item links / scrub). */
+/** Remove userinfo, credential-like query/fragment parameters, and fragments from a URL. */
 export function stripCredentialMaterial(value: string): string {
   if (!value) return value;
   try {
@@ -115,8 +166,9 @@ export function stripCredentialMaterial(value: string): string {
     url.username = "";
     url.password = "";
     for (const key of [...url.searchParams.keys()]) {
-      if (SECRET_QUERY_KEYS.test(key)) url.searchParams.delete(key);
+      if (isSecretQueryKey(key)) url.searchParams.delete(key);
     }
+    url.hash = "";
     return url.toString();
   } catch {
     return value;
@@ -127,22 +179,14 @@ export function sanitizeItemUrl(value: string): string {
   return stripCredentialMaterial(stripTrackingParams(value)).slice(0, 1000);
 }
 
+/** @deprecated Use containsCredentialMaterial — kept as a compatibility alias. */
 export function urlContainsCredentialMaterial(value: string): boolean {
-  try {
-    const url = new URL(value);
-    if (url.username || url.password) return true;
-    for (const key of url.searchParams.keys()) {
-      if (SECRET_QUERY_KEYS.test(key)) return true;
-    }
-    return false;
-  } catch {
-    return false;
-  }
+  return containsCredentialMaterial(value);
 }
 
 /**
- * Reject subscription URLs that embed HTTP credentials or credential-like query
- * parameters. Authenticated feeds require a future secure-settings path.
+ * Reject subscription URLs that embed HTTP credentials, credential-like query
+ * parameters, or fragments. Authenticated feeds require a future secure-settings path.
  */
 export function assertUnauthenticatedFeedUrl(value: string): URL {
   let url: URL;
@@ -152,20 +196,16 @@ export function assertUnauthenticatedFeedUrl(value: string): URL {
     throw new Error("Feed URL is invalid.");
   }
   if (!["http:", "https:"].includes(url.protocol)) throw new Error("Feed URL must use http or https.");
+  if (url.hash) throw new Error("Feed URL must not include a fragment.");
   if (url.username || url.password) {
     throw new Error("Feed URL must not include username/password. Authenticated feeds are not supported yet.");
   }
-  for (const key of url.searchParams.keys()) {
-    if (SECRET_QUERY_KEYS.test(key)) {
-      throw new Error("Feed URL must not include credential-like query parameters. Authenticated feeds are not supported yet.");
-    }
+  if (containsCredentialMaterial(url.toString()) || [...url.searchParams.keys()].some(isSecretQueryKey)) {
+    throw new Error("Feed URL must not include credential-like query parameters. Authenticated feeds are not supported yet.");
   }
   return url;
 }
 
-/**
- * Redact URL userinfo and credential-like query parameters for export/diagnostics/API DTOs.
- */
 export function redactSignalUrlSecrets(value: string): string {
   if (!value) return value;
   try {
@@ -173,33 +213,46 @@ export function redactSignalUrlSecrets(value: string): string {
     if (url.username) url.username = "REDACTED";
     if (url.password) url.password = "REDACTED";
     for (const key of [...url.searchParams.keys()]) {
-      if (SECRET_QUERY_KEYS.test(key)) url.searchParams.set(key, "REDACTED");
+      if (isSecretQueryKey(key)) url.searchParams.set(key, "REDACTED");
     }
+    if (url.hash && containsCredentialMaterial(url.hash)) url.hash = "#REDACTED";
     return url.toString();
   } catch {
-    return "[invalid-url]";
+    return containsCredentialMaterial(value) ? "[redacted]" : "[invalid-url]";
   }
 }
 
-/** Redact URL-shaped external ids so export never carries credential-bearing identity strings. */
+/** Canonical external id used by the parser, scrubber, and dedupe path. */
+export function canonicalExternalId(input: {
+  rawGuid?: string;
+  sanitizedUrl?: string;
+  feedUrl?: string;
+  title?: string;
+  summary?: string;
+}): string {
+  const rawGuid = (input.rawGuid || "").trim();
+  if (rawGuid) {
+    if (looksLikeUrl(rawGuid) || containsCredentialMaterial(rawGuid)) return fingerprint("guid", rawGuid);
+    return rawGuid.slice(0, 1000);
+  }
+  const sanitizedUrl = (input.sanitizedUrl || "").trim();
+  if (sanitizedUrl) return fingerprint("url", sanitizedUrl);
+  return fingerprint(input.feedUrl || "", input.title || "", input.summary || "");
+}
+
+/** Hash any suspicious external id so export/scrub never retain secrets. */
 export function redactExportExternalId(value: string): string {
   if (!value) return value;
-  if (!looksLikeUrl(value) && !value.includes("@") && !SECRET_QUERY_KEYS.test(value.split(/[?&=]/)[0] || "")) {
-    if (!/[?&](api[_-]?key|token|password|secret)=/i.test(value) && !/\/\/[^/\s]+@/.test(value)) return value;
-  }
-  if (looksLikeUrl(value) || /\/\/[^/\s]+@/.test(value) || /[?&](api[_-]?key|token|password|secret|auth)=/i.test(value)) {
-    return `sha256:${fingerprint("external_id", value)}`;
-  }
-  return value;
+  if (!looksLikeUrl(value) && !containsCredentialMaterial(value) && !/\/\/[^/\s]+@/.test(value)) return value;
+  return `sha256:${fingerprint("external_id", value)}`;
 }
 
-/** Sanitize operator-visible / persisted fetch errors so URLs and secrets never leak. */
 export function sanitizeSignalError(message: string): string {
   if (!message) return "";
   let out = String(message);
   out = out.replace(/https?:\/\/[^\s"'<>]+/gi, (match) => redactSignalUrlSecrets(match));
   out = out.replace(/\b[^\s/:@]+:[^\s/@]+@/g, "REDACTED:REDACTED@");
-  out = out.replace(/([?&](?:api[_-]?key|token|access[_-]?token|auth|password|secret|session|sid|key)=)[^&\s"']+/gi, "$1REDACTED");
+  out = out.replace(/([?#&](?:api[_-]?key|x[_-]?api[_-]?key|client[_-]?secret|token|access[_-]?token|auth|password|secret|session|sid|sig|signature|key|x[_-]?amz[_-][\w-]+|x[_-]?goog[_-][\w-]+)=)[^&\s"'#]+/gi, "$1REDACTED");
   return out.replace(/\s+/g, " ").trim().slice(0, 500);
 }
 
@@ -231,116 +284,140 @@ export function signalSubscriptionHealth(input: {
   return { state: "ok", detail: "Healthy" };
 }
 
-function isIpv4Blocked(address: string): boolean {
-  const parts = address.split(".").map((part) => Number(part));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
-  const [a, b] = parts;
-  if (a === 0) return true; // unspecified
-  if (a === 10) return true;
-  if (a === 127) return true;
-  if (a === 169 && b === 254) return true; // link-local + cloud metadata
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
-  if (a >= 224) return true; // multicast / reserved
-  return false;
-}
-
-function isIpv6Blocked(address: string): boolean {
-  const normalized = address.toLowerCase();
-  if (normalized === "::" || normalized === "::1") return true;
-  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true; // unique local
-  if (normalized.startsWith("fe80:")) return true; // link-local
-  if (normalized.startsWith("ff")) return true; // multicast
-  // IPv4-mapped
-  const mapped = normalized.match(/^:ffff:(\d+\.\d+\.\d+\.\d+)$/i) || normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
-  if (mapped) return isIpv4Blocked(mapped[1]);
-  return false;
+export function normalizeSignalIp(address: string): { address: string; family: 4 | 6 } {
+  const family = isIP(address);
+  if (family === 4) return { address, family: 4 };
+  if (family === 6) {
+    const dotted = address.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+    if (dotted) return { address: dotted[1], family: 4 };
+    const hexMapped = address.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+    if (hexMapped) {
+      const hi = parseInt(hexMapped[1], 16);
+      const lo = parseInt(hexMapped[2], 16);
+      return { address: `${(hi >> 8) & 255}.${hi & 255}.${(lo >> 8) & 255}.${lo & 255}`, family: 4 };
+    }
+    return { address, family: 6 };
+  }
+  throw new Error("Feed host could not be resolved.");
 }
 
 export function isCloudMetadataAddress(address: string): boolean {
-  const normalized = address.toLowerCase();
-  return normalized === "169.254.169.254" || normalized === "fd00:ec2::254" || normalized.endsWith(":169.254.169.254");
+  const normalized = normalizeSignalIp(address).address.toLowerCase();
+  return normalized === "169.254.169.254" || address.toLowerCase() === "fd00:ec2::254";
+}
+
+export function isCloudMetadataHostname(hostname: string): boolean {
+  return METADATA_HOSTS.has(hostname.replace(/^\[|\]$/g, "").toLowerCase());
 }
 
 export function isBlockedSignalAddress(address: string): boolean {
-  const family = isIP(address);
-  if (family === 4) return isIpv4Blocked(address);
-  if (family === 6) return isIpv6Blocked(address);
-  return true;
+  try {
+    const normalized = normalizeSignalIp(address);
+    if (isCloudMetadataAddress(normalized.address) || isCloudMetadataAddress(address)) return true;
+    return NON_GLOBAL.check(normalized.address, normalized.family === 4 ? "ipv4" : "ipv6");
+  } catch {
+    return true;
+  }
 }
 
 export function isPrivateOrLocalHostname(hostname: string): boolean {
   const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
-  if (METADATA_HOSTS.has(host)) return true;
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".lan") || host.endsWith(".home.arpa") || host.endsWith(".internal")) return true;
+  if (isCloudMetadataHostname(host)) return true;
   if (isIP(host)) return isBlockedSignalAddress(host);
   return false;
 }
 
-async function assertFetchTargetAllowed(url: URL, options: { allowPrivate: boolean }): Promise<void> {
-  if (!["http:", "https:"].includes(url.protocol)) throw new Error("Feed URL must use http or https.");
-  if (url.username || url.password) throw new Error("Feed URL must not include username/password.");
-  const host = url.hostname.replace(/^\[|\]$/g, "");
-  if (METADATA_HOSTS.has(host.toLowerCase())) throw new Error("Feed host is not allowed.");
-  if (isIP(host)) {
-    if (isCloudMetadataAddress(host)) throw new Error("Feed host is not allowed.");
-    if (isBlockedSignalAddress(host) && !options.allowPrivate) throw new Error("Feed redirect target is not allowed.");
-    return;
-  }
-  if (isPrivateOrLocalHostname(host) && !options.allowPrivate) throw new Error("Feed redirect target is not allowed.");
-  let addresses: string[];
-  try {
-    addresses = await signalDnsLookup(host);
-  } catch {
-    throw new Error("Feed host could not be resolved.");
-  }
-  if (!addresses.length) throw new Error("Feed host could not be resolved.");
-  if (addresses.some((address) => isCloudMetadataAddress(address))) throw new Error("Feed host is not allowed.");
-  const blocked = addresses.filter((address) => isBlockedSignalAddress(address));
-  if (blocked.length && !options.allowPrivate) throw new Error("Feed redirect target is not allowed.");
-  if (blocked.length && blocked.length < addresses.length) {
-    // Mixed public/private answers: refuse rather than race.
-    throw new Error("Feed host resolved to mixed public and private addresses.");
-  }
+export interface PinnedSignalTarget {
+  url: URL;
+  address: string;
+  family: 4 | 6;
+  isPrivate: boolean;
+  agent: Agent;
+}
+
+export function createPinnedAgent(address: string, family: 4 | 6): Agent {
+  return new Agent({
+    connect: {
+      lookup(_hostname, _options, callback) {
+        callback(null, address, family);
+      }
+    }
+  });
 }
 
 /**
- * Fail closed on DTD/entity declarations and documents that are not well-formed element XML.
- * This is a bounded structural check, not a full XML infoset implementation.
+ * Resolve, validate, and pin a feed target. Metadata hosts/addresses are always forbidden.
+ * `allowPrivate` only permits ordinary LAN/non-global ranges for operator-chosen or private-origin hops.
  */
+export async function resolveValidateAndPin(url: URL, options: { allowPrivate: boolean }): Promise<PinnedSignalTarget> {
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error("Feed URL must use http or https.");
+  if (url.username || url.password || url.hash || containsCredentialMaterial(url.toString())) {
+    throw new Error("Feed URL must not include credentials.");
+  }
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  if (isCloudMetadataHostname(host)) throw new Error("Feed host is not allowed.");
+
+  let addresses: string[];
+  if (isIP(host)) {
+    addresses = [host];
+  } else {
+    try {
+      addresses = await signalDnsLookup(host);
+    } catch {
+      throw new Error("Feed host could not be resolved.");
+    }
+  }
+  if (!addresses.length) throw new Error("Feed host could not be resolved.");
+
+  const normalized = addresses.map((address) => normalizeSignalIp(address));
+  if (addresses.some((address) => isCloudMetadataAddress(address)) || normalized.some((row) => isCloudMetadataAddress(row.address))) {
+    throw new Error("Feed host is not allowed.");
+  }
+
+  const privateFlags = normalized.map((row) => NON_GLOBAL.check(row.address, row.family === 4 ? "ipv4" : "ipv6"));
+  if (privateFlags.some(Boolean) && privateFlags.some((flag) => !flag)) {
+    throw new Error("Feed host resolved to mixed public and private addresses.");
+  }
+  const isPrivate = privateFlags.every(Boolean);
+  if (isPrivate && !options.allowPrivate) throw new Error("Feed redirect target is not allowed.");
+
+  const pinned = normalized[0];
+  return {
+    url,
+    address: pinned.address,
+    family: pinned.family,
+    isPrivate,
+    agent: createPinnedAgent(pinned.address, pinned.family)
+  };
+}
+
+/** Fail closed using a real XML validator with entity processing disabled. */
 export function assertWellFormedFeedXml(xml: string): void {
   if (!xml || !xml.trim()) throw new Error("Feed body is empty.");
   if (/<!DOCTYPE/i.test(xml) || /<!ENTITY/i.test(xml)) {
     throw new Error("Feed XML with DTD or entity declarations is not allowed.");
   }
-  // Strip comments and CDATA so tag scanning does not see their contents.
-  const source = xml
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, " ");
-  if (/<[!?]/.test(source.replace(/<\?xml\b[^?]*\?>/gi, ""))) {
-    throw new Error("Feed XML contains unsupported declarations.");
+  const validated = XMLValidator.validate(xml, { allowBooleanAttributes: true });
+  if (validated !== true) {
+    const message = typeof validated === "object" && validated.err?.msg ? validated.err.msg : "Feed XML is not well-formed.";
+    throw new Error(`Feed XML is not well-formed: ${message}`);
   }
-  const stack: string[] = [];
-  const token = /<\/?([A-Za-z_][\w:.-]*)\b[^>]*?(\/?)\>/g;
-  let match: RegExpExecArray | null;
-  let sawElement = false;
-  while ((match = token.exec(source))) {
-    const full = match[0];
-    const name = match[1].toLowerCase();
-    const selfClosing = match[2] === "/" || /\/\s*>$/.test(full);
-    if (full.startsWith("</")) {
-      if (!stack.length) throw new Error("Feed XML has a mismatched closing tag.");
-      const expected = stack.pop();
-      if (expected !== name) throw new Error("Feed XML has mismatched element nesting.");
-      continue;
-    }
-    sawElement = true;
-    if (!selfClosing) stack.push(name);
+  const parser = new XMLParser({
+    ignoreAttributes: false,
+    processEntities: false,
+    htmlEntities: false,
+    allowBooleanAttributes: true
+  });
+  let doc: Record<string, unknown>;
+  try {
+    doc = parser.parse(xml) as Record<string, unknown>;
+  } catch {
+    throw new Error("Feed XML is not well-formed.");
   }
-  if (!sawElement) throw new Error("Feed body is not readable RSS or Atom XML.");
-  if (stack.length) throw new Error("Feed XML is truncated or not well-formed.");
-  if (!/<(rss|feed|rdf:rdf)\b/i.test(source)) throw new Error("Feed body is not readable RSS or Atom XML.");
+  const rootKeys = Object.keys(doc).filter((key) => key !== "?xml");
+  if (rootKeys.length !== 1) throw new Error("Feed XML must have a single RSS or Atom root element.");
+  if (!/^(rss|feed|rdf:RDF)$/i.test(rootKeys[0])) throw new Error("Feed body is not readable RSS or Atom XML.");
 }
 
 export function parseTrustedSignalFeed(xml: string, feedUrl: string): ParsedSignalFeed {
@@ -353,21 +430,10 @@ export function parseTrustedSignalFeed(xml: string, feedUrl: string): ParsedSign
     const title = firstTag(block, ["title"]) || "Untitled";
     const url = sanitizeItemUrl(firstLink(block));
     const rawExternal = firstTag(block, ["guid", "id"]);
-    let external_id: string;
-    if (rawExternal && !looksLikeUrl(rawExternal) && !urlContainsCredentialMaterial(rawExternal)) {
-      external_id = rawExternal;
-    } else if (rawExternal) {
-      // GUID/id that is URL-shaped or credential-bearing must never be stored verbatim.
-      external_id = fingerprint("guid", rawExternal);
-    } else if (url) {
-      external_id = fingerprint("url", url);
-    } else {
-      external_id = fingerprint(feedUrl, title, firstTag(block, ["description", "summary"]));
-    }
     const summary = firstTag(block, ["description", "summary", "content", "content:encoded"]).slice(0, 1200);
     const author = firstTag(block, ["author", "dc:creator", "name"]).slice(0, 160);
     return {
-      external_id: external_id.slice(0, 1000),
+      external_id: canonicalExternalId({ rawGuid: rawExternal, sanitizedUrl: url, feedUrl, title, summary }),
       title: title.slice(0, 240),
       url,
       summary,
@@ -401,54 +467,58 @@ export async function boundedText(response: Response, maxBytes = MAX_SIGNAL_BYTE
 
 async function fetchTrustedSignalFeedHop(
   feedUrl: string,
-  state: { redirectCount: number; startedAt: number; deadlineMs: number; originPrivate: boolean; originProtocol: string }
+  state: { redirectCount: number; startedAt: number; deadlineMs: number; originPrivate: boolean | null; originProtocol: string }
 ): Promise<ParsedSignalFeed> {
   const remaining = state.deadlineMs - (Date.now() - state.startedAt);
   if (remaining <= 0) throw new Error("Feed fetch timed out.");
   if (state.redirectCount > MAX_SIGNAL_REDIRECTS) throw new Error("Feed redirected too many times.");
   const url = assertUnauthenticatedFeedUrl(feedUrl);
-  // Initial operator URL may be LAN/private; redirect hops may not pivot public → private.
-  const allowPrivate = state.redirectCount === 0 ? true : state.originPrivate;
-  if (state.redirectCount > 0) {
-    if (state.originProtocol === "https:" && url.protocol === "http:") {
-      throw new Error("Feed HTTPS to HTTP redirect downgrade is not allowed.");
+  if (state.redirectCount > 0 && state.originProtocol === "https:" && url.protocol === "http:") {
+    throw new Error("Feed HTTPS to HTTP redirect downgrade is not allowed.");
+  }
+  // Every hop is validated (including the initial operator URL). Metadata is always
+  // forbidden. Private LAN is allowed for the initial URL and for redirects that stay
+  // within a private origin; public origins cannot pivot into private space.
+  const allowPrivate = state.redirectCount === 0 ? true : state.originPrivate === true;
+  const pinned = await resolveValidateAndPin(url, { allowPrivate });
+  const originPrivate = state.redirectCount === 0 ? pinned.isPrivate : Boolean(state.originPrivate);
+  try {
+    const response = await signalFetch(url, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(remaining),
+      headers: { Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.2" },
+      dispatcher: pinned.agent
+    }) as unknown as Response;
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get("location");
+      if (!location) throw new Error("Feed redirect did not include a location.");
+      const next = new URL(location, url);
+      return fetchTrustedSignalFeedHop(next.toString(), {
+        redirectCount: state.redirectCount + 1,
+        startedAt: state.startedAt,
+        deadlineMs: state.deadlineMs,
+        originPrivate,
+        originProtocol: state.originProtocol
+      });
     }
-    await assertFetchTargetAllowed(url, { allowPrivate });
-  } else if (!state.originPrivate) {
-    // Public initial hosts still must not resolve exclusively to blocked addresses unless operator used a private literal/host.
-    await assertFetchTargetAllowed(url, { allowPrivate: false });
+    if (!response.ok) throw new Error(`Feed fetch failed (${response.status}).`);
+    const type = response.headers.get("content-type") || "";
+    if (type && !/(xml|rss|atom|text\/plain|application\/octet-stream)/i.test(type)) throw new Error(`Unsupported feed content type: ${type.split(";")[0]}.`);
+    const parsed = parseTrustedSignalFeed(await boundedText(response), url.toString());
+    if (!parsed.items.length) throw new Error("Feed did not contain readable RSS or Atom items.");
+    return parsed;
+  } finally {
+    await pinned.agent.close();
   }
-
-  const response = await fetch(url, {
-    redirect: "manual",
-    signal: AbortSignal.timeout(remaining),
-    headers: { Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.2" }
-  });
-  if ([301, 302, 303, 307, 308].includes(response.status)) {
-    const location = response.headers.get("location");
-    if (!location) throw new Error("Feed redirect did not include a location.");
-    const next = new URL(location, url);
-    return fetchTrustedSignalFeedHop(next.toString(), {
-      ...state,
-      redirectCount: state.redirectCount + 1
-    });
-  }
-  if (!response.ok) throw new Error(`Feed fetch failed (${response.status}).`);
-  const type = response.headers.get("content-type") || "";
-  if (type && !/(xml|rss|atom|text\/plain|application\/octet-stream)/i.test(type)) throw new Error(`Unsupported feed content type: ${type.split(";")[0]}.`);
-  const parsed = parseTrustedSignalFeed(await boundedText(response), url.toString());
-  if (!parsed.items.length) throw new Error("Feed did not contain readable RSS or Atom items.");
-  return parsed;
 }
 
 export async function fetchTrustedSignalFeed(feedUrl: string): Promise<ParsedSignalFeed> {
   const url = assertUnauthenticatedFeedUrl(feedUrl);
-  const originPrivate = isPrivateOrLocalHostname(url.hostname);
   return fetchTrustedSignalFeedHop(feedUrl, {
     redirectCount: 0,
     startedAt: Date.now(),
     deadlineMs: SIGNAL_FETCH_TIMEOUT_MS,
-    originPrivate,
+    originPrivate: null,
     originProtocol: url.protocol
   });
 }

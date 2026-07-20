@@ -17,14 +17,16 @@ person-to-person channel and not as an approval surface.
 - Manual refresh (interval is advisory UI; automatic scheduling is intentionally
   not running).
 - Bounded fetch: http(s) only, single 8s deadline across redirects, at most 3
-  redirects, 1 MB response cap, content-type checks. Operator-entered LAN/private
-  feed URLs are allowed; public feeds may not redirect into loopback, private,
-  link-local, multicast, unspecified, or cloud-metadata addresses, and HTTPS→HTTP
-  downgrades are rejected.
-- Well-formed RSS/Atom XML only (DTD/entity declarations rejected; truncated or
-  mismatched markup fails closed). Text-only item extraction; duplicate external
-  IDs ignored; tracking and credential query parameters stripped from item links;
-  URL-fallback identities are hashed.
+  redirects, 1 MB response cap, content-type checks. Each hop resolves DNS,
+  validates the result, and pins that address for the connection (Host/SNI
+  preserved). Operator-entered LAN/private feeds are allowed when DNS resolves
+  entirely to non-global addresses; cloud-metadata hosts/addresses are always
+  forbidden, including as the initial URL. Public feeds may not redirect into
+  private/non-global space; HTTPS→HTTP downgrades are rejected.
+- Well-formed RSS/Atom XML validated with a bounded XML parser (DTD/entity
+  processing disabled; single RSS/Atom root required). Text-only item
+  extraction; duplicate external IDs ignored; tracking and credential material
+  stripped from item links; URL-fallback identities use the canonical hash.
 - Separate `signal_subscriptions` / `signal_items` tables from SMS, email, and
   agent messages.
 - Signals UI under Channels with source health (healthy / stale / failed /
@@ -53,9 +55,11 @@ explicit local confirmation (not shipped).
 ## Authenticated feeds (plan only — RSSF-003)
 
 Ordinary feeds need no credentials. Subscription URLs that include HTTP
-userinfo or credential-like query parameters (`token`, `api_key`, `password`,
+userinfo, fragments, or credential-like query parameters (`token`, `api_key`,
+`client_secret`, `x-api-key`, `sig`, `x-amz-*`, `x-goog-*`, JWT-like values,
 etc.) are **rejected**. Legacy rows are scrubbed on open (credentials stripped,
-source paused). This is not authenticated-feed support.
+source paused; URL-shaped item identities migrated to the canonical hash
+scheme). This is not authenticated-feed support.
 
 Optional authenticated feeds remain **future** and must satisfy:
 

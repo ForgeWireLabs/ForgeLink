@@ -1,0 +1,36 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260720-rss-atom-signal-follow-up-hardening-r2",
+  "timestamp": "2026-07-20T23:30:00Z",
+  "work_item": "023",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Full suite passed (213 pass, 1 skipped) after second Sol remediation. Shared credential detector covers userinfo/query/fragment/non-URL assignments including client_secret, x-api-key, sig, x-amz-*, JWT-like values; fragments rejected on subscriptions; every hop validates and pins DNS via undici Agent; direct metadata URLs forbidden; LAN hostnames classified by DNS; legacy URL-fallback external ids migrate to canonical hashes so refresh dedupes; fast-xml-parser validates well-formed XML with entities disabled."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Repository governance validation passed after docs/evidence updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/signals.ts",
+    "Electron/backend/src/signals.test.ts",
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/package.json",
+    "docs/trusted-signals.md",
+    "work/completed/023-rss-atom-signal-follow-up/README.md",
+    "evidence/runs/20260720-rss-atom-signal-follow-up-hardening-r2.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "dependencies": ["fast-xml-parser", "undici"],
+    "note": "Second remediation of defect-first review findings against 19da3f1."
+  }
+}

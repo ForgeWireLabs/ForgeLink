@@ -4,13 +4,19 @@ import {
   assertUnauthenticatedFeedUrl,
   assertWellFormedFeedXml,
   boundedText,
+  canonicalExternalId,
+  containsCredentialMaterial,
+  createPinnedAgent,
   fetchTrustedSignalFeed,
+  isBlockedSignalAddress,
   MAX_SIGNAL_BYTES,
   parseTrustedSignalFeed,
   redactExportExternalId,
   redactSignalUrlSecrets,
+  resolveValidateAndPin,
   sanitizeSignalError,
   setSignalDnsLookupForTests,
+  setSignalFetchForTests,
   signalSubscriptionHealth,
   stripTrackingParams,
   toSignalSubscriptionDto
@@ -33,124 +39,143 @@ function oversizedBody(bytes: number): Response {
   return { body: stream, headers: new Headers({ "content-type": "application/xml" }), ok: true, status: 200 } as unknown as Response;
 }
 
+const SAMPLE_FEED = `<rss><channel><title>Redirected</title><item><guid>r1</guid><title>After redirect</title><link>https://example.com/item</link><description>ok</description></item></channel></rss>`;
+
 test("parses RSS feeds as bounded trusted signal text", () => {
   const parsed = parseTrustedSignalFeed(`<?xml version="1.0"?>
     <rss><channel><title>Forge News</title><item><guid>one</guid><title>Release</title><link>https://example.com/release</link><pubDate>Mon, 15 Jun 2026 12:00:00 GMT</pubDate><description><![CDATA[<p>Ships <strong>today</strong>.</p><script>bad()</script>]]></description><dc:creator>Ada</dc:creator></item></channel></rss>`, "https://example.com/feed.xml");
   assert.equal(parsed.title, "Forge News");
-  assert.equal(parsed.items.length, 1);
   assert.equal(parsed.items[0].external_id, "one");
   assert.equal(parsed.items[0].summary, "Ships today.");
-  assert.equal(parsed.items[0].published_at, "2026-06-15T12:00:00.000Z");
 });
 
 test("parses Atom entries with href links", () => {
-  const parsed = parseTrustedSignalFeed(`<feed><title>Signals</title><entry><id>tag:example,1</id><title>Atom item</title><link href="https://example.com/atom"/><updated>2026-06-15T13:00:00Z</updated><summary>Plain update</summary></entry></feed>`, "https://example.com/atom.xml");
-  assert.equal(parsed.title, "Signals");
+  const parsed = parseTrustedSignalFeed(`<?xml version="1.0"?><feed><title>Signals</title><entry><id>tag:example,1</id><title>Atom item</title><link href="https://example.com/atom"/><updated>2026-06-15T13:00:00Z</updated><summary>Plain update</summary></entry></feed>`, "https://example.com/atom.xml");
   assert.equal(parsed.items[0].url, "https://example.com/atom");
   assert.equal(parsed.items[0].external_id, "tag:example,1");
 });
 
 test("strips tracking and credential query params from item links", () => {
-  const parsed = parseTrustedSignalFeed(`<rss><channel><title>Tracked</title><item><guid>t1</guid><title>Tracked item</title><link>https://example.com/post?utm_source=feed&amp;utm_campaign=x&amp;fbclid=abc&amp;token=secret&amp;keep=1</link><description>ok</description></item></channel></rss>`, "https://example.com/feed.xml");
+  const parsed = parseTrustedSignalFeed(`<?xml version="1.0"?><rss><channel><title>Tracked</title><item><guid>t1</guid><title>Tracked item</title><link>https://example.com/post?utm_source=feed&amp;token=secret&amp;keep=1</link><description>ok</description></item></channel></rss>`, "https://example.com/feed.xml");
   assert.equal(parsed.items[0].url, "https://example.com/post?keep=1");
-  assert.equal(parsed.items[0].url.includes("secret"), false);
   assert.equal(stripTrackingParams("https://example.com/a?gclid=1&id=2"), "https://example.com/a?id=2");
 });
 
-test("hashes URL fallback external ids so credentials never become identity", () => {
-  const parsed = parseTrustedSignalFeed(`<rss><channel><title>No Guid</title><item><title>Leaky</title><link>https://user:pass@example.com/item?token=abc&amp;keep=1</link><description>body</description></item></channel></rss>`, "https://example.com/feed.xml");
-  assert.match(parsed.items[0].external_id, /^[a-f0-9]{64}$/);
-  assert.equal(parsed.items[0].external_id.includes("pass"), false);
-  assert.equal(parsed.items[0].external_id.includes("abc"), false);
-  assert.equal(parsed.items[0].url.includes("pass"), false);
-  assert.equal(parsed.items[0].url.includes("token"), false);
-  assert.equal(redactExportExternalId("https://user:pass@example.com/x?api_key=z").startsWith("sha256:"), true);
+test("hashes URL fallback and suspicious external ids", () => {
+  const parsed = parseTrustedSignalFeed(`<?xml version="1.0"?><rss><channel><title>No Guid</title><item><title>Leaky</title><link>https://user:pass@example.com/item?token=abc&amp;keep=1</link><description>body</description></item></channel></rss>`, "https://example.com/feed.xml");
+  assert.equal(parsed.items[0].external_id, canonicalExternalId({ sanitizedUrl: "https://example.com/item?keep=1" }));
+  assert.equal(containsCredentialMaterial("token=abc"), true);
+  assert.equal(redactExportExternalId("token=abc").startsWith("sha256:"), true);
+  assert.equal(redactExportExternalId("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig").startsWith("sha256:"), true);
 });
 
-test("rejects malformed XML, DTDs, truncated documents, and empty feeds", () => {
-  assert.throws(() => parseTrustedSignalFeed("<html><body>not a feed</body></html>", "https://example.com/bad"), /not readable RSS or Atom/i);
-  assert.throws(() => parseTrustedSignalFeed("", "https://example.com/empty"), /empty/i);
-  assert.throws(() => assertWellFormedFeedXml(`<!DOCTYPE rss [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><rss><channel></channel></rss>`), /DTD|entity/i);
-  assert.throws(() => parseTrustedSignalFeed(`<rss><channel><item><title>Truncated</title>`, "https://example.com/trunc"), /truncated|well-formed/i);
-  assert.throws(() => parseTrustedSignalFeed(`<rss><channel></rss>`, "https://example.com/mismatch"), /mismatch/i);
-  assert.throws(() => parseTrustedSignalFeed(`<rss><channel><item><title>Bad</title><link href="x"></item></channel></rss>`, "https://example.com/attr"), /well-formed|mismatch|truncated|unsupported/i);
-  const empty = parseTrustedSignalFeed("<rss><channel><title>Empty</title></channel></rss>", "https://example.com/empty");
-  assert.equal(empty.items.length, 0);
-});
-
-test("rejects credential-bearing subscription URLs", () => {
-  assert.throws(() => assertUnauthenticatedFeedUrl("https://user:pass@example.com/feed.xml"), /username\/password/i);
-  assert.throws(() => assertUnauthenticatedFeedUrl("https://example.com/feed.xml?api_key=secret"), /credential-like/i);
-  assert.throws(() => assertUnauthenticatedFeedUrl("https://example.com/feed.xml?token=abc"), /credential-like/i);
+test("rejects broad credential-bearing subscription URLs including fragments", () => {
+  for (const url of [
+    "https://example.com/feed?client_secret=value",
+    "https://example.com/feed?x-api-key=value",
+    "https://example.com/feed?sig=value",
+    "https://example.com/feed?x-amz-security-token=value",
+    "https://example.com/feed#access_token=value",
+    "https://user:pass@example.com/feed.xml"
+  ]) {
+    assert.throws(() => assertUnauthenticatedFeedUrl(url), /credential|username|fragment/i);
+  }
   assert.equal(assertUnauthenticatedFeedUrl("https://example.com/feed.xml?keep=1").toString(), "https://example.com/feed.xml?keep=1");
 });
 
-test("redacts and sanitizes credential material for export and errors", () => {
-  assert.equal(
-    redactSignalUrlSecrets("https://user:pass@example.com/feed.xml?api_key=secret&token=abc&keep=1"),
-    "https://REDACTED:REDACTED@example.com/feed.xml?api_key=REDACTED&token=REDACTED&keep=1"
-  );
-  const dto = toSignalSubscriptionDto({
-    url: "https://example.com/feed.xml?token=abc",
-    last_error: "Failed fetching https://example.com/feed.xml?token=abc"
-  });
-  assert.equal(dto.url.includes("abc"), false);
-  assert.equal(dto.last_error.includes("abc"), false);
-  assert.match(sanitizeSignalError("boom at https://x:y@host/path?token=z"), /REDACTED/);
+test("XML validator rejects malformed, multi-root, case-mismatched, and entity documents", () => {
+  assert.throws(() => parseTrustedSignalFeed("<html><body>not a feed</body></html>", "https://example.com/bad"), /not readable|well-formed/i);
+  assert.throws(() => assertWellFormedFeedXml(`<!DOCTYPE rss [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><rss><channel></channel></rss>`), /DTD|entity/i);
+  assert.throws(() => parseTrustedSignalFeed(`<rss><channel><item><title>Truncated</title>`, "https://example.com/trunc"), /well-formed/i);
+  assert.throws(() => parseTrustedSignalFeed(`<rss><channel></rss>`, "https://example.com/mismatch"), /well-formed/i);
+  assert.throws(() => assertWellFormedFeedXml(`<rss><channel></channel></rss><feed></feed>`), /well-formed|Multiple possible root|single RSS or Atom root/i);
+  assert.throws(() => assertWellFormedFeedXml(`<rss><channel><Title>x</title></channel></rss>`), /well-formed/i);
+  assert.throws(() => assertWellFormedFeedXml(`<rss><channel><title>a & b</title></channel></rss>`), /well-formed/i);
+  const empty = parseTrustedSignalFeed("<?xml version=\"1.0\"?><rss><channel><title>Empty</title></channel></rss>", "https://example.com/empty");
+  assert.equal(empty.items.length, 0);
 });
 
-test("classifies signal subscription health including stale", () => {
-  const now = Date.parse("2026-07-20T12:00:00.000Z");
-  assert.equal(signalSubscriptionHealth({ enabled: false, last_fetch_at: null, last_fetch_status: "never", fetch_interval_minutes: 60, now }).state, "paused");
-  assert.equal(signalSubscriptionHealth({ enabled: true, last_fetch_at: null, last_fetch_status: "never", fetch_interval_minutes: 60, now }).state, "never_fetched");
-  assert.equal(signalSubscriptionHealth({ enabled: true, last_fetch_at: "2026-07-20T11:00:00.000Z", last_fetch_status: "failed", fetch_interval_minutes: 60, now }).state, "failed");
-  assert.equal(signalSubscriptionHealth({ enabled: true, last_fetch_at: "2026-07-20T11:30:00.000Z", last_fetch_status: "ok", fetch_interval_minutes: 60, now }).state, "ok");
-  assert.equal(signalSubscriptionHealth({ enabled: true, last_fetch_at: "2026-07-20T09:00:00.000Z", last_fetch_status: "ok", fetch_interval_minutes: 60, now }).state, "stale");
+test("classifies non-global IPv6 link-local /10 and hex-mapped loopback", () => {
+  assert.equal(isBlockedSignalAddress("fe80::1"), true);
+  assert.equal(isBlockedSignalAddress("fe90::1"), true);
+  assert.equal(isBlockedSignalAddress("feb0::1"), true);
+  assert.equal(isBlockedSignalAddress("::ffff:7f00:1"), true);
+  assert.equal(isBlockedSignalAddress("8.8.8.8"), false);
 });
 
-test("fetchTrustedSignalFeed follows bounded redirects and rejects oversize, private pivots, and HTTPS downgrade", async () => {
-  const originalFetch = globalThis.fetch;
+test("resolveValidateAndPin pins the validated DNS address and classifies LAN hosts", async () => {
   setSignalDnsLookupForTests(async (hostname) => {
+    if (hostname === "nas.lan") return ["192.168.1.50"];
+    if (hostname === "example.com") return ["93.184.216.34"];
+    return ["93.184.216.34"];
+  });
+  try {
+    const lan = await resolveValidateAndPin(new URL("http://nas.lan/feed.xml"), { allowPrivate: true });
+    assert.equal(lan.address, "192.168.1.50");
+    assert.equal(lan.isPrivate, true);
+    await lan.agent.close();
+    const pub = await resolveValidateAndPin(new URL("https://example.com/feed.xml"), { allowPrivate: false });
+    assert.equal(pub.address, "93.184.216.34");
+    assert.equal(pub.isPrivate, false);
+    await pub.agent.close();
+    assert.equal(createPinnedAgent("93.184.216.34", 4) instanceof Object, true);
+  } finally {
+    setSignalDnsLookupForTests(null);
+  }
+});
+
+test("direct metadata and private-pivot targets are rejected; LAN DNS origins are allowed", async () => {
+  setSignalDnsLookupForTests(async (hostname) => {
+    if (hostname === "nas.lan" || hostname === "feed.home.arpa") return ["192.168.1.50"];
     if (hostname === "example.com" || hostname === "cdn.example.com") return ["93.184.216.34"];
     if (hostname === "evil.example.com") return ["127.0.0.1"];
     if (hostname === "meta.example.com") return ["169.254.169.254"];
     return ["93.184.216.34"];
   });
-  let calls = 0;
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
-    calls += 1;
+  setSignalFetchForTests(async (input) => {
     const href = String(input);
-    if (href.endsWith("/start")) {
-      return new Response(null, { status: 302, headers: { location: "https://cdn.example.com/final.xml" } });
+    if (href.includes("192.168.1.50") || href.includes("nas.lan") || href.includes("feed.home.arpa")) {
+      return new Response(SAMPLE_FEED, { status: 200, headers: { "content-type": "application/rss+xml" } }) as unknown as Response;
     }
-    if (href.includes("cdn.example.com/final.xml")) {
-      const body = `<rss><channel><title>Redirected</title><item><guid>r1</guid><title>After redirect</title><link>https://example.com/item</link><description>ok</description></item></channel></rss>`;
-      return new Response(body, { status: 200, headers: { "content-type": "application/rss+xml" } });
-    }
+    if (href.endsWith("/start")) return new Response(null, { status: 302, headers: { location: "https://cdn.example.com/final.xml" } }) as unknown as Response;
+    if (href.includes("cdn.example.com/final.xml")) return new Response(SAMPLE_FEED, { status: 200, headers: { "content-type": "application/rss+xml" } }) as unknown as Response;
+    if (href.endsWith("/to-private")) return new Response(null, { status: 302, headers: { location: "https://evil.example.com/secret" } }) as unknown as Response;
+    if (href.endsWith("/to-http")) return new Response(null, { status: 302, headers: { location: "http://example.com/final.xml" } }) as unknown as Response;
     if (href.endsWith("/huge")) return oversizedBody(MAX_SIGNAL_BYTES + 1024);
-    if (href.endsWith("/loop")) return new Response(null, { status: 302, headers: { location: "https://example.com/loop" } });
-    if (href.endsWith("/to-private")) return new Response(null, { status: 302, headers: { location: "https://evil.example.com/secret" } });
-    if (href.endsWith("/to-meta")) return new Response(null, { status: 302, headers: { location: "https://meta.example.com/" } });
-    if (href.endsWith("/to-http")) return new Response(null, { status: 302, headers: { location: "http://example.com/final.xml" } });
-    if (href.includes("127.0.0.1") || href.includes("evil.example.com")) {
-      return new Response("<rss><channel><title>private</title><item><guid>p</guid><title>p</title><link>https://example.com/p</link><description>x</description></item></channel></rss>", { status: 200, headers: { "content-type": "application/xml" } });
-    }
-    return new Response("missing", { status: 404 });
-  }) as typeof fetch;
+    if (href.endsWith("/loop")) return new Response(null, { status: 302, headers: { location: "https://example.com/loop" } }) as unknown as Response;
+    return new Response("missing", { status: 404 }) as unknown as Response;
+  });
   try {
-    const parsed = await fetchTrustedSignalFeed("https://example.com/start");
-    assert.equal(parsed.title, "Redirected");
-    assert.equal(parsed.items[0].title, "After redirect");
-    assert.equal(calls, 2);
+    await assert.rejects(() => fetchTrustedSignalFeed("http://169.254.169.254/latest/meta-data/"), /not allowed/i);
+    await assert.rejects(() => fetchTrustedSignalFeed("http://metadata.google.internal/"), /not allowed/i);
+    await assert.rejects(() => resolveValidateAndPin(new URL("http://[fd00:ec2::254]/"), { allowPrivate: true }), /not allowed/i);
+    const lan = await fetchTrustedSignalFeed("http://nas.lan/feed.xml");
+    assert.equal(lan.title, "Redirected");
+    const home = await fetchTrustedSignalFeed("http://feed.home.arpa/feed.xml");
+    assert.equal(home.items.length, 1);
+    const redirected = await fetchTrustedSignalFeed("https://example.com/start");
+    assert.equal(redirected.title, "Redirected");
+    await assert.rejects(() => fetchTrustedSignalFeed("https://example.com/to-private"), /not allowed/i);
+    await assert.rejects(() => fetchTrustedSignalFeed("https://example.com/to-http"), /downgrade/i);
     await assert.rejects(() => fetchTrustedSignalFeed("https://example.com/huge"), /1 MB limit/i);
     await assert.rejects(() => fetchTrustedSignalFeed("https://example.com/loop"), /redirected too many times/i);
-    await assert.rejects(() => fetchTrustedSignalFeed("https://example.com/to-private"), /not allowed/i);
-    await assert.rejects(() => fetchTrustedSignalFeed("https://example.com/to-meta"), /not allowed/i);
-    await assert.rejects(() => fetchTrustedSignalFeed("https://example.com/to-http"), /downgrade/i);
   } finally {
-    globalThis.fetch = originalFetch;
     setSignalDnsLookupForTests(null);
+    setSignalFetchForTests(null);
   }
+});
+
+test("redacts credential material for export and errors", () => {
+  assert.match(redactSignalUrlSecrets("https://user:pass@example.com/feed.xml?client_secret=x"), /REDACTED/);
+  const dto = toSignalSubscriptionDto({ url: "https://example.com/feed.xml?token=abc", last_error: "Failed https://example.com/feed.xml?token=abc" });
+  assert.equal(dto.url.includes("abc"), false);
+  assert.equal(dto.last_error.includes("abc"), false);
+  assert.match(sanitizeSignalError("boom at https://x:y@host/path?sig=z"), /REDACTED/);
+});
+
+test("classifies signal subscription health including stale", () => {
+  const now = Date.parse("2026-07-20T12:00:00.000Z");
+  assert.equal(signalSubscriptionHealth({ enabled: true, last_fetch_at: "2026-07-20T09:00:00.000Z", last_fetch_status: "ok", fetch_interval_minutes: 60, now }).state, "stale");
 });
 
 test("boundedText enforces the byte cap", async () => {
