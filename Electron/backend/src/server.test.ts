@@ -247,13 +247,33 @@ test("manages trusted signal subscriptions, bounded refresh, archive, and failed
     assert.match(subscriptions.find((item) => item.id === bad.subscription.id)?.last_error || "", /content type|readable/i);
 
     // RSSF-005: feed refresh must not create agent approvals, messages, or decision records.
-    const agentMessages = await fetch(`${localUrl}/api/agent-messages`, { headers: authorized() }).then((response) => response.json()) as Array<unknown>;
-    assert.equal(agentMessages.length, 0);
-    const diag = await fetch(`${localUrl}/api/diagnostics`, { headers: authorized() }).then((response) => response.json()) as { signals: { subscriptions: number; items: number; failed: number } };
-    assert.equal(diag.signals.subscriptions, 2);
-    assert.equal(diag.signals.failed, 1);
-    assert.equal(JSON.stringify(diag).includes("example.test"), false);
-    assert.equal(JSON.stringify(diag).includes("Build note"), false);
+    const beforeAgents = await fetch(`${localUrl}/api/agent-messages`, { headers: authorized() }).then((response) => response.json()) as Array<{ kind: string; status: string }>;
+    const beforeDecisions = await fetch(`${localUrl}/api/decision-records`, { headers: authorized() }).then((response) => response.json()) as Array<unknown>;
+    const beforeDangling = await fetch(`${localUrl}/api/approvals/dangling`, { headers: authorized() }).then((response) => response.json()) as Array<unknown>;
+    await fetch(`${localUrl}/api/signals/subscriptions/${subscriptionId}/refresh`, { method: "POST", headers: authorized() });
+    const afterAgents = await fetch(`${localUrl}/api/agent-messages`, { headers: authorized() }).then((response) => response.json()) as Array<{ kind: string; status: string }>;
+    const afterDecisions = await fetch(`${localUrl}/api/decision-records`, { headers: authorized() }).then((response) => response.json()) as Array<unknown>;
+    const afterDangling = await fetch(`${localUrl}/api/approvals/dangling`, { headers: authorized() }).then((response) => response.json()) as Array<unknown>;
+    assert.equal(afterAgents.length, beforeAgents.length);
+    assert.equal(afterAgents.filter((item) => item.kind === "approval_request" && ["unread", "read"].includes(item.status)).length, beforeAgents.filter((item) => item.kind === "approval_request" && ["unread", "read"].includes(item.status)).length);
+    assert.equal(afterDecisions.length, beforeDecisions.length);
+    assert.equal(afterDangling.length, beforeDangling.length);
+    const channels = await fetch(`${localUrl}/api/diagnostics`, { headers: authorized() }).then((response) => response.json()) as { channels: Array<{ provider: string; kind?: string }>; planned_channels: Array<{ provider: string }>; signals: { subscriptions: number; failed: number } };
+    assert.equal(channels.channels.some((item) => /rss|atom|signal/i.test(JSON.stringify(item))), false);
+    assert.equal(channels.planned_channels.some((item) => /rss|atom|signal/i.test(JSON.stringify(item))), false);
+    assert.equal(channels.signals.subscriptions, 2);
+    assert.equal(channels.signals.failed, 1);
+    assert.equal(JSON.stringify(channels).includes("example.test"), false);
+    assert.equal(JSON.stringify(channels).includes("Build note"), false);
+
+    // Credential-bearing subscription URLs are rejected and never returned to the renderer.
+    const rejected = await fetch(`${localUrl}/api/signals/subscriptions`, {
+      method: "POST",
+      headers: authorized({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ url: "https://example.com/feed.xml?token=super-secret" })
+    });
+    assert.equal(rejected.status, 400);
+    assert.equal((await rejected.text()).includes("super-secret"), false);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await new Promise<void>((resolve) => feedServer.close(() => resolve()));

@@ -48,9 +48,12 @@ All eight criteria satisfied; evidence `20260720-rss-atom-signal-follow-up`. Ite
 ### Remaining risks
 
 - Manual refresh only (no automatic scheduler).
-- No private-IP SSRF blocklist (LAN feeds remain intentional).
-- Authenticated feeds deferred until secure-settings credentials exist.
-- Simple XML parser may fail closed on exotic feeds.
+- Operator-entered LAN/private feed URLs remain allowed; public→private redirect
+  pivots and metadata targets are blocked.
+- Authenticated feeds deferred until secure-settings credentials exist;
+  credential-bearing subscription URLs are rejected and legacy rows scrubbed.
+- Structural XML well-formedness is enforced without a full infoset/XML Schema
+  implementation; exotic but well-formed feeds may still fail field extraction.
 
 ### Rollback
 

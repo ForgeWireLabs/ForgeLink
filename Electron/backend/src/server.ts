@@ -7,7 +7,7 @@ import { extname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { AGENT_CONTENT_PROVENANCE, AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, DecisionRecordRow, EvidencePack, FirewallBlockedError, isAuthorityScope, OutboundDraftRow, PhoneDatabase, redactEvidencePack, redactNotification, redactionProfile, REDACTION_PROFILES } from "./database";
 import { utcNow } from "./phone";
-import { fetchTrustedSignalFeed } from "./signals";
+import { fetchTrustedSignalFeed, sanitizeSignalError } from "./signals";
 import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, loadTwilioConfig, sendTwilioMessage, startTwilioCall, validateTwilioSignature } from "./twilio";
 import { createChannelRegistry, PLANNED_PROVIDERS } from "./channels";
 import { createTelnyxAdapter, validateTelnyxSignature } from "./telnyx";
@@ -833,10 +833,11 @@ export function createBackend(options: BackendOptions): { server: Server; databa
           }
           const deleted = database.applySignalRetention(subscription.id);
           database.markSignalFetch(subscription.id, "ok");
-          return sendJson(response, { ok: true, added, deleted, subscription: database.signalSubscription(subscription.id), items: database.signalItems() });
+          return sendJson(response, { ok: true, added, deleted, subscription: database.signalSubscriptionDto(subscription.id), items: database.signalItems() });
         } catch (error) {
-          database.markSignalFetch(subscription.id, "failed", error instanceof Error ? error.message : String(error));
-          throw error;
+          const safe = sanitizeSignalError(error instanceof Error ? error.message : String(error)) || "Feed fetch failed.";
+          database.markSignalFetch(subscription.id, "failed", safe);
+          throw new Error(safe);
         }
       }
       if (request.method === "GET" && url.pathname === "/api/signals/items") {

@@ -9,9 +9,11 @@ versions tracked in `VERSION` and `Electron/package.json`.
 ### Added
 - Trusted-signal follow-up (work item 023): RSS/Atom stays a reading lane only
   (not a channel adapter or approval surface). Feed fetch/parse hardening adds
-  tracking-parameter stripping, stale-source health, clearer malformed-XML
-  rejection, and deterministic redirect/oversize fixtures. Export redacts
-  credential-like URL query params and userinfo; diagnostics expose signal
+  tracking-parameter stripping, stale-source health, well-formed XML checks
+  (DTD/entity rejection), public→private redirect blocking, HTTPS downgrade
+  rejection, and deterministic redirect/oversize fixtures. Credential-bearing
+  subscription URLs are rejected; API DTOs and `last_error` are sanitized; export
+  redacts URL secrets and URL-shaped external ids; diagnostics expose signal
   counts/health only. Operator docs in `docs/trusted-signals.md` cover shipped
   behavior versus future authenticated or action-bearing feeds.
 

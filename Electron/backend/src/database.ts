@@ -4,7 +4,16 @@ import { dirname } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
-import { redactSignalUrlSecrets, signalSubscriptionHealth } from "./signals";
+import {
+  assertUnauthenticatedFeedUrl,
+  redactExportExternalId,
+  redactSignalUrlSecrets,
+  sanitizeSignalError,
+  signalSubscriptionHealth,
+  stripCredentialMaterial,
+  toSignalSubscriptionDto,
+  urlContainsCredentialMaterial
+} from "./signals";
 import { CLOUD_SUMMARY_DISABLED, SUMMARY_CONTENT_TRUST, SUMMARY_NOTICE, SUMMARY_PROVENANCE, summarizeThread, ThreadSummary } from "./summary";
 
 export const CURRENT_SCHEMA_VERSION = 27;
@@ -1515,6 +1524,8 @@ export class PhoneDatabase {
       throw error;
     }
     this.state.schemaVersion = version;
+    // Defense in depth for pre-023 rows that may have embedded URL credentials.
+    this.scrubSignalCredentialRows();
   }
 
   async backupTo(target: string): Promise<void> {
@@ -1568,14 +1579,16 @@ export class PhoneDatabase {
       communication_firewall_rules: this.connection.prepare("SELECT * FROM communication_firewall_rules ORDER BY updated_at, id").all(),
       agent_outbound_drafts: this.connection.prepare("SELECT * FROM agent_outbound_drafts ORDER BY created_at, id").all(),
       consent_ledger: this.connection.prepare("SELECT * FROM consent_ledger ORDER BY contact_id, agent_id").all(),
-      // RSSF-007: redact URL userinfo and credential-like query params; keep titles/summaries as private local export content.
+      // RSSF-007: redact URL secrets and URL-shaped external ids; keep titles/summaries as private local export content.
       signal_subscriptions: (this.connection.prepare("SELECT * FROM signal_subscriptions ORDER BY title, id").all() as Array<Record<string, unknown>>).map((row) => ({
         ...row,
-        url: redactSignalUrlSecrets(String(row.url || ""))
+        url: redactSignalUrlSecrets(String(row.url || "")),
+        last_error: sanitizeSignalError(String(row.last_error || ""))
       })),
       signal_items: (this.connection.prepare("SELECT * FROM signal_items ORDER BY received_at, id").all() as Array<Record<string, unknown>>).map((row) => ({
         ...row,
-        url: redactSignalUrlSecrets(String(row.url || ""))
+        url: redactSignalUrlSecrets(String(row.url || "")),
+        external_id: redactExportExternalId(String(row.external_id || ""))
       })),
       email_messages: this.connection.prepare("SELECT * FROM email_messages ORDER BY ts, id").all(),
       mcp_tokens: this.connection.prepare("SELECT id, created_at, rotated_at, revoked_at, last_used_at, last_test_at, last_test_status FROM mcp_tokens ORDER BY id").all(),
@@ -3704,8 +3717,7 @@ export class PhoneDatabase {
   }
 
   upsertSignalSubscription(input: SignalSubscriptionInput): SignalSubscriptionRow {
-    const url = new URL(input.url);
-    if (!["http:", "https:"].includes(url.protocol)) throw new Error("Feed URL must use http or https.");
+    const url = assertUnauthenticatedFeedUrl(input.url);
     const now = utcNow();
     const title = (input.title || url.hostname).trim().slice(0, 160) || url.hostname;
     const interval = Number(input.fetch_interval_minutes || 60);
@@ -3719,27 +3731,78 @@ export class PhoneDatabase {
       VALUES(?, ?, ?, 1, 0, ?, ?, ?, ?)
       ON CONFLICT(url) DO UPDATE SET title=excluded.title, fetch_interval_minutes=excluded.fetch_interval_minutes, retention_days=excluded.retention_days, updated_at=excluded.updated_at
     `).run(id, title, url.toString(), interval, retention, existing ? now : now, now);
-    return this.signalSubscription(id)!;
+    return this.signalSubscriptionDto(id)!;
+  }
+
+  /** Scrub legacy credential-bearing subscription URLs and last_error values from SQLite. */
+  scrubSignalCredentialRows(): number {
+    const hasSignals = this.connection.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='signal_subscriptions'").get() as { ok: number } | undefined;
+    if (!hasSignals) return 0;
+    const rows = this.connection.prepare("SELECT id, url, last_error FROM signal_subscriptions").all() as Array<{ id: string; url: string; last_error: string }>;
+    let changed = 0;
+    const now = utcNow();
+    for (const row of rows) {
+      let nextError = sanitizeSignalError(row.last_error || "");
+      let dirty = nextError !== (row.last_error || "");
+      if (urlContainsCredentialMaterial(row.url)) {
+        let nextUrl = stripCredentialMaterial(row.url);
+        const conflict = this.connection.prepare("SELECT id FROM signal_subscriptions WHERE url=? AND id<>?").get(nextUrl, row.id) as { id: string } | undefined;
+        if (conflict) nextUrl = `https://invalid.invalid/scrubbed-${row.id}`;
+        nextError = "Removed embedded feed credentials. Authenticated feeds are not supported yet; re-add a credential-free URL or wait for secure-settings support.";
+        this.connection.prepare("UPDATE signal_subscriptions SET url=?, enabled=0, last_fetch_status=?, last_error=?, updated_at=? WHERE id=?").run(nextUrl, "failed", nextError, now, row.id);
+        changed += 1;
+        continue;
+      }
+      if (dirty) {
+        this.connection.prepare("UPDATE signal_subscriptions SET last_error=?, updated_at=? WHERE id=?").run(nextError, now, row.id);
+        changed += 1;
+      }
+    }
+    // Scrub credential-bearing item URLs / URL-shaped external ids left by older parsers.
+    const items = this.connection.prepare("SELECT id, url, external_id FROM signal_items").all() as Array<{ id: string; url: string; external_id: string }>;
+    for (const item of items) {
+      const nextUrl = stripCredentialMaterial(item.url);
+      let external = item.external_id;
+      if (/^https?:\/\//i.test(item.external_id) || urlContainsCredentialMaterial(item.external_id)) {
+        external = createHash("sha256").update(`legacy-external\n${item.external_id}`).digest("hex");
+      }
+      if (nextUrl !== item.url || external !== item.external_id) {
+        this.connection.prepare("UPDATE signal_items SET url=?, external_id=? WHERE id=?").run(nextUrl.slice(0, 1000), external.slice(0, 1000), item.id);
+        changed += 1;
+      }
+    }
+    return changed;
+  }
+
+  private mapSignalSubscription(row: SignalSubscriptionDbRow): SignalSubscriptionRow {
+    return { ...row, enabled: Boolean(row.enabled), muted: Boolean(row.muted) };
+  }
+
+  /** Raw row for internal fetch (may still be scrubbed at rest). */
+  signalSubscription(id: string): SignalSubscriptionRow | undefined {
+    const row = this.connection.prepare("SELECT * FROM signal_subscriptions WHERE id=?").get(id) as unknown as SignalSubscriptionDbRow | undefined;
+    return row ? this.mapSignalSubscription(row) : undefined;
+  }
+
+  signalSubscriptionDto(id: string): SignalSubscriptionRow | undefined {
+    const row = this.signalSubscription(id);
+    return row ? toSignalSubscriptionDto(row) : undefined;
   }
 
   signalSubscriptions(): SignalSubscriptionRow[] {
-    return (this.connection.prepare("SELECT * FROM signal_subscriptions ORDER BY title, id").all() as unknown as SignalSubscriptionDbRow[]).map((row) => ({ ...row, enabled: Boolean(row.enabled), muted: Boolean(row.muted) }));
-  }
-
-  signalSubscription(id: string): SignalSubscriptionRow | undefined {
-    const row = this.connection.prepare("SELECT * FROM signal_subscriptions WHERE id=?").get(id) as unknown as SignalSubscriptionDbRow | undefined;
-    return row ? { ...row, enabled: Boolean(row.enabled), muted: Boolean(row.muted) } : undefined;
+    return (this.connection.prepare("SELECT * FROM signal_subscriptions ORDER BY title, id").all() as unknown as SignalSubscriptionDbRow[])
+      .map((row) => toSignalSubscriptionDto(this.mapSignalSubscription(row)));
   }
 
   setSignalSubscriptionState(id: string, state: Partial<Pick<SignalSubscriptionRow, "enabled" | "muted">>): SignalSubscriptionRow {
     const current = this.signalSubscription(id);
     if (!current) throw new Error("Signal subscription not found.");
     this.connection.prepare("UPDATE signal_subscriptions SET enabled=?, muted=?, updated_at=? WHERE id=?").run((state.enabled ?? current.enabled) ? 1 : 0, (state.muted ?? current.muted) ? 1 : 0, utcNow(), id);
-    return this.signalSubscription(id)!;
+    return this.signalSubscriptionDto(id)!;
   }
 
   markSignalFetch(id: string, status: "ok" | "failed", error = ""): void {
-    this.connection.prepare("UPDATE signal_subscriptions SET last_fetch_at=?, last_fetch_status=?, last_error=?, updated_at=? WHERE id=?").run(utcNow(), status, error.slice(0, 500), utcNow(), id);
+    this.connection.prepare("UPDATE signal_subscriptions SET last_fetch_at=?, last_fetch_status=?, last_error=?, updated_at=? WHERE id=?").run(utcNow(), status, sanitizeSignalError(error), utcNow(), id);
   }
 
   updateSignalSubscriptionTitle(id: string, title: string): void {

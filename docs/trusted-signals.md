@@ -16,10 +16,15 @@ person-to-person channel and not as an approval surface.
   per-source retention.
 - Manual refresh (interval is advisory UI; automatic scheduling is intentionally
   not running).
-- Bounded fetch: http(s) only, 8s timeout, at most 3 redirects, 1 MB response
-  cap, content-type checks.
-- Text-only parse of RSS/Atom items (HTML/script stripped); duplicate external
-  IDs ignored; tracking query parameters stripped from item links.
+- Bounded fetch: http(s) only, single 8s deadline across redirects, at most 3
+  redirects, 1 MB response cap, content-type checks. Operator-entered LAN/private
+  feed URLs are allowed; public feeds may not redirect into loopback, private,
+  link-local, multicast, unspecified, or cloud-metadata addresses, and HTTPS→HTTP
+  downgrades are rejected.
+- Well-formed RSS/Atom XML only (DTD/entity declarations rejected; truncated or
+  mismatched markup fails closed). Text-only item extraction; duplicate external
+  IDs ignored; tracking and credential query parameters stripped from item links;
+  URL-fallback identities are hashed.
 - Separate `signal_subscriptions` / `signal_items` tables from SMS, email, and
   agent messages.
 - Signals UI under Channels with source health (healthy / stale / failed /
@@ -47,22 +52,24 @@ explicit local confirmation (not shipped).
 
 ## Authenticated feeds (plan only — RSSF-003)
 
-Ordinary feeds need no credentials. Optional authenticated feeds remain
-**future** and must satisfy:
+Ordinary feeds need no credentials. Subscription URLs that include HTTP
+userinfo or credential-like query parameters (`token`, `api_key`, `password`,
+etc.) are **rejected**. Legacy rows are scrubbed on open (credentials stripped,
+source paused). This is not authenticated-feed support.
+
+Optional authenticated feeds remain **future** and must satisfy:
 
 1. Store URL tokens or HTTP credentials only through the OS-backed secure
    settings path used by email/push (never plaintext in SQLite or renderer
    state).
-2. Keep diagnostics and default logs free of tokens and Authorization headers.
+2. Keep diagnostics, API DTOs, `last_error`, and default logs free of tokens and
+   Authorization headers.
 3. Continue redacting credential-like query parameters and URL userinfo on
-   export.
+   export (including URL-shaped `external_id` values).
 4. Do not treat successful authenticated fetch as consent, approval authority,
    or contact trust.
 
-Until that lands, operators who need a private feed should prefer a local or
-LAN feed URL without embedding long-lived secrets in the subscription string.
-If a token is already present in a URL, export/diagnostics redaction reduces
-accidental leakage but is not a substitute for secure storage.
+Until that lands, use a credential-free feed URL (public or operator-chosen LAN).
 
 ## Future action-bearing feeds
 
@@ -80,5 +87,6 @@ for 023.
   twice the configured interval.
 - Mute and pause are per source; archive hides items from Latest without
   deleting subscription history until retention applies.
-- Failed fetches store a short error on the source card; content-type and
-  malformed XML failures do not create signal items.
+- Failed fetches store a short **sanitized** error on the source card (URLs and
+  secrets redacted); content-type and malformed XML failures do not create signal
+  items.

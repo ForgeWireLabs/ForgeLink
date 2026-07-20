@@ -477,6 +477,9 @@ describe("React renderer parity", () => {
     expect(screen.queryByText("Ada Lovelace")).toBeNull();
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Deny" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Defer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /quick action/i })).toBeNull();
+    expect(screen.getByText(/not quick actions/i)).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Open" }));
     expect(window.desktop?.openExternal).toHaveBeenCalledWith("https://example.com/build");
     await userEvent.click(screen.getByRole("button", { name: "Archive" }));

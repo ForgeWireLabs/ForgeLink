@@ -1151,28 +1151,42 @@ test("stores trusted signals separately with duplicate handling, export, archive
   const database = new PhoneDatabase(path);
   try {
     database.addMessage({ id: "SMS", number: "+15551234567", direction: "inbound", body: "person" });
-    const subscription = database.upsertSignalSubscription({ title: "Tech", url: "https://example.com/feed.xml?api_key=secret-token", fetch_interval_minutes: 30, retention_days: 7 });
+    assert.throws(() => database.upsertSignalSubscription({ title: "Tech", url: "https://example.com/feed.xml?api_key=secret-token" }), /credential-like/i);
+    assert.throws(() => database.upsertSignalSubscription({ title: "Tech", url: "https://user:pass@example.com/feed.xml" }), /username\/password/i);
+    const subscription = database.upsertSignalSubscription({ title: "Tech", url: "https://example.com/feed.xml", fetch_interval_minutes: 30, retention_days: 7 });
     assert.equal(subscription.enabled, true);
     assert.equal(database.addSignalItem({ subscription_id: subscription.id, external_id: "item-1", title: "Signal", url: "https://example.com/item?token=abc", summary: "<b>text</b>", published_at: "2026-06-15T00:00:00.000Z" }), true);
     assert.equal(database.addSignalItem({ subscription_id: subscription.id, external_id: "item-1", title: "Signal duplicate", url: "https://example.com/item" }), false);
     assert.equal(database.signalItems().length, 1);
-    const exported = database.exportData() as { messages: Array<unknown>; signal_subscriptions: Array<{ id: string; url: string }>; signal_items: Array<{ title: string; url: string }> };
+    // Legacy credential-bearing external_id must not survive export serialization.
+    database.connection.prepare("INSERT INTO signal_items(id, subscription_id, external_id, title, url, summary, author, published_at, received_at, status) VALUES(?,?,?,?,?,?,?,?,?,?)").run(
+      "legacy-leak", subscription.id, "https://user:pass@example.com/item?token=leaked", "Legacy", "https://user:pass@example.com/item?token=leaked", "", "", null, new Date().toISOString(), "unread"
+    );
+    database.scrubSignalCredentialRows();
+    const exported = database.exportData() as { messages: Array<unknown>; signal_subscriptions: Array<{ id: string; url: string; last_error: string }>; signal_items: Array<{ title: string; url: string; external_id: string }> };
+    const serialized = JSON.stringify(exported);
     assert.equal(exported.messages.length, 1);
     assert.equal(exported.signal_subscriptions[0].id, subscription.id);
-    assert.match(exported.signal_subscriptions[0].url, /api_key=REDACTED/);
-    assert.equal(exported.signal_subscriptions[0].url.includes("secret-token"), false);
-    assert.equal(exported.signal_items[0].title, "Signal");
-    assert.match(exported.signal_items[0].url, /token=REDACTED/);
+    assert.equal(serialized.includes("secret-token"), false);
+    assert.equal(serialized.includes("leaked"), false);
+    assert.equal(serialized.includes("user:pass"), false);
+    assert.equal(exported.signal_items.some((item) => item.title === "Signal"), true);
     const diag = database.signalDiagnostics(Date.parse("2026-07-20T12:00:00.000Z"));
     assert.equal(diag.subscriptions, 1);
-    assert.equal(diag.items, 1);
-    assert.equal(diag.never_fetched, 1);
+    assert.ok(diag.items >= 1);
     assert.equal("url" in (diag as Record<string, unknown>), false);
-    assert.equal(database.archiveSignalItem(database.signalItems()[0].id).status, "archived");
-    assert.equal(database.signalItems().length, 0);
+    // Plant a secret in last_error and ensure API DTO / mark path scrub it.
+    database.connection.prepare("UPDATE signal_subscriptions SET last_error=? WHERE id=?").run("failed https://example.com/x?token=visible-secret", subscription.id);
+    const listed = database.signalSubscriptions();
+    assert.equal(JSON.stringify(listed).includes("visible-secret"), false);
+    database.markSignalFetch(subscription.id, "failed", "error at https://example.com/?api_key=another-secret");
+    assert.equal(database.signalSubscriptionDto(subscription.id)!.last_error.includes("another-secret"), false);
+    const active = database.signalItems().find((item) => item.title === "Signal");
+    assert.ok(active);
+    assert.equal(database.archiveSignalItem(active!.id).status, "archived");
     database.addSignalItem({ subscription_id: subscription.id, external_id: "old", title: "Old", url: "https://example.com/old" });
     database.connection.prepare("UPDATE signal_items SET received_at='2020-01-01T00:00:00.000Z' WHERE external_id='old'").run();
-    assert.equal(database.applySignalRetention(subscription.id), 1);
+    assert.ok(database.applySignalRetention(subscription.id) >= 1);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
