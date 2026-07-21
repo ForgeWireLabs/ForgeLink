@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1331,6 +1332,85 @@ test("scrubs scheme-relative and deep-encoded credential query values from stora
     assert.equal(JSON.stringify(dto).includes("user:pass"), false);
   } finally {
     database.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("strips authority credentials from parsed feed links through DTO and reopen", () => {
+  const directory = mkdtempSync(join(tmpdir(), "twilio-phone-signals-auth-link-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const subscription = database.upsertSignalSubscription({ title: "AuthLink", url: "https://example.com/authlink.xml", fetch_interval_minutes: 30, retention_days: 30 });
+    const feed = `<?xml version="1.0"?><rss><channel><title>AuthLink</title>
+      <item><guid>rel-1</guid><title>Relative</title><link>//user:pass@host/feed</link><description>x</description></item>
+      <item><guid>auth-1</guid><title>Authority</title><link>user:pass@host</link><description>x</description></item>
+    </channel></rss>`;
+    const parsed = parseTrustedSignalFeed(feed, subscription.url);
+    for (const item of parsed.items) {
+      assert.equal(item.url.includes("pass"), false);
+      assert.equal(database.addSignalItem({ ...item, subscription_id: subscription.id }), true);
+    }
+    database.close();
+    const reopened = new PhoneDatabase(join(directory, "phone.sqlite3"));
+    try {
+      const rows = reopened.signalItems();
+      assert.equal(rows.length, 2);
+      for (const row of rows) {
+        assert.equal(row.url.includes("pass"), false, row.url);
+        assert.equal(row.url.includes("user:"), false, row.url);
+        assert.match(row.url, /^https:\/\//);
+      }
+      assert.equal(JSON.stringify(rows).includes("pass"), false);
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("collision migration replaces credential-bearing external_id with a non-secret surrogate", () => {
+  const directory = mkdtempSync(join(tmpdir(), "twilio-phone-signals-collision-cred-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const subscription = database.upsertSignalSubscription({ title: "Collision", url: "https://example.com/collision.xml", fetch_interval_minutes: 30, retention_days: 30 });
+    const sharedUrl = "https://example.com/shared-article";
+    const canonical = canonicalExternalId({ sanitizedUrl: sharedUrl });
+    const canonicalId = createHash("sha256").update(`${subscription.id}\n${canonical}`).digest("hex");
+    database.connection.prepare("INSERT INTO signal_items(id, subscription_id, external_id, title, url, summary, author, published_at, received_at, status) VALUES(?,?,?,?,?,?,?,?,?,?)").run(
+      canonicalId, subscription.id, canonical, "Canonical", sharedUrl, "", "", "2026-07-20T00:00:00.000Z", "2026-07-20T00:00:00.000Z", "unread"
+    );
+    const secretExternal = "https://user:pass@example.com/shared-article?token=secret-value";
+    database.connection.prepare("INSERT INTO signal_items(id, subscription_id, external_id, title, url, summary, author, published_at, received_at, status) VALUES(?,?,?,?,?,?,?,?,?,?)").run(
+      "legacy-cred-collision", subscription.id, secretExternal, "Legacy secret", secretExternal, "", "", "2026-07-20T00:00:00.000Z", "2026-07-20T00:00:00.000Z", "unread"
+    );
+    database.connection.prepare("INSERT INTO signal_items(id, subscription_id, external_id, title, url, summary, author, published_at, received_at, status) VALUES(?,?,?,?,?,?,?,?,?,?)").run(
+      "legacy-token-collision", subscription.id, "token=secret-plain", "Legacy token", sharedUrl, "", "", "2026-07-20T00:00:00.000Z", "2026-07-20T00:00:00.000Z", "unread"
+    );
+    database.close();
+
+    const reopened = new PhoneDatabase(join(directory, "phone.sqlite3"));
+    try {
+      const rows = reopened.connection.prepare("SELECT id, title, url, external_id FROM signal_items ORDER BY title").all() as Array<{ id: string; title: string; url: string; external_id: string }>;
+      assert.equal(rows.length, 3);
+      for (const legacy of rows.filter((row) => row.title.startsWith("Legacy"))) {
+        assert.equal(legacy.external_id.includes("secret-value"), false, legacy.title);
+        assert.equal(legacy.external_id.includes("secret-plain"), false, legacy.title);
+        assert.equal(legacy.external_id.includes("pass"), false, legacy.title);
+        assert.equal(legacy.external_id.includes("token="), false, legacy.title);
+        assert.equal(containsCredentialMaterial(legacy.external_id), false, legacy.title);
+        assert.equal(legacy.url.includes("pass"), false, legacy.title);
+      }
+      const serialized = JSON.stringify(rows);
+      assert.equal(serialized.includes("secret-value"), false);
+      assert.equal(serialized.includes("secret-plain"), false);
+      assert.equal(serialized.includes("user:pass"), false);
+      assert.equal(JSON.stringify(reopened.signalItems()).includes("secret-value"), false);
+      assert.equal(JSON.stringify(reopened.signalItems()).includes("user:pass"), false);
+    } finally {
+      reopened.close();
+    }
+  } finally {
     rmSync(directory, { recursive: true, force: true });
   }
 });

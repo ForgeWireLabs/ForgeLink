@@ -30,8 +30,10 @@ person-to-person channel and not as an approval surface.
   processing disabled; boolean attributes rejected; single RSS/Atom root
   required). Credential detection inspects query values (embedded absolute /
   scheme-relative / authority-only URLs, JWT objects with `alg`, assignments)
-  with bounded decode recursion, as well as keys. Dotted version/format values
-  are not treated as JWTs.
+  with bounded decode recursion, as well as keys. Scheme-relative and
+  `user:pass@host` carriers are stripped to absolute credential-free https URLs.
+  Dotted version/format values and ordinary email addresses are not treated as
+  credentials or JWTs.
 - Separate `signal_subscriptions` / `signal_items` tables from SMS, email, and
   agent messages.
 - Signals UI under Channels with source health (healthy / stale / failed /

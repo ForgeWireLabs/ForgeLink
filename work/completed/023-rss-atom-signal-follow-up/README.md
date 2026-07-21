@@ -47,8 +47,9 @@ All eight criteria satisfied; evidence
 `20260720-rss-atom-signal-follow-up`,
 `20260720-rss-atom-signal-follow-up-hardening`,
 `20260720-rss-atom-signal-follow-up-hardening-r2`,
-`20260720-rss-atom-signal-follow-up-hardening-r3`, and
-`20260720-rss-atom-signal-follow-up-hardening-r4`. Item moved to `work/completed/`.
+`20260720-rss-atom-signal-follow-up-hardening-r3`,
+`20260720-rss-atom-signal-follow-up-hardening-r4`, and
+`20260720-rss-atom-signal-follow-up-hardening-r5`. Item moved to `work/completed/`.
 
 ### Remaining risks
 
@@ -65,6 +66,8 @@ All eight criteria satisfied; evidence
 - Migration-era dedupe aliases cover known 19da/3df822e identity shapes; unknown
   opaque 64-hex GUIDs are preserved (never rewritten or deleted on collision).
   Only hashes proven equal to the 19da `legacy-external` formula are migrated.
+  Collision paths replace credential/URL-shaped external ids with unique
+  non-secret surrogates so secrets are not retained at rest.
 
 ### Rollback
 

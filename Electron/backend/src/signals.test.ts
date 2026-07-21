@@ -20,6 +20,8 @@ import {
   setSignalDnsLookupForTests,
   setSignalFetchForTests,
   looksLikeJwt,
+  sanitizeItemUrl,
+  stripCredentialMaterial,
   withSignalDeadline
 } from "./signals";
 
@@ -61,6 +63,37 @@ test("rejects credential values embedded in non-secret query parameters", () => 
   assert.match(redacted, /REDACTED/);
   assert.match(sanitizeSignalError("failed refresh_token=abc id_token=xyz bearer=tok passwd=p client_id=cid"), /REDACTED/);
   assert.equal(sanitizeSignalError("failed refresh_token=abc").includes("abc"), false);
+});
+
+test("does not treat email addresses as credential authorities", () => {
+  const url = "https://example.com/feed?author=ada@example.com";
+  assert.equal(containsCredentialMaterial(url), false);
+  assert.doesNotThrow(() => assertUnauthenticatedFeedUrl(url));
+  assert.equal(containsCredentialMaterial("ada@example.com"), false);
+  assert.equal(containsCredentialMaterial("user:pass@host"), true);
+  assert.equal(containsCredentialMaterial("//user@host/feed"), true);
+});
+
+test("strips scheme-relative and authority-only credentials from item URLs", () => {
+  assert.equal(stripCredentialMaterial("//user:pass@host/feed").includes("pass"), false);
+  assert.equal(stripCredentialMaterial("//user:pass@host/feed"), "https://host/feed");
+  assert.equal(stripCredentialMaterial("user:pass@host").includes("pass"), false);
+  assert.match(stripCredentialMaterial("user:pass@host"), /^https:\/\/host\/?$/);
+  assert.equal(sanitizeItemUrl("//user:pass@example.com/item").includes("user"), false);
+
+  const parsed = parseTrustedSignalFeed(
+    `<?xml version="1.0"?><rss><channel><title>T</title>
+      <item><guid>g1</guid><title>Rel</title><link>//user:pass@host/feed</link><description>x</description></item>
+      <item><guid>g2</guid><title>Auth</title><link>user:pass@host</link><description>x</description></item>
+    </channel></rss>`,
+    "https://example.com/feed.xml"
+  );
+  assert.equal(parsed.items.length, 2);
+  for (const item of parsed.items) {
+    assert.equal(item.url.includes("pass"), false, item.url);
+    assert.equal(item.url.includes("user:"), false, item.url);
+    assert.match(item.url, /^https:\/\//);
+  }
 });
 
 test("does not treat dotted versions or names as JWTs", () => {

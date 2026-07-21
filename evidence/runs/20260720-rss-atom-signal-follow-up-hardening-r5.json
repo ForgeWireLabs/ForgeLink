@@ -1,0 +1,33 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260720-rss-atom-signal-follow-up-hardening-r5",
+  "timestamp": "2026-07-21T03:40:00Z",
+  "work_item": "023",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Full suite passed after fifth Sol remediation against 04fa15f. stripCredentialMaterial/redact use the shared carrier parser (scheme-relative and user:pass@host normalize to absolute credential-free https URLs); migration collisions replace credential/URL-shaped external_ids with unique non-secret surrogates; authority-only matching requires a colon so email query values are accepted."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Repository governance validation passed after docs/evidence updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/signals.ts",
+    "Electron/backend/src/signals.test.ts",
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/database.test.ts",
+    "docs/trusted-signals.md",
+    "evidence/runs/20260720-rss-atom-signal-follow-up-hardening-r5.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "note": "Fifth remediation of defect-first review findings against 04fa15f."
+  }
+}

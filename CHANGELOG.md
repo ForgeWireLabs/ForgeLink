@@ -12,8 +12,9 @@ versions tracked in `VERSION` and `Electron/package.json`.
   deadline, always-forbidden metadata/link-local ranges, IANA special-purpose
   redirect blocking (including mixed LAN/special answers), hop-aware HTTPS
   downgrade rejection, value-aware credential detection/redaction (scheme-relative
-  and authority carriers; JWT objects with `alg`), and non-destructive
-  migration-era external-id dedupe that preserves opaque feed GUIDs. See
+  and `user:pass@host` carriers; JWT objects with `alg`), and non-destructive
+  migration-era external-id dedupe that preserves opaque feed GUIDs and replaces
+  colliding credential external ids with non-secret surrogates. See
   `docs/trusted-signals.md`.
 
 ### Changed

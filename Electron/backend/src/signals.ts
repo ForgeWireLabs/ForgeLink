@@ -190,9 +190,9 @@ function parseCredentialCarrier(value: string): URL | null {
       /* continue */
     }
   }
-  // userinfo@host[/path][?query] without a scheme — always force an https authority form
-  // so `user:pass@host` is not misread as scheme "user".
-  if (/^[^/\s?#]*@[^/\s?#]+/.test(trimmed) || /^[A-Za-z0-9._~%-]+:[^@/\s?#]+@[^/\s?#]+/.test(trimmed)) {
+  // Authority-only credentials require user:pass@host (colon present). Bare email@host is not
+  // a credential authority; username-only userinfo is still caught via // or http(s) forms.
+  if (/^[A-Za-z0-9._~%-]+:[^@/\s?#]+@[^/\s?#]+/.test(trimmed)) {
     try {
       return new URL(`https://${trimmed}`);
     } catch {
@@ -232,33 +232,41 @@ export function containsCredentialMaterial(value: string, depth = 0): boolean {
 
 export function stripTrackingParams(value: string): string {
   if (!value) return value;
-  try {
-    const url = new URL(value);
-    for (const key of [...url.searchParams.keys()]) {
-      if (TRACKING_QUERY_KEYS.test(key)) url.searchParams.delete(key);
+  let url = parseCredentialCarrier(value.trim());
+  if (!url) {
+    try {
+      url = new URL(value);
+    } catch {
+      return value;
     }
-    return url.toString();
-  } catch {
-    return value;
   }
+  for (const key of [...url.searchParams.keys()]) {
+    if (TRACKING_QUERY_KEYS.test(key)) url.searchParams.delete(key);
+  }
+  return url.toString();
 }
 
+/**
+ * Strip userinfo and credential-bearing query/fragment material.
+ * Scheme-relative and authority-only carriers are normalized to absolute https URLs.
+ * Non-URL credential text is discarded (empty string).
+ */
 export function stripCredentialMaterial(value: string): string {
   if (!value) return value;
-  try {
-    const url = new URL(value);
-    url.username = "";
-    url.password = "";
-    for (const [key, raw] of [...url.searchParams.entries()]) {
-      if (isSecretQueryKey(key) || containsCredentialMaterial(raw) || containsCredentialMaterial(safeDecode(raw))) {
-        url.searchParams.delete(key);
-      }
-    }
-    url.hash = "";
-    return url.toString();
-  } catch {
-    return value;
+  const trimmed = value.trim();
+  const url = parseCredentialCarrier(trimmed) ?? parseCredentialCarrier(safeDecode(trimmed));
+  if (!url) {
+    return containsCredentialMaterial(value) ? "" : value;
   }
+  url.username = "";
+  url.password = "";
+  for (const [key, raw] of [...url.searchParams.entries()]) {
+    if (isSecretQueryKey(key) || containsCredentialMaterial(raw) || containsCredentialMaterial(safeDecode(raw))) {
+      url.searchParams.delete(key);
+    }
+  }
+  url.hash = "";
+  return url.toString();
 }
 
 export function sanitizeItemUrl(value: string): string {
@@ -289,20 +297,19 @@ export function assertUnauthenticatedFeedUrl(value: string): URL {
 
 export function redactSignalUrlSecrets(value: string): string {
   if (!value) return value;
-  try {
-    const url = new URL(value);
-    if (url.username) url.username = "REDACTED";
-    if (url.password) url.password = "REDACTED";
-    for (const [key, raw] of [...url.searchParams.entries()]) {
-      if (isSecretQueryKey(key) || containsCredentialMaterial(raw) || containsCredentialMaterial(safeDecode(raw))) {
-        url.searchParams.set(key, "REDACTED");
-      }
-    }
-    if (url.hash && containsCredentialMaterial(url.hash)) url.hash = "#REDACTED";
-    return url.toString();
-  } catch {
+  const url = parseCredentialCarrier(value.trim()) ?? parseCredentialCarrier(safeDecode(value.trim()));
+  if (!url) {
     return containsCredentialMaterial(value) ? "[redacted]" : "[invalid-url]";
   }
+  if (url.username) url.username = "REDACTED";
+  if (url.password) url.password = "REDACTED";
+  for (const [key, raw] of [...url.searchParams.entries()]) {
+    if (isSecretQueryKey(key) || containsCredentialMaterial(raw) || containsCredentialMaterial(safeDecode(raw))) {
+      url.searchParams.set(key, "REDACTED");
+    }
+  }
+  if (url.hash && containsCredentialMaterial(url.hash)) url.hash = "#REDACTED";
+  return url.toString();
 }
 
 export function canonicalExternalId(input: {
@@ -320,6 +327,11 @@ export function canonicalExternalId(input: {
   const sanitizedUrl = (input.sanitizedUrl || "").trim();
   if (sanitizedUrl) return fingerprint("url", sanitizedUrl);
   return fingerprint(input.feedUrl || "", input.title || "", input.summary || "");
+}
+
+/** Unique non-secret external_id when a migration rewrite would collide with an existing row. */
+export function collisionSurrogateExternalId(itemId: string, canonicalExternalIdValue: string): string {
+  return fingerprint("collision-surrogate", itemId, canonicalExternalIdValue);
 }
 
 /** 19da3f1 hashed URL-shaped ids as sha256("legacy-external\\n" + original). */
@@ -363,6 +375,10 @@ export function migrateStoredExternalId(item: { external_id: string; url: string
 
   if (looksLikeUrl(current) || containsCredentialMaterial(current)) {
     const sanitizedExt = sanitizeItemUrl(current);
+    // Non-URL credential text with a usable item URL: converge on URL identity for dedupe.
+    if (!looksLikeUrl(current) && sanitized) {
+      return canonicalExternalId({ sanitizedUrl: sanitized });
+    }
     if (!rawUrl || sanitizeItemUrl(rawUrl) === sanitizedExt || rawUrl === current) {
       return canonicalExternalId({ sanitizedUrl: sanitizedExt || sanitized });
     }

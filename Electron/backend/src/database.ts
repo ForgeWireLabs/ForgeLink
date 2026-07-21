@@ -6,7 +6,9 @@ import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 import {
   assertUnauthenticatedFeedUrl,
+  collisionSurrogateExternalId,
   containsCredentialMaterial,
+  looksLikeUrl,
   migrateStoredExternalId,
   redactExportExternalId,
   redactSignalUrlSecrets,
@@ -3776,10 +3778,20 @@ export class PhoneDatabase {
       }
       const collision = this.connection.prepare("SELECT id FROM signal_items WHERE id=?").get(nextId) as { id: string } | undefined;
       if (collision) {
-        // Non-destructive: keep both rows; only scrub the URL in place when needed.
-        // Refresh uses signalDedupeAliases for compatibility without losing items.
-        if (nextUrl !== item.url) {
-          this.connection.prepare("UPDATE signal_items SET url=? WHERE id=?").run(nextUrl.slice(0, 1000), item.id);
+        // Non-destructive: keep both rows. Never retain credential/URL-shaped external ids.
+        const needsExternalScrub =
+          external !== item.external_id ||
+          containsCredentialMaterial(item.external_id) ||
+          looksLikeUrl(item.external_id);
+        const scrubbedExternal = needsExternalScrub
+          ? collisionSurrogateExternalId(item.id, external)
+          : item.external_id;
+        if (nextUrl !== item.url || scrubbedExternal !== item.external_id) {
+          this.connection.prepare("UPDATE signal_items SET url=?, external_id=? WHERE id=?").run(
+            nextUrl.slice(0, 1000),
+            scrubbedExternal.slice(0, 1000),
+            item.id
+          );
           changed += 1;
         }
         continue;
