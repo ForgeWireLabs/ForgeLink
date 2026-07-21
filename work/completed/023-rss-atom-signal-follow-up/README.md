@@ -45,21 +45,24 @@ Evidence must include a gap review, deterministic fixtures for any parser/fetch 
 
 All eight criteria satisfied; evidence
 `20260720-rss-atom-signal-follow-up`,
-`20260720-rss-atom-signal-follow-up-hardening`, and
-`20260720-rss-atom-signal-follow-up-hardening-r2`. Item moved to `work/completed/`.
+`20260720-rss-atom-signal-follow-up-hardening`,
+`20260720-rss-atom-signal-follow-up-hardening-r2`, and
+`20260720-rss-atom-signal-follow-up-hardening-r3`. Item moved to `work/completed/`.
 
 ### Remaining risks
 
 - Manual refresh only (no automatic scheduler).
-- Operator-entered LAN/private feed URLs remain allowed when DNS resolves to
-  non-global addresses; public→private redirect pivots and metadata targets
-  (including direct initial URLs) are blocked; DNS answers are pinned for the
-  connection.
+- Operator LAN (RFC1918/loopback/ULA) remains allowed on the initial URL when DNS
+  resolves entirely there; cloud metadata/link-local and IANA special-purpose
+  destinations stay forbidden for public pivots; DNS answers are pinned for the
+  connection under a shared deadline.
 - Authenticated feeds deferred until secure-settings credentials exist;
-  credential-bearing subscription URLs (including fragments and expanded secret
-  parameter names) are rejected and legacy rows scrubbed/migrated.
-- XML is validated with a bounded parser (no DTD/entities); exotic but
-  well-formed feeds may still fail field extraction.
+  credential detection covers keys and decoded values (embedded URLs, JWTs,
+  assignments), including fragments.
+- XML is validated with a bounded parser (no DTD/entities; boolean attributes
+  rejected); exotic but well-formed feeds may still fail field extraction.
+- Migration-era dedupe aliases cover known 19da/3df822e identity shapes; unknown
+  opaque hashes with a usable item URL converge on the canonical URL identity.
 
 ### Rollback
 

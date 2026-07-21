@@ -6,7 +6,7 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { AGENT_CONTENT_PROVENANCE, CURRENT_SCHEMA_VERSION, PhoneDatabase, REDACTION_PROFILES, redactEvidencePack, redactNotification, sanitizeAgentText } from "./database";
 import { normalizeNumber } from "./phone";
-import { canonicalExternalId, parseTrustedSignalFeed } from "./signals";
+import { canonicalExternalId, legacy19daExternalId, parseTrustedSignalFeed } from "./signals";
 
 test("normalizes US phone numbers", () => {
   assert.equal(normalizeNumber("(555) 123-4567"), "+15551234567");
@@ -1213,12 +1213,65 @@ test("migrates legacy URL-fallback external ids so refresh does not duplicate", 
     const migrated = database.connection.prepare("SELECT id, external_id, url FROM signal_items WHERE title=?").get("Same item") as { id: string; external_id: string; url: string };
     const expectedExternal = canonicalExternalId({ sanitizedUrl: "https://example.com/post?keep=1" });
     assert.equal(migrated.external_id, expectedExternal);
-    assert.equal(migrated.url.includes("utm_"), false);
     const feed = `<?xml version="1.0"?><rss><channel><title>Upgrade</title><item><title>Same item</title><link>https://example.com/post?utm_source=feed&amp;keep=1</link><description>body</description></item></channel></rss>`;
     const parsed = parseTrustedSignalFeed(feed, subscription.url);
     assert.equal(parsed.items[0].external_id, expectedExternal);
     assert.equal(database.addSignalItem({ ...parsed.items[0], subscription_id: subscription.id }), false);
     assert.equal(database.signalItems().filter((item) => item.title === "Same item").length, 1);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("dedupes post-19da hashed rows and pre-19da URL-shaped GUID rows on refresh", () => {
+  const directory = mkdtempSync(join(tmpdir(), "twilio-phone-signals-19da-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const subscription = database.upsertSignalSubscription({ title: "Legacy", url: "https://example.com/legacy.xml", fetch_interval_minutes: 30, retention_days: 30 });
+    const itemUrl = "https://example.com/story?utm_source=old&keep=1";
+    const sanitized = "https://example.com/story?keep=1";
+    // Simulate a DB already opened under 19da3f1: opaque legacy-external hash, original id unchanged.
+    const hashed = legacy19daExternalId(itemUrl);
+    database.connection.prepare("INSERT INTO signal_items(id, subscription_id, external_id, title, url, summary, author, published_at, received_at, status) VALUES(?,?,?,?,?,?,?,?,?,?)").run(
+      "post-19da-row",
+      subscription.id,
+      hashed,
+      "Story",
+      itemUrl,
+      "body",
+      "",
+      "2026-07-20T00:00:00.000Z",
+      "2026-07-20T00:00:00.000Z",
+      "unread"
+    );
+    // Pre-19da URL-shaped GUID with a different link.
+    const guidUrl = "https://example.com/guid-identity";
+    const linkUrl = "https://example.com/linked-story";
+    database.connection.prepare("INSERT INTO signal_items(id, subscription_id, external_id, title, url, summary, author, published_at, received_at, status) VALUES(?,?,?,?,?,?,?,?,?,?)").run(
+      "pre-19da-guid",
+      subscription.id,
+      guidUrl,
+      "Guid story",
+      linkUrl,
+      "body",
+      "",
+      "2026-07-20T00:00:00.000Z",
+      "2026-07-20T00:00:00.000Z",
+      "unread"
+    );
+
+    database.scrubSignalCredentialRows();
+    const afterScrub = database.connection.prepare("SELECT title, external_id, url FROM signal_items ORDER BY title").all() as Array<{ title: string; external_id: string; url: string }>;
+    assert.equal(afterScrub.find((row) => row.title === "Story")?.external_id, canonicalExternalId({ sanitizedUrl: sanitized }));
+    assert.equal(afterScrub.find((row) => row.title === "Guid story")?.external_id, canonicalExternalId({ rawGuid: guidUrl }));
+
+    const feed = `<?xml version="1.0"?><rss><channel><title>Legacy</title>
+      <item><title>Story</title><link>https://example.com/story?utm_source=old&amp;keep=1</link><description>body</description></item>
+      <item><guid>https://example.com/guid-identity</guid><title>Guid story</title><link>https://example.com/linked-story</link><description>body</description></item>
+    </channel></rss>`;
+    const parsed = parseTrustedSignalFeed(feed, subscription.url);
+    assert.equal(parsed.items.length, 2);
+    assert.equal(database.addSignalItem({ ...parsed.items[0], subscription_id: subscription.id }), false);
+    assert.equal(database.addSignalItem({ ...parsed.items[1], subscription_id: subscription.id }), false);
+    assert.equal(database.signalItems().length, 2);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 

@@ -16,17 +16,19 @@ person-to-person channel and not as an approval surface.
   per-source retention.
 - Manual refresh (interval is advisory UI; automatic scheduling is intentionally
   not running).
-- Bounded fetch: http(s) only, single 8s deadline across redirects, at most 3
-  redirects, 1 MB response cap, content-type checks. Each hop resolves DNS,
-  validates the result, and pins that address for the connection (Host/SNI
-  preserved). Operator-entered LAN/private feeds are allowed when DNS resolves
-  entirely to non-global addresses; cloud-metadata hosts/addresses are always
-  forbidden, including as the initial URL. Public feeds may not redirect into
-  private/non-global space; HTTPS→HTTP downgrades are rejected.
+- Bounded fetch: http(s) only, single 8s deadline across redirects (including DNS
+  and connect), at most 3 redirects, 1 MB response cap, content-type checks. Each
+  hop resolves DNS, validates the result, and pins that address for the connection
+  (Host/SNI preserved). Operator-entered LAN feeds (RFC1918/loopback/ULA) are
+  allowed when DNS resolves entirely to those ranges. Cloud metadata and
+  link-local ranges (including `169.254.170.2`, `100.100.100.200`, and IMDS) are
+  always forbidden, including as the initial URL. Public feeds may not redirect
+  into LAN or IANA special-purpose ranges; HTTPS→HTTP downgrades are rejected on
+  every hop.
 - Well-formed RSS/Atom XML validated with a bounded XML parser (DTD/entity
-  processing disabled; single RSS/Atom root required). Text-only item
-  extraction; duplicate external IDs ignored; tracking and credential material
-  stripped from item links; URL-fallback identities use the canonical hash.
+  processing disabled; boolean attributes rejected; single RSS/Atom root
+  required). Credential detection inspects query values (embedded URLs, JWT-like
+  material, assignments) as well as keys.
 - Separate `signal_subscriptions` / `signal_items` tables from SMS, email, and
   agent messages.
 - Signals UI under Channels with source health (healthy / stale / failed /

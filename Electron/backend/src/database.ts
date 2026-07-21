@@ -6,12 +6,13 @@ import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
 import { normalizeNumber, utcNow } from "./phone";
 import {
   assertUnauthenticatedFeedUrl,
-  canonicalExternalId,
   containsCredentialMaterial,
+  migrateStoredExternalId,
   redactExportExternalId,
   redactSignalUrlSecrets,
   sanitizeItemUrl,
   sanitizeSignalError,
+  signalDedupeAliases,
   signalSubscriptionHealth,
   stripCredentialMaterial,
   toSignalSubscriptionDto
@@ -3760,17 +3761,12 @@ export class PhoneDatabase {
         changed += 1;
       }
     }
-    // Migrate legacy URL/credential external ids into the parser's canonical identity scheme
-    // so the next refresh dedupes instead of re-inserting.
+    // Migrate legacy URL/credential/19da-hashed external ids into the parser's canonical
+    // scheme so the next refresh dedupes instead of re-inserting.
     const items = this.connection.prepare("SELECT id, subscription_id, url, external_id FROM signal_items").all() as Array<{ id: string; subscription_id: string; url: string; external_id: string }>;
     for (const item of items) {
       const nextUrl = sanitizeItemUrl(item.url || item.external_id);
-      let external = item.external_id;
-      if (/^https?:\/\//i.test(item.external_id) || containsCredentialMaterial(item.external_id)) {
-        external = /^https?:\/\//i.test(item.external_id)
-          ? canonicalExternalId({ sanitizedUrl: sanitizeItemUrl(item.external_id) })
-          : canonicalExternalId({ rawGuid: item.external_id });
-      }
+      const external = migrateStoredExternalId({ external_id: item.external_id, url: item.url || item.external_id });
       if (nextUrl === item.url && external === item.external_id) continue;
       const nextId = createHash("sha256").update(`${item.subscription_id}\n${external}`).digest("hex");
       if (nextId === item.id) {
@@ -3827,6 +3823,15 @@ export class PhoneDatabase {
     const subscription = this.signalSubscription(item.subscription_id);
     if (!subscription) throw new Error("Signal subscription not found.");
     const externalId = item.external_id.slice(0, 1000) || item.url || item.title;
+    // Migration-era dedupe: treat legacy-19da hashes, URL-fallback hashes, and URL-shaped
+    // GUID hashes for the same item URL as the same logical item.
+    for (const alias of signalDedupeAliases({ externalId, url: item.url })) {
+      const existingByExternal = this.connection.prepare("SELECT id FROM signal_items WHERE subscription_id=? AND external_id=?").get(item.subscription_id, alias) as { id: string } | undefined;
+      if (existingByExternal) return false;
+      const aliasId = createHash("sha256").update(`${item.subscription_id}\n${alias}`).digest("hex");
+      const existingById = this.connection.prepare("SELECT id FROM signal_items WHERE id=?").get(aliasId) as { id: string } | undefined;
+      if (existingById) return false;
+    }
     const id = createHash("sha256").update(`${item.subscription_id}\n${externalId}`).digest("hex");
     const result = this.connection.prepare(`
       INSERT OR IGNORE INTO signal_items(id, subscription_id, external_id, title, url, summary, author, published_at, received_at, status)

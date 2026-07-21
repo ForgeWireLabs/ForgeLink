@@ -7,16 +7,12 @@ versions tracked in `VERSION` and `Electron/package.json`.
 ## [Unreleased]
 
 ### Added
-- Trusted-signal follow-up (work item 023): RSS/Atom stays a reading lane only
-  (not a channel adapter or approval surface). Feed fetch/parse hardening adds
-  tracking-parameter stripping, stale-source health, bounded XML validation via
-  `fast-xml-parser` (DTD/entity processing disabled), DNS pin-on-connect via
-  undici, public→private redirect blocking, direct metadata rejection, HTTPS
-  downgrade rejection, and deterministic fixtures. Credential-bearing
-  subscription URLs (including fragments and expanded secret parameter names)
-  are rejected; legacy URL identities migrate to canonical hashes; API DTOs and
-  `last_error` are sanitized; export redacts secrets; diagnostics expose signal
-  counts/health only. See `docs/trusted-signals.md`.
+- Trusted-signal follow-up (work item 023): RSS/Atom stays a reading lane only.
+  Hardening covers bounded XML validation, DNS pin-on-connect under a shared
+  deadline, always-forbidden metadata/link-local ranges, IANA special-purpose
+  redirect blocking, hop-aware HTTPS downgrade rejection, value-aware credential
+  detection/redaction, and migration-era external-id dedupe. See
+  `docs/trusted-signals.md`.
 
 ### Changed
 - Repository integrity: ForgeLink now pins RepoPact 2.1.0 at immutable commit
