@@ -23,12 +23,15 @@ person-to-person channel and not as an approval surface.
   allowed when DNS resolves entirely to those ranges. Cloud metadata and
   link-local ranges (including `169.254.170.2`, `100.100.100.200`, and IMDS) are
   always forbidden, including as the initial URL. Public feeds may not redirect
-  into LAN or IANA special-purpose ranges; HTTPS→HTTP downgrades are rejected on
+  into LAN or IANA special-purpose ranges (any special answer, alone or mixed
+  with LAN, is rejected); HTTPS→HTTP downgrades are rejected on
   every hop.
 - Well-formed RSS/Atom XML validated with a bounded XML parser (DTD/entity
   processing disabled; boolean attributes rejected; single RSS/Atom root
-  required). Credential detection inspects query values (embedded URLs, JWT-like
-  material, assignments) as well as keys.
+  required). Credential detection inspects query values (embedded absolute /
+  scheme-relative / authority-only URLs, JWT objects with `alg`, assignments)
+  with bounded decode recursion, as well as keys. Dotted version/format values
+  are not treated as JWTs.
 - Separate `signal_subscriptions` / `signal_items` tables from SMS, email, and
   agent messages.
 - Signals UI under Channels with source health (healthy / stale / failed /

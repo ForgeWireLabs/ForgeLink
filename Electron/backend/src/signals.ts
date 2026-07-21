@@ -17,7 +17,6 @@ export const SECRET_QUERY_KEYS = /^(?:api[_-]?key|x[_-]?api[_-]?key|client[_-]?s
 const SECRET_ASSIGNMENT_SOURCE = "(?:api[_-]?key|x[_-]?api[_-]?key|client[_-]?secret|client[_-]?id|access[_-]?token|refresh[_-]?token|id[_-]?token|token|auth|authorization|bearer|password|passwd|secret|session|sid|sig|signature|key|x[_-]?amz[_-][\\w-]+|x[_-]?goog[_-][\\w-]+)";
 const CREDENTIAL_ASSIGNMENT = new RegExp(`(?:^|[?#&\\/\\s;,:])${SECRET_ASSIGNMENT_SOURCE}\\s*[:=]`, "i");
 const CREDENTIAL_ASSIGNMENT_REPLACE = new RegExp(`\\b(${SECRET_ASSIGNMENT_SOURCE})\\s*[:=]\\s*[^\\s&"'#]+`, "gi");
-const JWT_LIKE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 const SHA256_HEX = /^[a-f0-9]{64}$/i;
 const METADATA_HOSTS = new Set(["metadata.google.internal", "metadata", "kubernetes.default", "kubernetes.default.svc"]);
 
@@ -149,14 +148,71 @@ function safeDecode(value: string): string {
   }
 }
 
+/**
+ * JWT evidence requires three base64url segments where the first two decode to JSON
+ * objects and the header carries a non-empty `alg`. Rejects dotted versions/names.
+ */
+export function looksLikeJwt(value: string): boolean {
+  const trimmed = value.trim();
+  const parts = trimmed.split(".");
+  if (parts.length !== 3) return false;
+  const [headerB64, payloadB64, signatureB64] = parts;
+  if (!headerB64 || !payloadB64 || !signatureB64) return false;
+  if (headerB64.length < 8 || payloadB64.length < 4 || signatureB64.length < 1) return false;
+  if (![headerB64, payloadB64, signatureB64].every((part) => /^[A-Za-z0-9_-]+$/.test(part))) return false;
+  try {
+    const headerJson = JSON.parse(Buffer.from(headerB64, "base64url").toString("utf8")) as unknown;
+    const payloadJson = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8")) as unknown;
+    if (!headerJson || typeof headerJson !== "object" || Array.isArray(headerJson)) return false;
+    if (!payloadJson || typeof payloadJson !== "object" || Array.isArray(payloadJson)) return false;
+    const alg = (headerJson as { alg?: unknown }).alg;
+    return typeof alg === "string" && alg.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Parse absolute, scheme-relative (`//…`), or authority-only (`user:pass@host`) values. */
+function parseCredentialCarrier(value: string): URL | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const absolute = new URL(trimmed);
+    // WHATWG treats `user:pass@host` as scheme "user:" with an empty host — ignore those.
+    if (["http:", "https:"].includes(absolute.protocol)) return absolute;
+  } catch {
+    /* continue */
+  }
+  if (trimmed.startsWith("//")) {
+    try {
+      return new URL(`https:${trimmed}`);
+    } catch {
+      /* continue */
+    }
+  }
+  // userinfo@host[/path][?query] without a scheme — always force an https authority form
+  // so `user:pass@host` is not misread as scheme "user".
+  if (/^[^/\s?#]*@[^/\s?#]+/.test(trimmed) || /^[A-Za-z0-9._~%-]+:[^@/\s?#]+@[^/\s?#]+/.test(trimmed)) {
+    try {
+      return new URL(`https://${trimmed}`);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 /** Shared detector for userinfo, query keys/values, fragments, and non-URL assignments/JWTs. */
 export function containsCredentialMaterial(value: string, depth = 0): boolean {
   if (!value || depth > MAX_CREDENTIAL_SCAN_DEPTH) return false;
-  const trimmed = value.trim();
-  if (JWT_LIKE.test(trimmed)) return true;
-  if (CREDENTIAL_ASSIGNMENT.test(value)) return true;
-  try {
-    const url = new URL(value);
+  // Decode once per recursion level before classification (bounded depth).
+  const working = safeDecode(value);
+  const trimmed = working.trim();
+  if (looksLikeJwt(trimmed)) return true;
+  if (CREDENTIAL_ASSIGNMENT.test(working) || CREDENTIAL_ASSIGNMENT.test(trimmed)) return true;
+
+  const url = parseCredentialCarrier(trimmed);
+  if (url) {
     if (url.username || url.password) return true;
     if (url.hash) {
       const hash = safeDecode(url.hash.replace(/^#/, ""));
@@ -164,15 +220,14 @@ export function containsCredentialMaterial(value: string, depth = 0): boolean {
     }
     for (const [key, raw] of url.searchParams.entries()) {
       if (isSecretQueryKey(key)) return true;
-      const decoded = safeDecode(raw);
-      if (JWT_LIKE.test(decoded.trim()) || CREDENTIAL_ASSIGNMENT.test(decoded)) return true;
-      if (looksLikeUrl(decoded) && containsCredentialMaterial(decoded, depth + 1)) return true;
-      if (decoded !== raw && containsCredentialMaterial(decoded, depth + 1)) return true;
+      if (containsCredentialMaterial(raw, depth + 1)) return true;
     }
     return false;
-  } catch {
-    return CREDENTIAL_ASSIGNMENT.test(value) || JWT_LIKE.test(trimmed);
   }
+
+  // Non-URL text: further decode layers may reveal assignments / JWTs / carriers.
+  if (working !== value && containsCredentialMaterial(working, depth + 1)) return true;
+  return false;
 }
 
 export function stripTrackingParams(value: string): string {
@@ -296,7 +351,11 @@ export function signalDedupeAliases(input: { externalId: string; url?: string })
   return [...aliases].filter(Boolean);
 }
 
-/** Migrate a stored external_id toward the parser's canonical scheme when possible. */
+/**
+ * Migrate a stored external_id toward the parser's canonical scheme when proven.
+ * Unknown 64-hex GUIDs are preserved; only hashes matching the 19da formula
+ * (`sha256("legacy-external\\n" + url)`) are rewritten.
+ */
 export function migrateStoredExternalId(item: { external_id: string; url: string }): string {
   const current = item.external_id;
   const rawUrl = item.url || "";
@@ -313,16 +372,10 @@ export function migrateStoredExternalId(item: { external_id: string; url: string
   if (SHA256_HEX.test(current) && rawUrl) {
     const legacyRaw = legacy19daExternalId(rawUrl);
     const legacySanitized = legacy19daExternalId(sanitized);
+    // Only rewrite when equal to a known 19da formula — never guess opaque GUIDs.
     if (current === legacyRaw || current === legacySanitized) {
       return canonicalExternalId({ sanitizedUrl: sanitized });
     }
-    const urlIdentity = canonicalExternalId({ sanitizedUrl: sanitized });
-    const guidIdentity = canonicalExternalId({ rawGuid: rawUrl });
-    if (current === urlIdentity || current === guidIdentity || current === canonicalExternalId({ rawGuid: sanitized })) {
-      return current;
-    }
-    // Opaque migration-era hash with a usable item URL: converge on URL identity for refresh dedupe.
-    return urlIdentity;
   }
 
   return current;
@@ -490,14 +543,16 @@ export async function resolveValidateAndPin(
 
   const classes = addresses.map((address) => classifySignalAddress(address));
   if (classes.some((value) => value === "forbidden")) throw new Error("Feed host is not allowed.");
+  // Special-purpose ranges are never operator LAN; reject any answer set that includes them.
+  if (classes.some((value) => value === "special")) throw new Error("Feed host is not allowed.");
   const nonPublic = classes.filter((value) => value !== "public");
   const publics = classes.filter((value) => value === "public");
   if (nonPublic.length && publics.length) throw new Error("Feed host resolved to mixed public and private addresses.");
 
   const isPrivate = nonPublic.length > 0;
   if (isPrivate && !options.allowPrivate) throw new Error("Feed redirect target is not allowed.");
-  // Special-purpose ranges are never operator LAN, even on the initial hop.
-  if (classes.every((value) => value === "special")) throw new Error("Feed host is not allowed.");
+  // Non-public initial hosts require every answer to be operator LAN.
+  if (isPrivate && !classes.every((value) => value === "lan")) throw new Error("Feed host is not allowed.");
 
   const pinned = normalizeSignalIp(addresses[0]);
   const remainingAfterDns = options.remainingMs; // caller recomputes wall-clock remaining

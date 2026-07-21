@@ -46,8 +46,9 @@ Evidence must include a gap review, deterministic fixtures for any parser/fetch 
 All eight criteria satisfied; evidence
 `20260720-rss-atom-signal-follow-up`,
 `20260720-rss-atom-signal-follow-up-hardening`,
-`20260720-rss-atom-signal-follow-up-hardening-r2`, and
-`20260720-rss-atom-signal-follow-up-hardening-r3`. Item moved to `work/completed/`.
+`20260720-rss-atom-signal-follow-up-hardening-r2`,
+`20260720-rss-atom-signal-follow-up-hardening-r3`, and
+`20260720-rss-atom-signal-follow-up-hardening-r4`. Item moved to `work/completed/`.
 
 ### Remaining risks
 
@@ -62,7 +63,8 @@ All eight criteria satisfied; evidence
 - XML is validated with a bounded parser (no DTD/entities; boolean attributes
   rejected); exotic but well-formed feeds may still fail field extraction.
 - Migration-era dedupe aliases cover known 19da/3df822e identity shapes; unknown
-  opaque hashes with a usable item URL converge on the canonical URL identity.
+  opaque 64-hex GUIDs are preserved (never rewritten or deleted on collision).
+  Only hashes proven equal to the 19da `legacy-external` formula are migrated.
 
 ### Rollback
 

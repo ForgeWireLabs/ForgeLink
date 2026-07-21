@@ -1,0 +1,33 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260720-rss-atom-signal-follow-up-hardening-r4",
+  "timestamp": "2026-07-21T03:00:00Z",
+  "work_item": "023",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Full suite passed after fourth Sol remediation against 83a568e. Opaque 64-hex GUIDs are preserved (only proven 19da legacy-external hashes migrate); collision paths never delete rows; credential detection covers scheme-relative and authority-only query values plus bounded deep decode; JWT detection requires base64url JSON header with alg; mixed LAN/special DNS answers rejected in either order."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Repository governance validation passed after docs/evidence updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/signals.ts",
+    "Electron/backend/src/signals.test.ts",
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/database.test.ts",
+    "docs/trusted-signals.md",
+    "evidence/runs/20260720-rss-atom-signal-follow-up-hardening-r4.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "note": "Fourth remediation of defect-first review findings against 83a568e."
+  }
+}

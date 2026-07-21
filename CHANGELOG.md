@@ -10,8 +10,10 @@ versions tracked in `VERSION` and `Electron/package.json`.
 - Trusted-signal follow-up (work item 023): RSS/Atom stays a reading lane only.
   Hardening covers bounded XML validation, DNS pin-on-connect under a shared
   deadline, always-forbidden metadata/link-local ranges, IANA special-purpose
-  redirect blocking, hop-aware HTTPS downgrade rejection, value-aware credential
-  detection/redaction, and migration-era external-id dedupe. See
+  redirect blocking (including mixed LAN/special answers), hop-aware HTTPS
+  downgrade rejection, value-aware credential detection/redaction (scheme-relative
+  and authority carriers; JWT objects with `alg`), and non-destructive
+  migration-era external-id dedupe that preserves opaque feed GUIDs. See
   `docs/trusted-signals.md`.
 
 ### Changed

@@ -19,6 +19,7 @@ import {
   sanitizeSignalError,
   setSignalDnsLookupForTests,
   setSignalFetchForTests,
+  looksLikeJwt,
   withSignalDeadline
 } from "./signals";
 
@@ -46,10 +47,13 @@ test("rejects credential values embedded in non-secret query parameters", () => 
     "https://example.com/feed?next=https%3A%2F%2Fuser%3Apass%40private.example%2Ffeed",
     "https://example.com/feed?opaque=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig",
     "https://example.com/feed?next=token%3Dsecret",
+    "https://example.com/feed?next=%2F%2Fuser%3Apass%40host%2Ffeed",
+    "https://example.com/feed?next=user%3Apass%40host",
+    "https://example.com/feed?next=token%25253Dsecret",
     "https://example.com/feed?client_secret=value",
     "https://example.com/feed#access_token=value"
   ]) {
-    assert.equal(containsCredentialMaterial(url), true);
+    assert.equal(containsCredentialMaterial(url), true, url);
     assert.throws(() => assertUnauthenticatedFeedUrl(url), /credential|fragment/i);
   }
   const redacted = redactSignalUrlSecrets("https://example.com/feed?next=https%3A%2F%2Fuser%3Apass%40private.example%2Ffeed");
@@ -57,6 +61,21 @@ test("rejects credential values embedded in non-secret query parameters", () => 
   assert.match(redacted, /REDACTED/);
   assert.match(sanitizeSignalError("failed refresh_token=abc id_token=xyz bearer=tok passwd=p client_id=cid"), /REDACTED/);
   assert.equal(sanitizeSignalError("failed refresh_token=abc").includes("abc"), false);
+});
+
+test("does not treat dotted versions or names as JWTs", () => {
+  for (const url of [
+    "https://example.com/feed?version=1.2.3",
+    "https://example.com/feed?format=rss.atom.v2",
+    "https://example.com/feed?name=foo.bar.baz"
+  ]) {
+    assert.equal(containsCredentialMaterial(url), false, url);
+    assert.doesNotThrow(() => assertUnauthenticatedFeedUrl(url));
+  }
+  assert.equal(looksLikeJwt("1.2.3"), false);
+  assert.equal(looksLikeJwt("rss.atom.v2"), false);
+  assert.equal(looksLikeJwt("foo.bar.baz"), false);
+  assert.equal(looksLikeJwt("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig"), true);
 });
 
 test("classifies always-forbidden metadata and special-purpose ranges", () => {
@@ -71,6 +90,23 @@ test("classifies always-forbidden metadata and special-purpose ranges", () => {
   assert.equal(classifySignalAddress("203.0.113.1"), "special");
   assert.equal(classifySignalAddress("2001:db8::1"), "special");
   assert.equal(classifySignalAddress("8.8.8.8"), "public");
+});
+
+test("mixed LAN and special-purpose DNS answers are rejected in either order", async () => {
+  for (const answers of [
+    ["198.18.0.1", "192.168.1.50"],
+    ["192.168.1.50", "198.18.0.1"]
+  ]) {
+    setSignalDnsLookupForTests(async () => answers);
+    try {
+      await assert.rejects(
+        () => resolveValidateAndPin(new URL("http://mixed.lan/feed"), { allowPrivate: true, remainingMs: 1000 }),
+        /not allowed/i
+      );
+    } finally {
+      setSignalDnsLookupForTests(null);
+    }
+  }
 });
 
 test("direct forbidden endpoints are rejected even with allowPrivate", async () => {
@@ -172,6 +208,9 @@ test("migrates 19da legacy hashes to canonical URL identities", () => {
     migrateStoredExternalId({ external_id: "https://example.com/guid-as-id", url: "https://example.com/different-link" }),
     canonicalExternalId({ rawGuid: "https://example.com/guid-as-id" })
   );
+  // Unknown opaque SHA-256 GUIDs are preserved even when an item URL is present.
+  const opaqueGuid = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+  assert.equal(migrateStoredExternalId({ external_id: opaqueGuid, url: "https://example.com/shared" }), opaqueGuid);
 });
 
 test("parses RSS and hashes URL fallbacks", () => {

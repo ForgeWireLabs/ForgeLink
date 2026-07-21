@@ -6,7 +6,7 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { AGENT_CONTENT_PROVENANCE, CURRENT_SCHEMA_VERSION, PhoneDatabase, REDACTION_PROFILES, redactEvidencePack, redactNotification, sanitizeAgentText } from "./database";
 import { normalizeNumber } from "./phone";
-import { canonicalExternalId, legacy19daExternalId, parseTrustedSignalFeed } from "./signals";
+import { canonicalExternalId, containsCredentialMaterial, legacy19daExternalId, parseTrustedSignalFeed } from "./signals";
 
 test("normalizes US phone numbers", () => {
   assert.equal(normalizeNumber("(555) 123-4567"), "+15551234567");
@@ -1273,6 +1273,66 @@ test("dedupes post-19da hashed rows and pre-19da URL-shaped GUID rows on refresh
     assert.equal(database.addSignalItem({ ...parsed.items[1], subscription_id: subscription.id }), false);
     assert.equal(database.signalItems().length, 2);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("preserves distinct opaque SHA-256 GUIDs that share one item URL", () => {
+  const directory = mkdtempSync(join(tmpdir(), "twilio-phone-signals-opaque-guid-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const subscription = database.upsertSignalSubscription({ title: "Opaque", url: "https://example.com/opaque.xml", fetch_interval_minutes: 30, retention_days: 30 });
+    const sharedUrl = "https://example.com/shared-article";
+    const guidA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const guidB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    database.connection.prepare("INSERT INTO signal_items(id, subscription_id, external_id, title, url, summary, author, published_at, received_at, status) VALUES(?,?,?,?,?,?,?,?,?,?)").run(
+      "opaque-a", subscription.id, guidA, "Item A", sharedUrl, "", "", "2026-07-20T00:00:00.000Z", "2026-07-20T00:00:00.000Z", "unread"
+    );
+    database.connection.prepare("INSERT INTO signal_items(id, subscription_id, external_id, title, url, summary, author, published_at, received_at, status) VALUES(?,?,?,?,?,?,?,?,?,?)").run(
+      "opaque-b", subscription.id, guidB, "Item B", sharedUrl, "", "", "2026-07-20T00:00:00.000Z", "2026-07-20T00:00:00.000Z", "unread"
+    );
+    database.close();
+
+    const reopened = new PhoneDatabase(join(directory, "phone.sqlite3"));
+    try {
+      const rows = reopened.connection.prepare("SELECT id, external_id, title FROM signal_items ORDER BY title").all() as Array<{ id: string; external_id: string; title: string }>;
+      assert.equal(rows.length, 2);
+      assert.equal(rows[0].external_id, guidA);
+      assert.equal(rows[1].external_id, guidB);
+      assert.equal(rows[0].id, "opaque-a");
+      assert.equal(rows[1].id, "opaque-b");
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("scrubs scheme-relative and deep-encoded credential query values from storage and export", () => {
+  const directory = mkdtempSync(join(tmpdir(), "twilio-phone-signals-cred-values-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const subscription = database.upsertSignalSubscription({ title: "Cred", url: "https://example.com/cred.xml", fetch_interval_minutes: 30, retention_days: 30 });
+    const leakUrl = "https://example.com/feed?next=%2F%2Fuser%3Apass%40host%2Ffeed";
+    database.connection.prepare("INSERT INTO signal_items(id, subscription_id, external_id, title, url, summary, author, published_at, received_at, status) VALUES(?,?,?,?,?,?,?,?,?,?)").run(
+      "cred-leak", subscription.id, leakUrl, "Leak", leakUrl, "", "", "2026-07-20T00:00:00.000Z", "2026-07-20T00:00:00.000Z", "unread"
+    );
+    database.scrubSignalCredentialRows();
+    const stored = database.connection.prepare("SELECT url, external_id FROM signal_items WHERE title=?").get("Leak") as { url: string; external_id: string };
+    assert.ok(stored);
+    assert.equal(stored.url.includes("user:pass"), false);
+    assert.equal(stored.url.includes("pass"), false);
+    assert.equal(containsCredentialMaterial(stored.url), false);
+    const exported = database.exportData() as { signal_items: Array<{ url: string; external_id: string }> };
+    const serialized = JSON.stringify(exported);
+    assert.equal(serialized.includes("user:pass"), false);
+    assert.equal(serialized.includes("pass@host"), false);
+    const dto = database.signalItems().find((item) => item.title === "Leak");
+    assert.ok(dto);
+    assert.equal(JSON.stringify(dto).includes("user:pass"), false);
+  } finally {
+    database.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("stores only MCP token hashes and redacted metadata", () => {

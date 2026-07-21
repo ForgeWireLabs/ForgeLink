@@ -3761,8 +3761,8 @@ export class PhoneDatabase {
         changed += 1;
       }
     }
-    // Migrate legacy URL/credential/19da-hashed external ids into the parser's canonical
-    // scheme so the next refresh dedupes instead of re-inserting.
+    // Migrate legacy URL/credential/proven-19da external ids into the parser's canonical
+    // scheme so the next refresh dedupes instead of re-inserting. Never delete on collision.
     const items = this.connection.prepare("SELECT id, subscription_id, url, external_id FROM signal_items").all() as Array<{ id: string; subscription_id: string; url: string; external_id: string }>;
     for (const item of items) {
       const nextUrl = sanitizeItemUrl(item.url || item.external_id);
@@ -3771,14 +3771,20 @@ export class PhoneDatabase {
       const nextId = createHash("sha256").update(`${item.subscription_id}\n${external}`).digest("hex");
       if (nextId === item.id) {
         this.connection.prepare("UPDATE signal_items SET url=?, external_id=? WHERE id=?").run(nextUrl.slice(0, 1000), external.slice(0, 1000), item.id);
-      } else {
-        const collision = this.connection.prepare("SELECT id FROM signal_items WHERE id=?").get(nextId) as { id: string } | undefined;
-        if (collision) {
-          this.connection.prepare("DELETE FROM signal_items WHERE id=?").run(item.id);
-        } else {
-          this.connection.prepare("UPDATE signal_items SET id=?, url=?, external_id=? WHERE id=?").run(nextId, nextUrl.slice(0, 1000), external.slice(0, 1000), item.id);
-        }
+        changed += 1;
+        continue;
       }
+      const collision = this.connection.prepare("SELECT id FROM signal_items WHERE id=?").get(nextId) as { id: string } | undefined;
+      if (collision) {
+        // Non-destructive: keep both rows; only scrub the URL in place when needed.
+        // Refresh uses signalDedupeAliases for compatibility without losing items.
+        if (nextUrl !== item.url) {
+          this.connection.prepare("UPDATE signal_items SET url=? WHERE id=?").run(nextUrl.slice(0, 1000), item.id);
+          changed += 1;
+        }
+        continue;
+      }
+      this.connection.prepare("UPDATE signal_items SET id=?, url=?, external_id=? WHERE id=?").run(nextId, nextUrl.slice(0, 1000), external.slice(0, 1000), item.id);
       changed += 1;
     }
     return changed;
