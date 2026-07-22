@@ -1,0 +1,74 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260722-first-class-telnyx-integration",
+  "timestamp": "2026-07-22T22:28:56Z",
+  "work_item": "035",
+  "result": "passed",
+  "provenance": "concrete",
+  "criteria": ["TEL-001", "TEL-002", "TEL-003", "TEL-004", "TEL-005", "TEL-006", "TEL-007", "TEL-008"],
+  "summary": "Made Telnyx a first-class, securely configurable and explicitly selected SMS/MMS edge with read-only number/profile validation, automatic webhook setup/recovery, redacted status, shared cockpit UX, deterministic routing tests, and an honest Tauri parity posture.",
+  "commands": [
+    {
+      "command": "node --test smsProviderSettings.test.js && node --check smsProviderSettings.js",
+      "exit_code": 0,
+      "summary": "Five secure-store, environment fallback, Telnyx validation/redaction, and webhook request-shaping tests passed."
+    },
+    {
+      "command": "npm run backend:build && node --test backend-dist/telnyx.test.js backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Forty-six focused backend tests passed, including read-only Telnyx validation and explicit Telnyx outbound routing while Twilio was also registered."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx -t \"opens first-run onboarding|configures and selects Telnyx\"",
+      "exit_code": 0,
+      "summary": "The existing first-run path and the new secure Telnyx Settings workflow both passed."
+    },
+    {
+      "command": "cargo test --manifest-path Tauri/src-tauri/Cargo.toml telnyx_bridge_status_is_redacted_and_does_not_claim_unproved_tauri_parity && cargo check --manifest-path Tauri/src-tauri/Cargo.toml",
+      "exit_code": 0,
+      "summary": "The redacted Telnyx bridge posture test and full Tauri Rust check passed; Tauri reports desktop-local-service-required rather than claiming unproved credential parity."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Complete Electron regression passed: 222 renderer tests and 229 Node/backend/shell tests; the one live Twilio credential test remained intentionally opt-in and skipped."
+    },
+    {
+      "command": "npm run scan:secrets",
+      "exit_code": 0,
+      "summary": "Repository secret scan passed with no credentials detected."
+    },
+    {
+      "command": "python -m pip install --upgrade --force-reinstall -r requirements-repopact.txt",
+      "exit_code": 0,
+      "summary": "Corrected local tool drift from RepoPact 2.3.0 to the repository-pinned RepoPact 2.2.0 before final governance proof."
+    },
+    {
+      "command": "python -m repopact_cli dashboard --root . && python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Canonical dashboard generation and ForgeLink governed validation passed after closeout."
+    },
+    {
+      "command": "sh .githooks/pre-push",
+      "exit_code": 0,
+      "summary": "Complete commit/push gate passed with RepoPact 2.2.0 governance validation, 222 renderer tests, and 229 of 230 Node/backend/shell checks with the one live-provider test intentionally opt-in."
+    }
+  ],
+  "artifacts": [
+    "Electron/smsProviderSettings.js",
+    "Electron/backend/src/telnyx.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/shell.ts",
+    "Tauri/src-tauri/src/lib.rs",
+    "docs/telnyx.md",
+    "work/completed/035-first-class-telnyx-integration/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "live_telnyx": "not run; deterministic official-API-shaped fixtures only",
+    "tauri_limit": "shared bridge contract only; work item 032 retains real local-service and secure-storage parity"
+  }
+}

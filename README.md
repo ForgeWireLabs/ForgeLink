@@ -311,13 +311,15 @@ npm install
 npm start
 ```
 
-On first launch, ForgeLink offers two paths:
+On first launch, ForgeLink offers local-only operation or the Twilio quick setup.
+Telnyx is configured from **Settings → Telnyx SMS/MMS** after entering the cockpit:
 
 1. **Start local-only**  
    Use ForgeLink for local agent approvals and the human decision loop without configuring a telecom provider.
 
 2. **Configure a channel provider**  
-   Set up an SMS/MMS edge such as Twilio or Telnyx.
+   Set up Twilio in the first-run dialog, or start local-only and configure Telnyx
+   from Settings with secure credential storage and an explicit SMS/MMS selection.
 
 Provider setup may include:
 

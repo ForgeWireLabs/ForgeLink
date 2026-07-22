@@ -34,9 +34,33 @@ export async function sendTelnyxMessage(toValue: string, body: string, mediaUrls
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(20_000)
   });
-  const json = await response.json() as { data?: Record<string, unknown> };
+  const json = await response.json().catch(() => ({})) as { data?: Record<string, unknown> };
   if (!response.ok) throw new Error(`Telnyx rejected the message (${response.status}).`);
   return json.data ?? (json as Record<string, unknown>);
+}
+
+export async function validateTelnyxCredentials(config: TelnyxConfig = loadTelnyxConfig(), fetchImpl: typeof fetch = fetch): Promise<{ ok: boolean; accountName?: string; phoneNumber?: string; error?: string }> {
+  if (!config.apiKey || !config.phoneNumber || !config.publicKey || !config.profileId) {
+    return { ok: false, error: "Telnyx API key, phone number, webhook public key, and messaging profile are required." };
+  }
+  try {
+    const key = Buffer.from(config.publicKey, "base64");
+    if (key.length !== 32) return { ok: false, error: "The Telnyx webhook public key is invalid." };
+    const headers = { Authorization: `Bearer ${config.apiKey}`, Accept: "application/json" };
+    const numberResponse = await fetchImpl(`https://api.telnyx.com/v2/messaging_phone_numbers/${encodeURIComponent(config.phoneNumber)}`, { headers, signal: AbortSignal.timeout(20_000) });
+    const numberJson = await numberResponse.json().catch(() => ({})) as { data?: { phone_number?: string; messaging_profile_id?: string; features?: { sms?: unknown } } };
+    if (!numberResponse.ok) return { ok: false, error: `Telnyx credential validation failed (${numberResponse.status}).` };
+    if (numberJson.data?.phone_number !== config.phoneNumber) return { ok: false, error: "Telnyx did not return the selected phone number." };
+    if (numberJson.data?.messaging_profile_id !== config.profileId) return { ok: false, error: "The Telnyx phone number is not assigned to the selected messaging profile." };
+    if (numberJson.data?.features && (numberJson.data.features.sms === null || numberJson.data.features.sms === false)) return { ok: false, error: "The selected Telnyx phone number is not SMS-capable." };
+    const profileResponse = await fetchImpl(`https://api.telnyx.com/v2/messaging_profiles/${encodeURIComponent(config.profileId)}`, { headers, signal: AbortSignal.timeout(20_000) });
+    const profileJson = await profileResponse.json().catch(() => ({})) as { data?: { id?: string; name?: string; enabled?: boolean } };
+    if (!profileResponse.ok) return { ok: false, error: `Telnyx credential validation failed (${profileResponse.status}).` };
+    if (profileJson.data?.id !== config.profileId || profileJson.data.enabled === false) return { ok: false, error: "The selected Telnyx messaging profile is unavailable." };
+    return { ok: true, accountName: profileJson.data?.name || "Telnyx messaging", phoneNumber: config.phoneNumber };
+  } catch {
+    return { ok: false, error: "Telnyx credential validation could not be completed." };
+  }
 }
 
 // Ed25519 verification of `${timestamp}|${rawBody}` against the base64 raw key.
@@ -93,15 +117,11 @@ const TELNYX_CAPABILITIES: ChannelCapabilities = {
   capabilities: ["sms_send", "mms_send", "inbound_sms", "delivery_status", "media"]
 };
 
-export function createTelnyxAdapter(sender: typeof sendTelnyxMessage = sendTelnyxMessage): ChannelAdapter {
+export function createTelnyxAdapter(sender: typeof sendTelnyxMessage = sendTelnyxMessage, credentialValidator: typeof validateTelnyxCredentials = validateTelnyxCredentials): ChannelAdapter {
   return {
     capabilities: () => TELNYX_CAPABILITIES,
     supports: (capability) => TELNYX_CAPABILITIES.capabilities.includes(capability),
-    validateCredentials: async () => {
-      const config = loadTelnyxConfig();
-      const ok = Boolean(config.apiKey && config.phoneNumber);
-      return ok ? { ok, phoneNumber: config.phoneNumber } : { ok, error: "Telnyx API key and phone number are required." };
-    },
+    validateCredentials: async () => credentialValidator(),
     send: async (message: OutboundMessage): Promise<SendResult> => {
       const raw = await sender(message.to, message.body, message.mediaUrls || []);
       const id = raw.id;

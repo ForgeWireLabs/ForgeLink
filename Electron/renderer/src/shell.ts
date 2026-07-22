@@ -1,10 +1,10 @@
-import type { AgentChannelStatus, AndroidPairingStatus, AttentionDecision, AttentionEvent, AttentionPolicy, BackendConnection, DesktopLinkedNodeStatus, DesktopStatus, EmailSettingsInput, EmailSettingsStatus, ForgeLinkNodeLinkStatus, McpStatus, PushSettingsInput, PushSettingsStatus, ValidationResult } from "./types";
+import type { AgentChannelStatus, AndroidPairingStatus, AttentionDecision, AttentionEvent, AttentionPolicy, BackendConnection, DesktopLinkedNodeStatus, DesktopStatus, EmailSettingsInput, EmailSettingsStatus, ForgeLinkNodeLinkStatus, McpStatus, PushSettingsInput, PushSettingsStatus, SmsProviderSettingsStatus, TelnyxSettingsInput, TelnyxValidationResult, ValidationResult } from "./types";
 
 export const SHELL_BRIDGE_CAPABILITIES = {
   localService: ["backendConnection", "getStatus", "startServer", "startLocalOnly", "stopServer", "onServerStatus"],
   notifications: ["notify", "notifyEvent"],
   navigation: ["openExternal"],
-  secureSettings: ["validateSettings", "importEnvironment", "removeCredentials", "emailSettings", "saveEmailSettings", "removeEmailSettings", "pushSettings", "savePushSettings", "removePushSettings"],
+  secureSettings: ["validateSettings", "importEnvironment", "removeCredentials", "smsProviderSettings", "validateTelnyxSettings", "saveTelnyxSettings", "selectSmsProvider", "removeTelnyxSettings", "emailSettings", "saveEmailSettings", "removeEmailSettings", "pushSettings", "savePushSettings", "removePushSettings"],
   attentionPolicy: ["attentionPolicy", "saveAttentionPolicy"],
   agentCredentials: ["mcpStatus", "createMcpToken", "revokeMcpToken", "testMcpBridge", "agentChannels", "createAgentChannel", "rotateAgentChannel", "revokeAgentChannel", "setAgentChannelEnabled"],
   androidPairing: ["pairingStatus"],
@@ -24,6 +24,11 @@ export interface ForgeLinkShellBridge {
   startLocalOnly(settings: Record<string, string | number>): Promise<DesktopStatus>;
   importEnvironment(): Promise<DesktopStatus>;
   removeCredentials(): Promise<DesktopStatus>;
+  smsProviderSettings(): Promise<SmsProviderSettingsStatus>;
+  validateTelnyxSettings(values: TelnyxSettingsInput): Promise<TelnyxValidationResult>;
+  saveTelnyxSettings(values: TelnyxSettingsInput): Promise<SmsProviderSettingsStatus>;
+  selectSmsProvider(provider: "twilio" | "telnyx"): Promise<SmsProviderSettingsStatus>;
+  removeTelnyxSettings(): Promise<SmsProviderSettingsStatus>;
   stopServer(): Promise<DesktopStatus>;
   mcpStatus(): Promise<McpStatus>;
   createMcpToken(): Promise<McpStatus>;
@@ -66,6 +71,11 @@ function createTauriBridge(invoke: TauriInvoke): ForgeLinkShellBridge {
     startLocalOnly: settings => invokeWithPayload<DesktopStatus>(invoke, "forgelink_start_local_only", settings),
     importEnvironment: () => invoke<DesktopStatus>("forgelink_import_environment"),
     removeCredentials: () => invoke<DesktopStatus>("forgelink_remove_credentials"),
+    smsProviderSettings: () => invoke<SmsProviderSettingsStatus>("forgelink_sms_provider_settings"),
+    validateTelnyxSettings: values => invokeWithPayload<TelnyxValidationResult>(invoke, "forgelink_validate_telnyx_settings", values as unknown as Record<string, unknown>),
+    saveTelnyxSettings: values => invokeWithPayload<SmsProviderSettingsStatus>(invoke, "forgelink_save_telnyx_settings", values as unknown as Record<string, unknown>),
+    selectSmsProvider: provider => invoke<SmsProviderSettingsStatus>("forgelink_select_sms_provider", { provider }),
+    removeTelnyxSettings: () => invoke<SmsProviderSettingsStatus>("forgelink_remove_telnyx_settings"),
     stopServer: () => invoke<DesktopStatus>("forgelink_stop_server"),
     mcpStatus: () => invoke<McpStatus>("forgelink_mcp_status"),
     createMcpToken: () => invoke<McpStatus>("forgelink_create_mcp_token"),
@@ -107,6 +117,11 @@ export function getShellBridge(): ForgeLinkShellBridge {
       startLocalOnly: unavailable("startLocalOnly"),
       importEnvironment: unavailable("importEnvironment"),
       removeCredentials: unavailable("removeCredentials"),
+      smsProviderSettings: unavailable("smsProviderSettings"),
+      validateTelnyxSettings: unavailable("validateTelnyxSettings"),
+      saveTelnyxSettings: unavailable("saveTelnyxSettings"),
+      selectSmsProvider: unavailable("selectSmsProvider"),
+      removeTelnyxSettings: unavailable("removeTelnyxSettings"),
       stopServer: unavailable("stopServer"),
       mcpStatus: unavailable("mcpStatus"),
       createMcpToken: unavailable("createMcpToken"),
@@ -145,6 +160,11 @@ export const shell: ForgeLinkShellBridge = {
   startLocalOnly: settings => getShellBridge().startLocalOnly(settings),
   importEnvironment: () => getShellBridge().importEnvironment(),
   removeCredentials: () => getShellBridge().removeCredentials(),
+  smsProviderSettings: () => getShellBridge().smsProviderSettings(),
+  validateTelnyxSettings: values => getShellBridge().validateTelnyxSettings(values),
+  saveTelnyxSettings: values => getShellBridge().saveTelnyxSettings(values),
+  selectSmsProvider: provider => getShellBridge().selectSmsProvider(provider),
+  removeTelnyxSettings: () => getShellBridge().removeTelnyxSettings(),
   stopServer: () => getShellBridge().stopServer(),
   mcpStatus: () => getShellBridge().mcpStatus(),
   createMcpToken: () => getShellBridge().createMcpToken(),

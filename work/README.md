@@ -116,7 +116,7 @@ If an item is abandoned, superseded, merged, split, or rejected, keep its ID and
 
 ## Current Active Work
 
-As of the 2026-07-20 RSS/Atom follow-up closeout, the active product arcs are:
+As of the 2026-07-22 first-class Telnyx integration closeout, the active product arcs are:
 
 ```text
 011-production-readiness
@@ -160,6 +160,7 @@ Completed foundation relevant to the current roadmap:
 030-tauri-shared-shell-and-electron-retirement
 033-canonical-dashboard-integrity
 034-repopact-2-2-0-formal-release
+035-first-class-telnyx-integration
 ```
 
 Work item 030 completed the Tauri shared-shell foundation and retirement-gate
@@ -170,6 +171,10 @@ or missing dashboard now fails the same audit used by commit and push gates.
 
 Work item 034 replaced the interim git commit dependency with the formal, exact 2.2.0
 PyPI release and proved ForgeLink retains canonical dashboard enforcement.
+
+Work item 035 closed the gap between the shipped Telnyx adapter and a first-class
+operator workflow: encrypted settings, real validation, explicit provider selection,
+webhook automation, redacted status, shared cockpit UX, tests, and documentation.
 
 ## Lifecycle States
 

@@ -52,21 +52,22 @@ selects an adapter by capability and rejects unsupported capabilities cleanly.
 Adapter kinds:
 - **native** — local desktop / agent delivery (no provider).
 - **internet** — email, push, chat (future).
-- **sms_mms_edge** — carrier SMS/MMS (Twilio today; Telnyx/Plivo/Bandwidth later).
+- **sms_mms_edge** — carrier SMS/MMS (Twilio and Telnyx shipped; Plivo and
+  Bandwidth planned).
 - **voice_edge** — PSTN voice call control and call-history reconciliation
   through a telecom edge.
 
 ## How existing SMS/MMS maps in
 
-- **Outbound**: `POST /api/send` builds a local `pending` row, then
-  `registry.select("sms_send").send({to, body, mediaUrls})`. The Twilio adapter
-  delegates to the Twilio API and returns a provider-neutral `SendResult`; the
-  provider message ID and status are reconciled back onto the local row.
-- **Inbound**: `POST /webhooks/sms` is signature-validated, then the Twilio
-  adapter's `parseInbound` normalizes the form payload into an `InboundMessage`
-  that maps onto a local inbound `messages` row.
-- **Delivery status**: `POST /webhooks/status` normalizes via `parseStatus` into a
-  `DeliveryStatusUpdate` applied to the local row.
+- **Outbound**: `POST /api/send`, retry, and approved outbound drafts build or
+  reuse a local `pending` row, then select `sms_send` by the operator's explicit
+  `twilio` or `telnyx` preference. The adapter returns a provider-neutral
+  `SendResult`; the provider message ID and status are reconciled onto the row.
+- **Twilio inbound/status**: `/webhooks/sms` and `/webhooks/status` validate the
+  Twilio signature before normalization.
+- **Telnyx inbound/status**: `/webhooks/telnyx` validates the Ed25519 signature,
+  distinguishes inbound from status events, and feeds the same normalized local
+  message/delivery contracts.
 
 The provider is now an implementation detail behind the adapter; the durable
 communication model is identical whether the transport is Twilio, a future

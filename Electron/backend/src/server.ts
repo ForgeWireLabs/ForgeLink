@@ -10,7 +10,7 @@ import { utcNow } from "./phone";
 import { fetchTrustedSignalFeed, sanitizeSignalError } from "./signals";
 import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, loadTwilioConfig, sendTwilioMessage, startTwilioCall, validateTwilioSignature } from "./twilio";
 import { createChannelRegistry, PLANNED_PROVIDERS } from "./channels";
-import { createTelnyxAdapter, validateTelnyxSignature } from "./telnyx";
+import { createTelnyxAdapter, sendTelnyxMessage, validateTelnyxSignature } from "./telnyx";
 import { createEmailAdapter, EmailTransport, emailConfigured, emailInboundConfigured, emailQuickActionConfigured, validateEmailWebhookSignature, verifyQuickActionToken } from "./email";
 import { createPushAdapter, loadPushConfig, PushTransport, pushConfigured } from "./push";
 
@@ -101,7 +101,7 @@ async function readForm(request: IncomingMessage): Promise<Record<string, string
   return Object.fromEntries(params.entries());
 }
 
-export interface BackendOptions { host: string; port: number; dataDir: string; apiToken: string; sendMessage?: typeof sendTwilioMessage; startCall?: typeof startTwilioCall; endCall?: typeof endTwilioCall; operatorStatus?: (requestId: string) => Promise<unknown>; emailTransport?: EmailTransport; pushTransport?: PushTransport; }
+export interface BackendOptions { host: string; port: number; dataDir: string; apiToken: string; sendMessage?: typeof sendTwilioMessage; sendTelnyxMessage?: typeof sendTelnyxMessage; startCall?: typeof startTwilioCall; endCall?: typeof endTwilioCall; operatorStatus?: (requestId: string) => Promise<unknown>; emailTransport?: EmailTransport; pushTransport?: PushTransport; }
 
 function isPrivateRoute(pathname: string): boolean {
   return pathname === "/health" || pathname === "/upload" || pathname.startsWith("/api/");
@@ -351,11 +351,13 @@ export function createBackend(options: BackendOptions): { server: Server; databa
   const startCall = options.startCall || startTwilioCall;
   const endCall = options.endCall || endTwilioCall;
   const operatorStatus = options.operatorStatus || defaultOperatorStatus;
-  // Provider-neutral channel registry (work item 015). Twilio is the first
-  // SMS/MMS edge adapter; its send delegates to the injectable sendMessage seam.
+  // Provider-neutral channel registry (work items 015 and 035). Only configured
+  // SMS/MMS edges are registered, and outbound routing uses the operator-selected
+  // provider rather than registry order.
   const channels = createChannelRegistry();
   const twilioAdapter = createTwilioAdapter(sendMessage);
-  channels.register(twilioAdapter);
+  const twilioSmsConfigured = Boolean(options.sendMessage || (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER));
+  if (twilioSmsConfigured) channels.register(twilioAdapter);
   const twilioVoiceAdapter = createTwilioVoiceAdapter(startCall, endCall);
   channels.register(twilioVoiceAdapter);
   // Native local channel (CLV-004): delivers into the local inbox with no provider,
@@ -372,8 +374,11 @@ export function createBackend(options: BackendOptions): { server: Server; databa
   });
   // Telnyx SMS/MMS edge (CLV-007): the second provider, registered when configured.
   // The adapter's pure normalization is used by the webhook regardless of registration.
-  const telnyxAdapter = createTelnyxAdapter();
-  if (process.env.TELNYX_API_KEY && process.env.TELNYX_PHONE_NUMBER) channels.register(telnyxAdapter);
+  const telnyxAdapter = createTelnyxAdapter(options.sendTelnyxMessage || sendTelnyxMessage);
+  const telnyxSmsConfigured = Boolean(options.sendTelnyxMessage || (process.env.TELNYX_API_KEY && process.env.TELNYX_PHONE_NUMBER));
+  if (telnyxSmsConfigured) channels.register(telnyxAdapter);
+  const selectedSmsProvider = String(process.env.FORGELINK_SMS_PROVIDER || "twilio").toLowerCase() === "telnyx" ? "telnyx" : "twilio";
+  const selectedSmsEdge = () => channels.select("sms_send", selectedSmsProvider);
   // Email internet channel (work item 018, EMAIL-003): registered only when SMTP is
   // configured. Provider-neutral; a fallback/long-form channel, never the default
   // approval loop.
@@ -440,7 +445,7 @@ export function createBackend(options: BackendOptions): { server: Server; databa
     const media = draft.media_urls ? draft.media_urls.split(",").filter(Boolean) : [];
     const pending = database.outboundMessage(localId) || database.createPendingMessage(localId, draft.to_number, draft.body, media);
     try {
-      const result = await channels.select("sms_send").send({ to: pending.number, body: pending.body, mediaUrls: media });
+      const result = await selectedSmsEdge().send({ to: pending.number, body: pending.body, mediaUrls: media });
       database.markMessageSent(localId, result.providerMessageId || "", result.status);
       return { draft: database.markOutboundDraftSent(draft.id, result.providerMessageId || "", viaAllowRule) };
     } catch (error) {
@@ -495,9 +500,11 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         schema_version: database.state.schemaVersion,
         uptime_seconds: Math.round(process.uptime()),
         // Redacted by design (PR-015): booleans only, never credential/message/contact/media values.
-        credentials_configured: Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER),
+        credentials_configured: twilioSmsConfigured || telnyxSmsConfigured,
+        sms_provider: selectedSmsProvider,
+        sms_providers: { twilio: { configured: twilioSmsConfigured }, telnyx: { configured: telnyxSmsConfigured, inbound_configured: Boolean(process.env.TELNYX_PUBLIC_KEY && process.env.TELNYX_MESSAGING_PROFILE_ID) } },
         public_base_url_configured: Boolean(process.env.TWILIO_PUBLIC_BASE_URL),
-        local_only: !Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER),
+        local_only: !(twilioSmsConfigured || telnyxSmsConfigured),
         channels: channels.list(),
         planned_channels: PLANNED_PROVIDERS,
         companion: companionEnabled ? "enabled" : "planned",
@@ -541,7 +548,7 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       }
       if (request.method === "GET" && url.pathname === "/api/config-status") {
         const config = loadTwilioConfig();
-        return sendJson(response, { account_sid: !!config.accountSid, auth_token: !!config.authToken, phone_number: !!config.phoneNumber, public_base_url: !!config.publicBaseUrl });
+        return sendJson(response, { account_sid: !!config.accountSid, auth_token: !!config.authToken, phone_number: !!config.phoneNumber, public_base_url: !!config.publicBaseUrl, sms_provider: selectedSmsProvider, sms_providers: { twilio: { configured: twilioSmsConfigured }, telnyx: { configured: telnyxSmsConfigured, inbound_configured: Boolean(process.env.TELNYX_PUBLIC_KEY && process.env.TELNYX_MESSAGING_PROFILE_ID) } } });
       }
       if (request.method === "GET" && url.pathname === "/api/data/status") return sendJson(response, await dataStatus());
       if (request.method === "GET" && url.pathname === "/api/mcp/status") return sendJson(response, { ...database.mcpTokenStatus(), token_hash_present: Boolean(database.mcpTokenRecord()?.token_hash) });
@@ -1432,7 +1439,7 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         if (existing) return sendJson(response, { ok: true, duplicate: true, local_id: localId, status: existing.status }, 202);
         const pending = database.createPendingMessage(localId, String(payload.to || ""), String(payload.body || ""), media);
         try {
-          const result = await channels.select("sms_send").send({ to: pending.number, body: pending.body, mediaUrls: media });
+          const result = await selectedSmsEdge().send({ to: pending.number, body: pending.body, mediaUrls: media });
           database.markMessageSent(localId, result.providerMessageId || "", result.status);
           database.saveDraft(pending.thread_id, "");
           return sendJson(response, { ok: true, local_id: localId, sid: result.providerMessageId, status: result.status });
@@ -1447,7 +1454,7 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         const pending = database.beginRetry(String(payload.id || ""));
         try {
           const media = pending.media_urls ? pending.media_urls.split(",") : [];
-          const result = await channels.select("sms_send").send({ to: pending.number, body: pending.body, mediaUrls: media });
+          const result = await selectedSmsEdge().send({ to: pending.number, body: pending.body, mediaUrls: media });
           database.markMessageSent(pending.id, result.providerMessageId || "", result.status);
           return sendJson(response, { ok: true, local_id: pending.id, sid: result.providerMessageId, status: result.status });
         } catch (error) {

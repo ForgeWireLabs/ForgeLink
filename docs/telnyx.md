@@ -1,52 +1,109 @@
-# Telnyx SMS/MMS provider (work item 015, CLV-007)
+# Telnyx SMS/MMS provider (work item 035)
 
-Telnyx is ForgeLink's second SMS/MMS telecom edge, behind the same provider-neutral
-channel contract as Twilio (`backend/src/channels.ts`). Configuring Telnyx does
-not change or break the Twilio path; the channel registry simply gains another
-`sms_mms_edge` adapter.
+Telnyx is a first-class ForgeLink SMS/MMS telecom edge behind the same
+provider-neutral channel contract as Twilio. Operators can configure, validate,
+select, inspect, and remove it from **Settings → Telnyx SMS/MMS**. Telnyx does not
+replace the local communication model, and it does not provide ForgeLink voice.
 
-## Configure
+## Prerequisites
 
-Telnyx is configured through environment variables (the in-app credential form is
-folded into the operator cockpit, 017):
+In the Telnyx Mission Control Portal, prepare:
+
+- an API v2 key;
+- an SMS-capable E.164 phone number;
+- an enabled messaging profile assigned to that number; and
+- the account Ed25519 webhook public key from **Keys & Credentials**.
+
+Telnyx documents that messaging numbers must be assigned to a messaging profile
+before they can send or receive, and that the profile owns the webhook URL:
+
+- <https://developers.telnyx.com/docs/messaging/messages/phone-number-configuration>
+- <https://developers.telnyx.com/docs/messaging/messages/messaging-profiles-overview>
+- <https://developers.telnyx.com/docs/messaging/messages/receiving-webhooks>
+
+Regulatory registration, toll-free verification, campaign management, number
+purchasing/porting, billing, and voice/SIP are outside this integration.
+
+## Configure in ForgeLink
+
+1. Open **Settings → Telnyx SMS/MMS**.
+2. Enter the API key, phone number, messaging profile ID, and base64 Ed25519
+   webhook public key.
+3. Choose **Test connection**. This performs read-only `GET` calls for the
+   messaging phone number and profile. It verifies the exact number/profile
+   relationship, SMS capability when Telnyx reports it, profile availability,
+   and public-key shape. It does not mutate the Telnyx account.
+4. Choose **Save and use Telnyx**. Secrets are stored with operating-system
+   encryption, Telnyx becomes the selected SMS/MMS edge, and the local service
+   restarts.
+5. ForgeLink configures the selected messaging profile's primary webhook as
+   `<public HTTPS base>/webhooks/telnyx` using Telnyx webhook API version 2. If no
+   manual public base exists, ForgeLink starts its bounded automatic tunnel first.
+
+Saving does not create, enable, or reassign profiles or phone numbers. The only
+Telnyx account mutation is the primary webhook URL/version on the exact profile
+the operator supplied and validated.
+
+The renderer sees only redacted status: credential source, phone number, profile
+ID, selection, and secret-presence booleans. It never receives the API key or
+public key. Provider response bodies are not surfaced in errors.
+
+## Select a provider
+
+Saving Telnyx selects it for SMS/MMS. When both providers are configured, Settings
+shows the active edge and offers **Use Twilio for SMS/MMS**. The selection applies
+consistently to ordinary sends, retries, and approved outbound drafts. ForgeLink
+does not silently choose the first registered adapter.
+
+Twilio remains the voice edge. Selecting Telnyx for SMS/MMS does not change voice
+behavior.
+
+## Environment fallback
+
+Existing non-interactive deployments may still use:
 
 ```powershell
-$env:TELNYX_API_KEY = "KEY..."                 # Telnyx API v2 key (Bearer)
-$env:TELNYX_PHONE_NUMBER = "+15551234567"      # an SMS-capable Telnyx number
-$env:TELNYX_PUBLIC_KEY = "base64-ed25519-key"  # the portal's webhook public key
-$env:TELNYX_MESSAGING_PROFILE_ID = "..."       # optional
+$env:TELNYX_API_KEY = "KEY..."
+$env:TELNYX_PHONE_NUMBER = "+15551234567"
+$env:TELNYX_PUBLIC_KEY = "base64-ed25519-public-key"
+$env:TELNYX_MESSAGING_PROFILE_ID = "00000000-0000-4000-8000-000000000000"
+$env:FORGELINK_SMS_PROVIDER = "telnyx"
 ```
 
-When `TELNYX_API_KEY` and `TELNYX_PHONE_NUMBER` are present, the Telnyx adapter is
-registered and appears in `/api/diagnostics` `channels`.
+Environment values are not copied to disk automatically. Settings reports the
+source as `environment`; saving through the form moves the supplied/retained values
+into the OS-encrypted store. A legacy environment with only the API key and phone
+number remains outbound-capable but is reported as incomplete for signed inbound
+webhooks until the public key and profile ID are supplied.
 
-## Webhook
+## Inbound and status webhooks
 
-Point the Telnyx messaging profile's webhook at:
+Telnyx posts JSON events signed with Ed25519 over
+`${telnyx-timestamp}|${rawBody}`. ForgeLink rejects missing, invalid, or tampered
+signatures before parsing the event.
 
-```text
-https://your-public-tunnel.example/webhooks/telnyx
-```
+- `message.received` events are normalized into the local inbox. SMS and MMS media
+  URLs follow the provider-neutral message contract.
+- Status events update the matching provider message ID.
+- Duplicate inbound message IDs are idempotent.
+- Duplicate or backward delivery-status transitions are ignored.
 
-Telnyx posts JSON events signed with **Ed25519**. ForgeLink verifies
-`${telnyx-timestamp}|${rawBody}` against `TELNYX_PUBLIC_KEY` before processing;
-invalid or missing signatures are rejected with `403`.
+Telnyx requires a fast `2xx` webhook response and may retry failed deliveries, so
+deduplication remains part of the durable local contract.
 
-- `message.received` events are normalized into the local inbox (SMS and MMS;
-  media URLs are carried through).
-- Status events (`message.sent` / `message.finalized` / ...) update the local
-  delivery state. Duplicate inbound webhooks are idempotent (keyed on the Telnyx
-  message ID); backward/duplicate status transitions are ignored by the local
-  store, the same as Twilio.
+## Outbound and diagnostics
 
-## Send
+Outbound messages use `POST https://api.telnyx.com/v2/messages` with `from`, `to`,
+`text`, optional `media_urls`, and the configured `messaging_profile_id`. The local
+message row receives the provider message ID and normalized status.
 
-Outbound goes through `POST https://api.telnyx.com/v2/messages` with a Bearer
-token and a JSON body (`from`, `to`, `text`, optional `media_urls`,
-`messaging_profile_id`). The provider message ID and status are reconciled onto
-the local message row; provider error bodies are never surfaced.
+`/api/config-status` and `/api/diagnostics` report the selected provider and
+redacted configuration booleans. They never include Telnyx credentials, signing
+keys, provider response bodies, message contents, or private webhook URLs.
 
-## Capabilities
+## Tauri posture
 
-`sms_send`, `mms_send`, `inbound_sms`, `delivery_status`, `media`. Voice is not
-provided by this adapter.
+The shared cockpit bridge includes the Telnyx settings/status commands so the UI is
+not forked. The current Tauri local-service and secure-provider-storage parity gate
+remains owned by work item 032; Tauri reports
+`desktop_local_service_required` and does not claim or fake usable Telnyx credentials.

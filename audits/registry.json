@@ -92,6 +92,15 @@
       "notes": "Completed formal RepoPact 2.2.0 PyPI adoption, public package verification, governed validation, and closeout."
     },
     {
+      "path": "work/completed/035-first-class-telnyx-integration",
+      "owner": "planning-agent",
+      "contract": "work/completed/035-first-class-telnyx-integration/AGENTS.md",
+      "last_reviewed": "2026-07-22",
+      "next_review": "2026-10-20",
+      "alignment": "current",
+      "notes": "Completed first-class Telnyx SMS/MMS integration; scoped contract retained with secure settings, validation, selection, webhook, shared-shell, and evidence boundaries."
+    },
+    {
       "path": "Tauri",
       "owner": "desktop-agent",
       "contract": "Tauri/AGENTS.md",

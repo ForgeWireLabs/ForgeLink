@@ -10,12 +10,12 @@
 | --- | ---: |
 | Invariants | 6 |
 | Frozen-surface entries | 5 |
-| Scope contracts | 13 |
-| Audit registry entries | 13 |
+| Scope contracts | 14 |
+| Audit registry entries | 14 |
 | Audit findings | 0 |
 | Decision records | 18 |
 | Policy records | 0 |
-| Evidence runs | 101 |
+| Evidence runs | 102 |
 
 ## Work
 
@@ -25,7 +25,7 @@
 | active | 4 |
 | blocked | 0 |
 | deferred | 3 |
-| completed | 28 |
+| completed | 29 |
 
 ## Audit freshness
 

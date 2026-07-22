@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
 import test from "node:test";
 import { runSmsEdgeConformance } from "./channel-conformance";
-import { createTelnyxAdapter, validateTelnyxSignature, parseTelnyxInbound, parseTelnyxStatus } from "./telnyx";
+import { createTelnyxAdapter, validateTelnyxCredentials, validateTelnyxSignature, parseTelnyxInbound, parseTelnyxStatus } from "./telnyx";
 
 function ed25519() {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -77,6 +77,34 @@ test("Telnyx Ed25519 webhook signature validates and rejects tampering", () => {
   assert.equal(validateTelnyxSignature(`${body} `, ts, signatureB64, rawB64), false); // tampered body
   assert.equal(validateTelnyxSignature(body, "1718000001", signatureB64, rawB64), false); // wrong timestamp
   assert.equal(validateTelnyxSignature(body, ts, signatureB64, ""), false); // missing key
+});
+
+test("TEL-003: validates the configured Telnyx number and messaging profile through read-only API calls", async () => {
+  const { rawB64 } = ed25519();
+  const profileId = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
+  const calls: Array<{ url: string; method?: string }> = [];
+  const fetchImpl = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const url = String(input);
+    calls.push({ url, method: init?.method });
+    const data = url.includes("messaging_phone_numbers")
+      ? { phone_number: "+15551234567", messaging_profile_id: profileId, features: { sms: { domestic_two_way: true } } }
+      : { id: profileId, name: "ForgeLink", enabled: true };
+    return new Response(JSON.stringify({ data }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const result = await validateTelnyxCredentials({ apiKey: "KEY-test", phoneNumber: "+15551234567", publicKey: rawB64, profileId }, fetchImpl as typeof fetch);
+  assert.deepEqual(result, { ok: true, accountName: "ForgeLink", phoneNumber: "+15551234567" });
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((call) => call.method === undefined || call.method === "GET"));
+});
+
+test("TEL-003: rejects incomplete or mismatched Telnyx configuration without leaking provider bodies", async () => {
+  assert.equal((await validateTelnyxCredentials({ apiKey: "", phoneNumber: "", publicKey: "", profileId: "" })).ok, false);
+  const { rawB64 } = ed25519();
+  const rejected = async (): Promise<Response> => new Response(JSON.stringify({ errors: [{ detail: "private provider response" }] }), { status: 401 });
+  const result = await validateTelnyxCredentials({ apiKey: "KEY-test", phoneNumber: "+15551234567", publicKey: rawB64, profileId: "3fa85f64-5717-4562-b3fc-2c963f66afa6" }, rejected as typeof fetch);
+  assert.equal(result.ok, false);
+  assert.match(result.error || "", /failed \(401\)/);
+  assert.doesNotMatch(result.error || "", /private provider response/);
 });
 
 // Shared provider conformance kit (CLV-021): Telnyx must pass the same bar as

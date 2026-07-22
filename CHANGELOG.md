@@ -7,6 +7,12 @@ versions tracked in `VERSION` and `Electron/package.json`.
 ## [Unreleased]
 
 ### Added
+- First-class Telnyx SMS/MMS integration (work item 035): OS-encrypted in-app
+  credentials, read-only number/profile validation, explicit Twilio/Telnyx
+  selection used by send/retry/approved-draft paths, redacted provider status,
+  and bounded automatic messaging-profile webhook setup. The shared Tauri bridge
+  reports its still-gated desktop-service requirement instead of claiming
+  unproved secure-storage parity. See `docs/telnyx.md`.
 - Trusted-signal follow-up (work item 023): RSS/Atom stays a reading lane only.
   Hardening covers bounded XML validation, DNS pin-on-connect under a shared
   deadline, always-forbidden metadata/link-local ranges, IANA special-purpose

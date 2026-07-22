@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { parseOperatorStatus } from "./operatorStatus";
@@ -31,6 +31,7 @@ const mcpStatus = { configured: false, created_at: null, rotated_at: null, revok
 const agentChannel = { channel_id: "forgewire", label: "ForgeWire Fabric", enabled: true, configured: true, created_at: "2026-06-15T22:00:00.000Z", rotated_at: "2026-06-15T22:00:00.000Z", revoked_at: null, last_used_at: null, last_rejected_at: null, rejection_count: 2, rate_limited_count: 1, token_file: "C:\\Users\\test\\.forgelink\\channels\\forgewire.token", token_file_present: true };
 const attentionPolicy = { enabled: true, operator_mode: "available", quiet_hours_enabled: false, quiet_hours_start: "22:00", quiet_hours_end: "07:00", quiet_hours_allow_urgent: false, redact_notification_bodies: true, sms_notifications: "all", agent_notifications: "high_and_urgent", signal_notifications: "off", system_notifications: "all", emergency_contact_bypass: true, emergency_agent_requires_policy: true, presence_enabled: true, presence_app_focus: "unknown", presence_input: "unknown", presence_network: "unknown", presence_do_not_disturb: false, presence_paired_mobile: "unknown", muted_sources: [] };
 const outboundDraft = { id: "draft-1", agent_id: "forgewire", channel_id: "forgewire", channel_kind: "sms", to_number: "+15557654321", contact_id: 7, body: "Hi from the agent. (draft)", media_urls: "", status: "draft", firewall_decision: "require_approval", reason: "needs_review", provider_message_id: "", last_error: "", created_at: "2026-06-20T20:00:00.000Z", updated_at: "2026-06-20T20:00:00.000Z", decided_at: null, scheduled_at: null };
+const smsProviderSettings = { preferred_provider: "twilio" as const, telnyx: { configured: false, inbound_configured: false, source: "none" as const, environment_available: false, phone_number: "", messaging_profile_id: "", api_key_present: false, public_key_present: false } };
 let outboundDraftsFixture: Array<Record<string, unknown>>;
 let sampleStatusFixture: Record<string, unknown>;
 let messagesFixture: Array<Record<string, unknown>>;
@@ -73,6 +74,11 @@ beforeEach(() => {
     startLocalOnly: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: false, credential_source: "none", onboarding_complete: true, needs_onboarding: false, settings: { account_sid: "", auth_token_configured: false, twilio_number: "", public_base_url: "", webhook_host: "127.0.0.1", webhook_port: 5055 } }),
     importEnvironment: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored" }),
     removeCredentials: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: false, credential_source: "none", onboarding_complete: true, needs_onboarding: false }),
+    smsProviderSettings: vi.fn().mockResolvedValue(smsProviderSettings),
+    validateTelnyxSettings: vi.fn().mockResolvedValue({ provider: "telnyx", account_name: "ForgeLink", account_status: "active", phone_number: "+15551234567", messaging_profile_id: "3fa85f64-5717-4562-b3fc-2c963f66afa6", messaging_profile_name: "ForgeLink", webhook_configured: false, public_key_valid: true }),
+    saveTelnyxSettings: vi.fn().mockResolvedValue({ preferred_provider: "telnyx", telnyx: { configured: true, inbound_configured: true, source: "stored", environment_available: false, phone_number: "+15551234567", messaging_profile_id: "3fa85f64-5717-4562-b3fc-2c963f66afa6", api_key_present: true, public_key_present: true } }),
+    selectSmsProvider: vi.fn().mockResolvedValue(smsProviderSettings),
+    removeTelnyxSettings: vi.fn().mockResolvedValue(smsProviderSettings),
     stopServer: vi.fn().mockResolvedValue({ running: false, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored", settings: { account_sid: "AC999", auth_token_configured: true, twilio_number: "+15550002222", public_base_url: "https://new.example.com", webhook_host: "127.0.0.1", webhook_port: 5056 } }),
     mcpStatus: vi.fn().mockResolvedValue(mcpStatus),
     createMcpToken: vi.fn().mockResolvedValue({ ...mcpStatus, configured: true, token_file_present: true, rotated_at: "2026-06-15T22:00:00.000Z" }),
@@ -210,7 +216,7 @@ describe("React renderer parity", () => {
     expect(SHELL_BRIDGE_CAPABILITIES.localService).toEqual(expect.arrayContaining(["backendConnection", "startServer", "startLocalOnly", "stopServer"]));
     expect(SHELL_BRIDGE_CAPABILITIES.notifications).toEqual(expect.arrayContaining(["notify", "notifyEvent"]));
     expect(SHELL_BRIDGE_CAPABILITIES.navigation).toContain("openExternal");
-    expect(SHELL_BRIDGE_CAPABILITIES.secureSettings).toEqual(expect.arrayContaining(["importEnvironment", "emailSettings", "pushSettings"]));
+    expect(SHELL_BRIDGE_CAPABILITIES.secureSettings).toEqual(expect.arrayContaining(["importEnvironment", "smsProviderSettings", "validateTelnyxSettings", "saveTelnyxSettings", "emailSettings", "pushSettings"]));
     expect(SHELL_BRIDGE_CAPABILITIES.agentCredentials).toEqual(expect.arrayContaining(["mcpStatus", "agentChannels", "setAgentChannelEnabled"]));
     expect(capabilityNames.every(name => typeof window.desktop?.[name as keyof typeof window.desktop] === "function")).toBe(true);
   });
@@ -246,10 +252,10 @@ describe("React renderer parity", () => {
     vi.mocked(window.desktop!.getStatus).mockResolvedValueOnce({ running: true, baseUrl: "http://127.0.0.1:5055", configured: false, credential_source: "none", needs_onboarding: true, settings: { account_sid: "", auth_token_configured: false, twilio_number: "", public_base_url: "", webhook_host: "127.0.0.1", webhook_port: 5055 } });
     render(<App/>);
     expect(await screen.findByRole("dialog", { name: "Welcome to ForgeLink" })).toBeTruthy();
-    await userEvent.type(screen.getByLabelText("Account SID"), `AC${"a".repeat(32)}`);
-    await userEvent.type(screen.getByPlaceholderText("Enter auth token"), "secret");
-    await userEvent.type(screen.getByLabelText("Twilio number"), "+15550002222");
-    await userEvent.click(screen.getByRole("button", { name: "Test connection" }));
+    fireEvent.change(screen.getByLabelText("Account SID"), { target: { value: `AC${"a".repeat(32)}` } });
+    fireEvent.change(screen.getByPlaceholderText("Enter auth token"), { target: { value: "secret" } });
+    fireEvent.change(screen.getByLabelText("Twilio number"), { target: { value: "+15550002222" } });
+    await userEvent.click(within(screen.getByRole("dialog", { name: "Welcome to ForgeLink" })).getByRole("button", { name: "Test connection" }));
     expect(await screen.findByText("Confirmed +15550002222")).toBeTruthy();
     expect(window.desktop?.validateSettings).toHaveBeenCalled();
     expect(window.desktop?.startServer).not.toHaveBeenCalled();
@@ -814,6 +820,22 @@ describe("React renderer parity", () => {
     expect(window.desktop?.openExternal).toHaveBeenCalledWith("https://console.twilio.com/");
     await userEvent.click(screen.getByRole("button", { name: "Remove stored credentials" }));
     expect(window.desktop?.removeCredentials).toHaveBeenCalled();
+  });
+
+  it("configures and selects Telnyx without rendering stored secrets (TEL-002/003/004)", async () => {
+    render(<App/>);
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(await screen.findByRole("heading", { name: "Telnyx SMS/MMS" })).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText("KEY..."), { target: { value: "KEY-secret-value" } });
+    fireEvent.change(screen.getByPlaceholderText("+15551234567"), { target: { value: "+15551234567" } });
+    fireEvent.change(screen.getByPlaceholderText("00000000-0000-4000-8000-000000000000"), { target: { value: "3fa85f64-5717-4562-b3fc-2c963f66afa6" } });
+    const publicKeyInput = screen.getByLabelText("Webhook public key");
+    fireEvent.change(publicKeyInput, { target: { value: "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=" } });
+    await userEvent.click(screen.getByRole("button", { name: "Test connection" }));
+    await waitFor(() => expect(window.desktop?.validateTelnyxSettings).toHaveBeenCalledWith(expect.objectContaining({ phone_number: "+15551234567" })));
+    await userEvent.click(screen.getByRole("button", { name: "Save and use Telnyx" }));
+    await waitFor(() => expect(window.desktop?.saveTelnyxSettings).toHaveBeenCalledWith(expect.objectContaining({ preferred_provider: "telnyx" })));
+    expect(screen.queryByText("KEY-secret-value")).toBeNull();
   });
 
   it("manages MCP token status without rendering the token value", async () => {
