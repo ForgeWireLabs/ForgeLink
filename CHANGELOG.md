@@ -24,6 +24,12 @@ versions tracked in `VERSION` and `Electron/package.json`.
   `docs/trusted-signals.md`.
 
 ### Changed
+- Provider-specific communications experience (work item 036): first-run now
+  offers separate local-only, Twilio, and Telnyx paths; the cockpit presents
+  Twilio's Account SID/Auth Token/number and Voice model separately from
+  Telnyx's API key/messaging-profile/Ed25519 model; and Channels, compose, and
+  the reviewed outbox show the selected SMS/MMS edge and its implemented
+  capabilities instead of inferring readiness from Twilio fields.
 - Repository integrity: ForgeLink now pins RepoPact 2.1.0 at immutable commit
   `126264a`; governance validation rejects a missing or stale generated dashboard,
   and RepoPact mutation/repair commands regenerate the canonical projection. The

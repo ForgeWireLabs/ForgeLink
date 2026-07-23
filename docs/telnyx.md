@@ -26,7 +26,9 @@ purchasing/porting, billing, and voice/SIP are outside this integration.
 
 ## Configure in ForgeLink
 
-1. Open **Settings → Telnyx SMS/MMS**.
+1. During first-run choose **Configure Telnyx**, or later open
+   **Settings → Telnyx SMS/MMS**. The Telnyx path is separate from Twilio setup and
+   explains the messaging-profile and Ed25519 webhook model before asking for input.
 2. Enter the API key, phone number, messaging profile ID, and base64 Ed25519
    webhook public key.
 3. Choose **Test connection**. This performs read-only `GET` calls for the
@@ -54,6 +56,10 @@ Saving Telnyx selects it for SMS/MMS. When both providers are configured, Settin
 shows the active edge and offers **Use Twilio for SMS/MMS**. The selection applies
 consistently to ordinary sends, retries, and approved outbound drafts. ForgeLink
 does not silently choose the first registered adapter.
+
+The shared cockpit also shows the active edge in Channels, the conversation composer,
+the new-message dialog, and the reviewed outbox. Those surfaces report Telnyx SMS/MMS
+readiness without implying Twilio-shaped credentials or Telnyx Voice support.
 
 Twilio remains the voice edge. Selecting Telnyx for SMS/MMS does not change voice
 behavior.

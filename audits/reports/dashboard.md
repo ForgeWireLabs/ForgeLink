@@ -10,22 +10,22 @@
 | --- | ---: |
 | Invariants | 6 |
 | Frozen-surface entries | 5 |
-| Scope contracts | 14 |
-| Audit registry entries | 14 |
+| Scope contracts | 16 |
+| Audit registry entries | 16 |
 | Audit findings | 0 |
 | Decision records | 18 |
 | Policy records | 0 |
-| Evidence runs | 102 |
+| Evidence runs | 103 |
 
 ## Work
 
 | Status | Count |
 | --- | ---: |
 | proposed | 0 |
-| active | 4 |
+| active | 5 |
 | blocked | 0 |
 | deferred | 3 |
-| completed | 29 |
+| completed | 30 |
 
 ## Audit freshness
 
@@ -37,3 +37,4 @@ All audit scopes are within their review cadence.
 - 024: Local Webhook and LAN Integrations (active)
 - 031: Linked-Node Metadata Transport and Trust Hardening (active)
 - 032: Tauri Production Parity and Electron Retirement (active)
+- 037: Telnyx Production Hardening and Expansion (active)

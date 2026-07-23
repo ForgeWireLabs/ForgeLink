@@ -1,0 +1,70 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "036",
+  "title": "Provider-Specific Communications Experience",
+  "status": "completed",
+  "owner_scope": "ui",
+  "affected_scopes": [
+    "work",
+    "ui",
+    "desktop",
+    "providers",
+    "messaging",
+    "docs",
+    "evidence",
+    "audit"
+  ],
+  "depends_on": ["017", "030", "035"],
+  "provenance": "concrete",
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-07-22T23:19:38Z",
+    "note": "Created before changing provider-specific onboarding, health, capability, messaging, tests, documentation, or evidence."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "PFX-001",
+      "text": "Record the shipped Twilio-shaped frontend gaps and define the boundary between shared messaging behavior and provider-specific setup, capabilities, health, and actions.",
+      "state": "satisfied",
+      "evidence": ["20260722-provider-specific-communications-experience"]
+    },
+    {
+      "id": "PFX-002",
+      "text": "Add an accessible first-run provider choice with distinct local-only, Twilio, and Telnyx setup paths that use each provider's actual credential and validation model.",
+      "state": "satisfied",
+      "evidence": ["20260722-provider-specific-communications-experience"]
+    },
+    {
+      "id": "PFX-003",
+      "text": "Present separate Twilio and Telnyx configuration, help links, operator actions, and implemented capability boundaries without a generic credential abstraction.",
+      "state": "satisfied",
+      "evidence": ["20260722-provider-specific-communications-experience"]
+    },
+    {
+      "id": "PFX-004",
+      "text": "Make overview and communications readiness derive from the explicitly selected provider and its provider-specific status rather than Twilio credential fields.",
+      "state": "satisfied",
+      "evidence": ["20260722-provider-specific-communications-experience"]
+    },
+    {
+      "id": "PFX-005",
+      "text": "Surface the active SMS/MMS edge and its ForgeLink-supported capabilities in inbox/compose and reviewed-outbox workflows while retaining provider-neutral send semantics.",
+      "state": "satisfied",
+      "evidence": ["20260722-provider-specific-communications-experience"]
+    },
+    {
+      "id": "PFX-006",
+      "text": "Preserve shared-renderer and Tauri posture, keyboard and screen-reader semantics, local-only operation, and renderer secret-redaction boundaries with deterministic tests.",
+      "state": "satisfied",
+      "evidence": ["20260722-provider-specific-communications-experience"]
+    },
+    {
+      "id": "PFX-007",
+      "text": "Update operator documentation and changelog, rebuild the renderer artifact, record durable redacted evidence, regenerate the dashboard, and pass focused, full, secret-scan, and governed validation.",
+      "state": "satisfied",
+      "evidence": ["20260722-provider-specific-communications-experience"]
+    }
+  ],
+  "created": "2026-07-22",
+  "updated": "2026-07-22"
+}

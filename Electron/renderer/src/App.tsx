@@ -39,6 +39,11 @@ import type {
   View,
 } from "./types";
 import { buildRedactedLinkedNodeLifecycleStatus } from "./linkedNodeLifecycle";
+import {
+  buildCommunicationsProviderExperience,
+  type CommunicationsProviderExperience,
+  type SmsProviderId,
+} from "./providerExperience";
 
 const iconPaths: Record<string, ReactNode> = {
   alert: (
@@ -128,7 +133,7 @@ type ModalState =
   | { kind: "message"; number?: string }
   | { kind: "contact"; number?: string; threadId?: number }
   | { kind: "contact-edit"; contact: Contact }
-  | { kind: "settings" }
+  | { kind: "settings"; provider?: SmsProviderId | "choose" }
   | { kind: "signal" }
   | { kind: "link" }
   | null;
@@ -571,6 +576,36 @@ function Avatar({ name, size = "regular" }: { name: string; size?: string }) {
   );
 }
 
+function ProviderBadge({ provider, compact = false }: { provider: CommunicationsProviderExperience; compact?: boolean }) {
+  const active = provider.selected;
+  return (
+    <span
+      className={`provider-badge provider-${active.id} ${active.configured ? "ready" : "missing"} ${compact ? "compact" : ""}`}
+      role="status"
+      aria-label={`Active SMS and MMS provider: ${active.label}; ${active.configured ? "ready" : "not configured"}`}
+    >
+      <span className="provider-mark" aria-hidden="true">
+        {active.id === "twilio" ? "TW" : "TX"}
+      </span>
+      <span>{active.label}</span>
+      {!compact && <small>{active.configured ? "SMS/MMS ready" : "setup required"}</small>}
+    </span>
+  );
+}
+
+function ProviderCapabilities({ provider }: { provider: CommunicationsProviderExperience["selected"] }) {
+  return (
+    <div className="provider-capabilities" aria-label={`${provider.label} capabilities implemented by ForgeLink`}>
+      {provider.capabilities.map((capability) => (
+        <span key={capability.id} className={capability.supported ? "supported" : "unsupported"}>
+          {capability.supported ? <Icon name="check" size={12} /> : <Icon name="close" size={12} />}
+          {capability.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function App() {
   const [host, setHost] = useState("http://127.0.0.1:5055");
   const [apiToken, setApiToken] = useState("");
@@ -744,7 +779,7 @@ export function App() {
           if (next.needs_onboarding && !onboardingShownRef.current) {
             onboardingShownRef.current = true;
             setView("settings");
-            setModal({ kind: "settings" });
+            setModal({ kind: "settings", provider: "choose" });
           }
         }
         if (backendConnection) {
@@ -962,6 +997,10 @@ export function App() {
   );
   const unreadAgentCount = agentMessages.filter((message) => message.status === "unread").length;
   const activeCall = calls.find(callActive);
+  const providerExperience = useMemo(
+    () => buildCommunicationsProviderExperience(config, smsProviderSettings, status?.configured === true),
+    [config, smsProviderSettings, status?.configured],
+  );
 
   return (
     <div className="app-shell">
@@ -974,6 +1013,7 @@ export function App() {
           onSearch={setSearch}
           onSelect={chooseThread}
           onNew={() => setModal({ kind: "message" })}
+          provider={providerExperience}
         />
       )}
       {view === "decisions" ? (
@@ -1044,6 +1084,7 @@ export function App() {
             await loadAll();
             void notify({ kind: "system", title: "Unknown number blocked", body: selected.canonical_number });
           }}
+          provider={providerExperience}
         />
       ) : view === "calls" ? (
         <CallSurface
@@ -1160,6 +1201,7 @@ export function App() {
               setError(String(cause));
             }
           }}
+          provider={providerExperience}
         />
       ) : view === "channels" ? (
         <Channels
@@ -1169,6 +1211,7 @@ export function App() {
           signalSubscriptions={signalSubscriptions}
           config={config}
           agentChannels={agentChannels}
+          provider={providerExperience}
           onView={setView}
         />
       ) : (
@@ -1184,7 +1227,7 @@ export function App() {
           attentionPolicy={attentionPolicy}
           presence={presence}
           host={host}
-          onConfigure={() => setModal({ kind: "settings" })}
+          onConfigure={() => setModal({ kind: "settings", provider: "twilio" })}
           onConsole={() => shell.openExternal("https://console.twilio.com/")}
           onImport={async () => {
             try {
@@ -1332,6 +1375,7 @@ export function App() {
             }
           }}
           smsProviderSettings={smsProviderSettings}
+          provider={providerExperience}
           onTelnyxValidate={async (values) => {
             const validation = await shell.validateTelnyxSettings(values);
             void notify({ kind: "system", title: "Telnyx connection verified", body: `${validation.messaging_profile_name || "Messaging profile"} · ${validation.phone_number}` });
@@ -1463,9 +1507,16 @@ export function App() {
           eyebrow="Compose"
           submitLabel="Start conversation"
           onClose={closeModal}
-          onSubmit={async (data) => send(String(data.get("number")), String(data.get("message")))}
+          onSubmit={async (data) => {
+            if (!providerExperience.smsReady) throw new Error(`${providerExperience.selected.label} must be configured before sending SMS/MMS.`);
+            await send(String(data.get("number")), String(data.get("message")));
+          }}
         >
           <div className="form-stack">
+            <div className={`provider-context modal-provider-context ${providerExperience.smsReady ? "ready" : "missing"}`} role="status">
+              <ProviderBadge provider={providerExperience} />
+              <span>{providerExperience.smsReady ? `This message will use ${providerExperience.selected.label}.` : "Select or configure a ready SMS/MMS provider first."}</span>
+            </div>
             <Field label="Phone number">
               <input name="number" type="tel" defaultValue={modal.number} placeholder="+1 555 123 4567" required autoComplete="tel" />
             </Field>
@@ -1553,6 +1604,8 @@ export function App() {
         <ConnectionModal
           status={status}
           firstRun={status?.needs_onboarding === true}
+          initialProvider={modal.provider}
+          smsProviderSettings={smsProviderSettings}
           onClose={closeModal}
           onValidate={(values) => shell.validateSettings(values)}
           onSave={async (values) => {
@@ -1572,6 +1625,21 @@ export function App() {
             setHost(next.baseUrl);
             setConfig(await new PhoneApi(() => ({ baseUrl: next.baseUrl, apiToken })).config());
             void notify({ kind: "system", title: "Local-only mode ready", body: "ForgeLink is ready for agent messages and local workflows." });
+          }}
+          onTelnyxValidate={(values) => shell.validateTelnyxSettings(values)}
+          onTelnyxSave={async (values) => {
+            if (status?.needs_onboarding) {
+              const local = await shell.startLocalOnly({ webhook_host: "127.0.0.1", webhook_port: status.settings?.webhook_port || 5055 });
+              setStatus(local);
+              setHost(local.baseUrl);
+            }
+            const saved = await shell.saveTelnyxSettings(values);
+            setSmsProviderSettings(saved);
+            const next = await shell.getStatus();
+            setStatus(next);
+            setHost(next.baseUrl);
+            setConfig(await new PhoneApi(() => ({ baseUrl: next.baseUrl, apiToken })).config());
+            void notify({ kind: "system", title: "Telnyx ready", body: "Telnyx SMS/MMS and signed webhooks are configured. Voice remains on Twilio when available." });
           }}
         />
       )}
@@ -1634,6 +1702,7 @@ function ConversationList({
   onSearch,
   onSelect,
   onNew,
+  provider,
 }: {
   threads: Thread[];
   selectedId?: number;
@@ -1641,6 +1710,7 @@ function ConversationList({
   onSearch(value: string): void;
   onSelect(id: number): void;
   onNew(): void;
+  provider: CommunicationsProviderExperience;
 }) {
   return (
     <aside className="conversation-panel">
@@ -1648,6 +1718,7 @@ function ConversationList({
         <div>
           <span className="eyebrow">Workspace</span>
           <h1>Messages</h1>
+          <ProviderBadge provider={provider} compact />
         </div>
         <button className="icon-button accent" aria-label="New message" onClick={onNew}>
           <Icon name="plus" />
@@ -1720,6 +1791,7 @@ function Chat({
   onLink,
   onIgnore,
   onBlock,
+  provider,
 }: {
   thread?: Thread;
   messages: Message[];
@@ -1739,6 +1811,7 @@ function Chat({
   onLink(): void;
   onIgnore(): Promise<void>;
   onBlock(): Promise<void>;
+  provider: CommunicationsProviderExperience;
 }) {
   if (!thread)
     return (
@@ -1819,6 +1892,7 @@ function Chat({
         onSend={onSend}
         onUpload={onUpload}
         onRemoveAttachment={onRemoveAttachment}
+        provider={provider}
       />
     </main>
   );
@@ -2405,6 +2479,7 @@ function Composer({
   onSend,
   onUpload,
   onRemoveAttachment,
+  provider,
 }: {
   to: string;
   sending: boolean;
@@ -2415,6 +2490,7 @@ function Composer({
   onSend(to: string, body: string): Promise<void>;
   onUpload(file: File): Promise<void>;
   onRemoveAttachment(): void;
+  provider: CommunicationsProviderExperience;
 }) {
   const [body, setBody] = useState(draft);
   useEffect(() => {
@@ -2425,7 +2501,7 @@ function Composer({
     return () => clearTimeout(timer);
   }, [body, onDraft]);
   async function submit() {
-    if (!body.trim() && !attachment) return;
+    if (!provider.smsReady || (!body.trim() && !attachment)) return;
     await onSend(to, body.trim());
     setBody("");
   }
@@ -2469,13 +2545,19 @@ function Composer({
               }}
             />
           </label>
-          <button className="send-button" aria-label="Send message" disabled={sending || (!body.trim() && !attachment)} onClick={() => void submit()}>
+          <button
+            className="send-button"
+            aria-label={`Send message via ${provider.selected.label}`}
+            disabled={!provider.smsReady || sending || (!body.trim() && !attachment)}
+            onClick={() => void submit()}
+          >
             {sending ? <span className="spinner light" /> : <Icon name="send" size={19} />}
           </button>
         </div>
       </div>
       <div className="composer-hint">
-        Enter to send <span>Shift + Enter for a new line</span>
+        {provider.smsReady ? `Sending through ${provider.selected.label}` : `${provider.selected.label} setup required before sending`} · Enter to send
+        <span>Shift + Enter for a new line</span>
       </div>
     </div>
   );
@@ -2592,6 +2674,7 @@ function Channels({
   signalSubscriptions,
   config,
   agentChannels,
+  provider,
   onView,
 }: {
   threads: Thread[];
@@ -2600,6 +2683,7 @@ function Channels({
   signalSubscriptions: SignalSubscription[];
   config?: ConfigStatus;
   agentChannels: AgentChannelStatus[];
+  provider: CommunicationsProviderExperience;
   onView(view: View): void;
 }) {
   const unreadThreads = threads.reduce((sum, thread) => sum + (thread.unread_count || 0), 0);
@@ -2688,12 +2772,36 @@ function Channels({
           </button>
         </section>
         <section className="settings-card span-two">
-          <h2>Provider configuration</h2>
-          <div className="status-list">
-            <StatusRow label="Local native channel" ready={true} />
-            <StatusRow label="SMS/MMS provider" ready={config?.account_sid && config?.auth_token && config?.phone_number} />
-            <StatusRow label="Voice webhook" ready={voiceReady(config)} />
-            <StatusRow label="Agent channels" ready={agentChannels.some((channel) => channel.enabled && channel.configured)} />
+          <div className="provider-overview-head">
+            <div>
+              <span className="eyebrow">Active telecom edge</span>
+              <h2>{provider.selected.label}</h2>
+              <p>{provider.selected.setupModel}</p>
+            </div>
+            <ProviderBadge provider={provider} />
+          </div>
+          <ProviderCapabilities provider={provider.selected} />
+          <div className="provider-health-grid">
+            <div>
+              <span>Outbound SMS/MMS</span>
+              <strong className={provider.smsReady ? "health-ready" : "health-missing"}>{provider.smsReady ? "Ready" : "Setup required"}</strong>
+            </div>
+            <div>
+              <span>Inbound authenticity</span>
+              <strong className={provider.selected.inboundConfigured ? "health-ready" : "health-missing"}>
+                {provider.selected.inboundConfigured ? "Ready" : "Webhook setup required"}
+              </strong>
+            </div>
+            <div>
+              <span>Voice edge</span>
+              <strong className={voiceReady(config) ? "health-ready" : "health-neutral"}>{voiceReady(config) ? "Twilio ready" : "Unavailable"}</strong>
+            </div>
+            <div>
+              <span>Agent channels</span>
+              <strong className={agentChannels.some((channel) => channel.enabled && channel.configured) ? "health-ready" : "health-neutral"}>
+                {agentChannels.some((channel) => channel.enabled && channel.configured) ? "Ready" : "Not configured"}
+              </strong>
+            </div>
           </div>
         </section>
       </div>
@@ -2773,6 +2881,7 @@ function OutboundDraftCard({
   onDeny,
   onSchedule,
   onCancelSchedule,
+  provider,
 }: {
   api: PhoneApi;
   draft: OutboundDraft;
@@ -2781,6 +2890,7 @@ function OutboundDraftCard({
   onDeny(id: string): Promise<void>;
   onSchedule(id: string, at: string): Promise<void>;
   onCancelSchedule(id: string): Promise<void>;
+  provider: CommunicationsProviderExperience;
 }) {
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState(draft.body);
@@ -2841,8 +2951,8 @@ function OutboundDraftCard({
               Edit
             </button>
           )}
-          <button className="button primary small" onClick={() => void onApproveSend(draft.id)}>
-            Approve &amp; send
+          <button className="button primary small" disabled={!provider.smsReady} onClick={() => void onApproveSend(draft.id)}>
+            Approve &amp; send via {provider.selected.label}
           </button>
           <button className="button danger small" onClick={() => void onDeny(draft.id)}>
             Deny
@@ -2876,6 +2986,7 @@ function ReviewedOutbox({
   onSchedule,
   onCancelSchedule,
   onRefresh,
+  provider,
 }: {
   api: PhoneApi;
   drafts: OutboundDraft[];
@@ -2885,6 +2996,7 @@ function ReviewedOutbox({
   onSchedule(id: string, at: string): Promise<void>;
   onCancelSchedule(id: string): Promise<void>;
   onRefresh(): Promise<void>;
+  provider: CommunicationsProviderExperience;
 }) {
   const lanes = OUTBOX_LANES.map((lane) => ({ ...lane, items: drafts.filter((draft) => lane.statuses.includes(draft.status)) }));
   const pending = drafts.filter((draft) => draft.status === "draft").length;
@@ -2903,6 +3015,17 @@ function ReviewedOutbox({
           </button>
         </div>
       </header>
+      <div className={`provider-context ${provider.smsReady ? "ready" : "missing"}`} role="status">
+        <ProviderBadge provider={provider} />
+        <div>
+          <strong>{provider.smsReady ? `Approved SMS/MMS will use ${provider.selected.label}` : `${provider.selected.label} is not ready`}</strong>
+          <span>
+            {provider.smsReady
+              ? "Provider selection is applied when a human approves or a scheduled draft is dispatched."
+              : "Configure or select a ready provider before approving external SMS/MMS."}
+          </span>
+        </div>
+      </div>
       {drafts.length === 0 ? (
         <div className="list-empty">
           <Icon name="inbox" size={28} />
@@ -2929,6 +3052,7 @@ function ReviewedOutbox({
                       onDeny={onDeny}
                       onSchedule={onSchedule}
                       onCancelSchedule={onCancelSchedule}
+                      provider={provider}
                     />
                   ))}
                 </div>
@@ -3591,11 +3715,15 @@ function TelnyxCredentialForm({
   onValidate,
   onSave,
   onRemove,
+  showRemove = true,
+  saveLabel = "Save and use Telnyx",
 }: {
   status?: SmsProviderSettingsStatus;
   onValidate(values: TelnyxSettingsInput): Promise<void>;
   onSave(values: TelnyxSettingsInput): Promise<void>;
   onRemove(): void;
+  showRemove?: boolean;
+  saveLabel?: string;
 }) {
   const telnyx = status?.telnyx;
   const [apiKey, setApiKey] = useState("");
@@ -3685,11 +3813,13 @@ function TelnyxCredentialForm({
           {busy === "test" ? "Testing..." : "Test connection"}
         </button>
         <button type="button" className="button primary" disabled={Boolean(busy)} onClick={() => void save()}>
-          {busy === "save" ? "Saving..." : "Save and use Telnyx"}
+          {busy === "save" ? "Saving..." : saveLabel}
         </button>
-        <button type="button" className="button danger" disabled={!telnyx?.configured || telnyx.source !== "stored" || Boolean(busy)} onClick={onRemove}>
-          Remove
-        </button>
+        {showRemove && (
+          <button type="button" className="button danger" disabled={!telnyx?.configured || telnyx.source !== "stored" || Boolean(busy)} onClick={onRemove}>
+            Remove
+          </button>
+        )}
       </div>
     </div>
   );
@@ -3725,6 +3855,7 @@ function Settings({
   onChannelRevoke,
   onChannelEnabled,
   smsProviderSettings,
+  provider,
   onTelnyxValidate,
   onTelnyxSave,
   onSmsProviderSelect,
@@ -3771,6 +3902,7 @@ function Settings({
   onChannelRevoke(id: string): void;
   onChannelEnabled(id: string, enabled: boolean): void;
   smsProviderSettings?: SmsProviderSettingsStatus;
+  provider: CommunicationsProviderExperience;
   onTelnyxValidate(values: TelnyxSettingsInput): Promise<void>;
   onTelnyxSave(values: TelnyxSettingsInput): Promise<void>;
   onSmsProviderSelect(provider: "twilio" | "telnyx"): void;
@@ -3883,6 +4015,11 @@ function Settings({
             <StatusRow label="Phone number" ready={config?.phone_number} />
             <StatusRow label="Public webhook URL" ready={config?.public_base_url} />
           </div>
+          <ProviderCapabilities provider={provider.twilio} />
+          <div className="provider-contract">
+            <span><strong>Setup:</strong> {provider.twilio.setupModel}</span>
+            <span><strong>Inbound:</strong> {provider.twilio.webhookModel}</span>
+          </div>
           <p className="settings-source">
             Credential source: <strong>{status?.credential_source || "none"}</strong> · SMS selection:{" "}
             <strong>{smsProviderSettings?.preferred_provider === "twilio" ? "active" : "inactive"}</strong>
@@ -3942,11 +4079,21 @@ function Settings({
               <StatusRow label="Messaging profile" ready={Boolean(smsProviderSettings?.telnyx.messaging_profile_id)} />
               <StatusRow label="Signed inbound webhooks" ready={smsProviderSettings?.telnyx.inbound_configured} />
             </div>
+            <ProviderCapabilities provider={provider.telnyx} />
+            <div className="provider-contract">
+              <span><strong>Setup:</strong> {provider.telnyx.setupModel}</span>
+              <span><strong>Inbound:</strong> {provider.telnyx.webhookModel}</span>
+              <span><strong>Voice:</strong> Not implemented through Telnyx; ForgeLink Voice remains a separate Twilio edge.</span>
+            </div>
             <p className="settings-source">
               Credential source: <strong>{smsProviderSettings?.telnyx.source || "none"}</strong> · SMS selection:{" "}
               <strong>{smsProviderSettings?.preferred_provider === "telnyx" ? "active" : "inactive"}</strong>
             </p>
             <TelnyxCredentialForm status={smsProviderSettings} onValidate={onTelnyxValidate} onSave={onTelnyxSave} onRemove={onTelnyxRemove} />
+            <div className="data-actions">
+              <ExtLink href="https://portal.telnyx.com/">Open Telnyx Mission Control Portal</ExtLink>
+              <ExtLink href="https://developers.telnyx.com/docs/messaging/messages/messaging-profiles-overview">Messaging profile documentation</ExtLink>
+            </div>
           </section>
         )}
         <section className="settings-card">
@@ -4372,13 +4519,223 @@ function Settings({
   );
 }
 
-function ConnectionModal({
+interface ConnectionModalProps {
+  status?: DesktopStatus;
+  firstRun: boolean;
+  initialProvider?: SmsProviderId | "choose";
+  smsProviderSettings?: SmsProviderSettingsStatus;
+  onClose(): void;
+  onValidate(values: Record<string, string | number>): Promise<import("./types").ValidationResult>;
+  onSave(values: Record<string, string | number>): Promise<void>;
+  onStartLocalOnly(values: Record<string, string | number>): Promise<void>;
+  onTelnyxValidate(values: TelnyxSettingsInput): Promise<import("./types").TelnyxValidationResult>;
+  onTelnyxSave(values: TelnyxSettingsInput): Promise<void>;
+}
+
+function ProviderModalFrame({
+  title,
+  eyebrow,
+  onClose,
+  children,
+}: {
+  title: string;
+  eyebrow: string;
+  onClose(): void;
+  children: ReactNode;
+}) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    cardRef.current?.querySelector<HTMLElement>("button, input")?.focus();
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", keydown);
+    return () => {
+      window.removeEventListener("keydown", keydown);
+      previous?.focus();
+    };
+  }, [onClose]);
+  return (
+    <div className="modal-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div ref={cardRef} className="modal-card provider-setup-modal" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="modal-head">
+          <div>
+            <div className="eyebrow">{eyebrow}</div>
+            <h2>{title}</h2>
+          </div>
+          <button className="icon-button" type="button" aria-label="Close" onClick={onClose}>
+            <Icon name="close" />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ConnectionModal(props: ConnectionModalProps) {
+  const [choice, setChoice] = useState<SmsProviderId | "local" | "choose">(
+    props.initialProvider === "twilio" || props.initialProvider === "telnyx"
+      ? props.initialProvider
+      : props.firstRun
+        ? "choose"
+        : "twilio",
+  );
+  const provider = buildCommunicationsProviderExperience(undefined, props.smsProviderSettings, props.status?.configured === true);
+
+  if (choice === "twilio") {
+    return (
+      <TwilioConnectionModal
+        status={props.status}
+        firstRun={false}
+        onClose={props.onClose}
+        onValidate={props.onValidate}
+        onSave={props.onSave}
+        onStartLocalOnly={props.onStartLocalOnly}
+        onBack={props.firstRun ? () => setChoice("choose") : undefined}
+      />
+    );
+  }
+
+  if (choice === "telnyx") {
+    return (
+      <ProviderModalFrame title="Connect Telnyx SMS/MMS" eyebrow={props.firstRun ? "First-run setup · Telnyx" : "Telnyx settings"} onClose={props.onClose}>
+        <div className="modal-body">
+          <div className="setup-help provider-specific-help">
+            <strong>Telnyx messaging profile model</strong>
+            <span>{provider.telnyx.setupModel}. ForgeLink configures the profile webhook v2 and verifies Ed25519 signatures.</span>
+            <span>Telnyx Voice is not enabled by this integration.</span>
+            <div className="setup-help-links">
+              <ExtLink href="https://portal.telnyx.com/">Open Telnyx Mission Control Portal</ExtLink>
+              <ExtLink href="https://developers.telnyx.com/docs/messaging/messages/messaging-profiles-overview">Messaging profiles</ExtLink>
+            </div>
+          </div>
+          <ProviderCapabilities provider={provider.telnyx} />
+          <TelnyxCredentialForm
+            status={props.smsProviderSettings}
+            onValidate={async (values) => {
+              await props.onTelnyxValidate(values);
+            }}
+            onSave={async (values) => {
+              await props.onTelnyxSave(values);
+              props.onClose();
+            }}
+            onRemove={() => undefined}
+            showRemove={false}
+            saveLabel="Connect Telnyx"
+          />
+        </div>
+        <div className="modal-actions">
+          {props.firstRun && (
+            <button className="button subtle" type="button" onClick={() => setChoice("choose")}>
+              Back to provider choice
+            </button>
+          )}
+        </div>
+      </ProviderModalFrame>
+    );
+  }
+
+  if (choice === "local") {
+    return <LocalOnlySetupModal status={props.status} onClose={props.onClose} onBack={() => setChoice("choose")} onStart={props.onStartLocalOnly} />;
+  }
+
+  return (
+    <ProviderModalFrame title="Welcome to ForgeLink" eyebrow="First-run setup" onClose={props.onClose}>
+      <div className="modal-body">
+        <p>Start local-only, or connect the telecom edge that matches your account. Providers keep their own setup and capability models.</p>
+        <div className="provider-choice-grid" role="group" aria-label="Telecom provider choice">
+          <button className="provider-choice local" type="button" onClick={() => setChoice("local")}>
+            <span className="provider-mark">FL</span>
+            <strong>Local-only</strong>
+            <small>No telecom credentials. Agent decisions and local workflows remain available.</small>
+            <span className="provider-choice-action">Continue without telecom</span>
+          </button>
+          <button className="provider-choice twilio" type="button" onClick={() => setChoice("twilio")}>
+            <span className="provider-mark">TW</span>
+            <strong>Twilio</strong>
+            <small>Account SID + Auth Token + phone number. SMS, MMS, and ForgeLink Voice.</small>
+            <span className="provider-choice-action">Configure Twilio</span>
+          </button>
+          <button className="provider-choice telnyx" type="button" onClick={() => setChoice("telnyx")}>
+            <span className="provider-mark">TX</span>
+            <strong>Telnyx</strong>
+            <small>API key + messaging profile + Ed25519 public key. SMS and MMS.</small>
+            <span className="provider-choice-action">Configure Telnyx</span>
+          </button>
+        </div>
+      </div>
+    </ProviderModalFrame>
+  );
+}
+
+function LocalOnlySetupModal({
+  status,
+  onClose,
+  onBack,
+  onStart,
+}: {
+  status?: DesktopStatus;
+  onClose(): void;
+  onBack(): void;
+  onStart(values: Record<string, string | number>): Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const host = status?.settings?.webhook_host || "127.0.0.1";
+  const port = status?.settings?.webhook_port || 5055;
+  return (
+    <ProviderModalFrame title="Start local-only" eyebrow="First-run setup · No telecom provider" onClose={onClose}>
+      <div className="modal-body">
+        <div className="setup-help">
+          <strong>ForgeLink core stays useful without telecom</strong>
+          <span>Agent approvals, decisions, contacts, local messages, and audit workflows remain local. External SMS/MMS and Voice are unavailable.</span>
+        </div>
+        <div className="form-stack">
+          <Field label="Local host" hint="The local service stays bound to loopback.">
+            <input value={host} readOnly aria-label="Local host" />
+          </Field>
+          <Field label="Local port" hint="You can connect a provider later from Settings.">
+            <input value={port} readOnly aria-label="Local port" />
+          </Field>
+        </div>
+        {error && <div className="modal-error" role="alert">{error}</div>}
+      </div>
+      <div className="modal-actions">
+        <button className="button subtle" type="button" disabled={busy} onClick={onBack}>Back to provider choice</button>
+        <button
+          className="button primary"
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError("");
+            try {
+              await onStart({ webhook_host: host, webhook_port: port });
+              onClose();
+            } catch (cause) {
+              setError(cause instanceof Error ? cause.message : String(cause));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Starting..." : "Start local-only"}
+        </button>
+      </div>
+    </ProviderModalFrame>
+  );
+}
+
+function TwilioConnectionModal({
   status,
   firstRun,
   onClose,
   onValidate,
   onSave,
   onStartLocalOnly,
+  onBack,
 }: {
   status?: DesktopStatus;
   firstRun: boolean;
@@ -4386,6 +4743,7 @@ function ConnectionModal({
   onValidate(values: Record<string, string | number>): Promise<import("./types").ValidationResult>;
   onSave(values: Record<string, string | number>): Promise<void>;
   onStartLocalOnly(values: Record<string, string | number>): Promise<void>;
+  onBack?(): void;
 }) {
   const current = status?.settings;
   const formRef = useRef<HTMLFormElement>(null);
@@ -4563,6 +4921,11 @@ function ConnectionModal({
           )}
         </div>
         <div className="modal-actions">
+          {onBack && (
+            <button className="button subtle" type="button" disabled={Boolean(busy)} onClick={onBack}>
+              Back to provider choice
+            </button>
+          )}
           {firstRun && (
             <button className="button primary" type="button" disabled={Boolean(busy)} onClick={() => void startLocalOnly()}>
               {busy === "local" ? "Starting..." : "Start local-only"}

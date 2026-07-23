@@ -69,14 +69,32 @@ Adapter kinds:
   distinguishes inbound from status events, and feeds the same normalized local
   message/delivery contracts.
 
-The provider is now an implementation detail behind the adapter; the durable
-communication model is identical whether the transport is Twilio, a future
-provider, a native local channel, or an agent message with no provider at all.
+Provider wire fields remain implementation details behind each adapter, but the
+providers are not interchangeable in the operator experience. The cockpit exposes
+which edge is selected, whether that edge is ready, and the capabilities ForgeLink
+actually implements. The durable message, approval, retry, and audit model remains
+provider-neutral.
+
+## Provider-specific operator contract
+
+The shared contract stops at normalized communication behavior. Setup and capability
+presentation stay provider-specific:
+
+| ForgeLink edge | Setup model | Implemented capabilities | Inbound authenticity |
+| --- | --- | --- | --- |
+| Twilio | Account SID, Auth Token, SMS-capable number | SMS, MMS, Voice | Twilio request signatures and per-number webhooks |
+| Telnyx | API v2 key, messaging number, messaging profile, Ed25519 public key | SMS, MMS | Messaging-profile webhook v2 and Ed25519 signatures |
+| Local-only | No telecom credentials | local agent/human workflows | local authenticated runtime only |
+
+First-run presents these as three distinct paths. The Channels overview, message
+composer, new-message dialog, and reviewed outbox show the selected SMS/MMS edge.
+ForgeLink does not imply that selecting Telnyx enables Voice; the current Voice edge
+remains Twilio-specific.
 
 ## Local-only operation
 
 With no telecom provider configured, the core still represents agent-to-human
 messages and approval requests, contacts, threads, attention policy, and the
 local inbox — the SMS/MMS edge is simply one capability that is absent from the
-registry. First-run setup can now be completed in local-only mode without Twilio
-credentials; SMS/MMS provider setup is an explicit later step from Settings.
+registry. First-run can continue local-only or open the provider-specific Twilio or
+Telnyx flow. Provider setup also remains available later from Settings.

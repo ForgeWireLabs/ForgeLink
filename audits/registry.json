@@ -101,6 +101,24 @@
       "notes": "Completed first-class Telnyx SMS/MMS integration; scoped contract retained with secure settings, validation, selection, webhook, shared-shell, and evidence boundaries."
     },
     {
+      "path": "work/completed/036-provider-specific-communications-experience",
+      "owner": "planning-agent",
+      "contract": "work/completed/036-provider-specific-communications-experience/AGENTS.md",
+      "last_reviewed": "2026-07-22",
+      "next_review": "2026-10-20",
+      "alignment": "current",
+      "notes": "Completed provider-specific shared cockpit experience with distinct local-only, Twilio, and Telnyx onboarding, capabilities, health, selected-edge context, and evidence boundaries."
+    },
+    {
+      "path": "work/active/037-telnyx-production-hardening-and-expansion",
+      "owner": "planning-agent",
+      "contract": "work/active/037-telnyx-production-hardening-and-expansion/AGENTS.md",
+      "last_reviewed": "2026-07-22",
+      "next_review": "2026-10-20",
+      "alignment": "current",
+      "notes": "Active Telnyx production-hardening, operations, capability-expansion, and approval-aware ForgeLink MCP/Fabric integration arc; provider secrets and send authority remain in ForgeLink."
+    },
+    {
       "path": "Tauri",
       "owner": "desktop-agent",
       "contract": "Tauri/AGENTS.md",

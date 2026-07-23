@@ -1,0 +1,120 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "037",
+  "title": "Telnyx Production Hardening and Expansion",
+  "status": "active",
+  "owner_scope": "providers",
+  "affected_scopes": [
+    "work",
+    "backend",
+    "desktop",
+    "ui",
+    "security",
+    "providers",
+    "messaging",
+    "voice",
+    "contacts",
+    "mcp",
+    "agents",
+    "policy",
+    "docs",
+    "tooling",
+    "evidence",
+    "audit"
+  ],
+  "depends_on": ["015", "016", "032", "035", "036"],
+  "provenance": "concrete",
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-07-23T00:53:44Z",
+    "note": "Created from the completed Telnyx/Fabric gap audit before production-hardening, expansion, MCP bridge, live-provider, or Fabric integration implementation begins."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "TXE-001",
+      "text": "Preserve the code-backed Telnyx gap analysis, official API research basis, priority order, provider-specific architecture, Fabric authority boundary, security constraints, and split rules as a durable implementation contract.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TXE-002",
+      "text": "Harden Telnyx webhook ingestion with raw-body Ed25519 verification, bounded timestamp freshness, durable data.id idempotency, occurred_at ordering, explicit event routing, bounded enqueue-before-ack behavior, and deterministic replay/out-of-order tests.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TXE-003",
+      "text": "Normalize the complete supported Telnyx message lifecycle and redacted error taxonomy, including delivery_failed, delivery_unconfirmed, gateway and DLR timeouts, opt-out, registration, rate-limit, balance, and retryability outcomes, with MDR reconciliation for ambiguous or stale delivery state.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TXE-004",
+      "text": "Replace durable Telnyx MMS provider URLs with authenticated, bounded, MIME-validated, locally retained media ingestion that honors privacy, retention, export, backup, deletion, renderer access, and failure recovery contracts.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TXE-005",
+      "text": "Make Telnyx webhook configuration ownership-safe with preview and confirmation, primary/failover awareness, existing-owner detection, stable-versus-temporary URL handling, verified postconditions, preserved prior state, rollback, and recovery evidence.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TXE-006",
+      "text": "Add read-only Telnyx profile and number discovery with exact SMS/MMS capability, traffic type, assignment, health, registration, and availability validation so the operator does not have to paste opaque identifiers or receive overstated capabilities.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TXE-007",
+      "text": "Add bounded outbound request validation, rate-limit awareness, redacted provider-error remediation, ambiguous-send handling, resilient retry policy, and an opt-in live Telnyx smoke covering validation, send, signed inbound, final delivery, MMS retrieval, failover, and rollback against designated test resources.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TXE-008",
+      "text": "Integrate Telnyx sender compliance and consent state through read-only 10DLC and toll-free verification status, advanced opt-in/out events, STOP/START contact-policy synchronization, local pre-send enforcement, and explicit operator-owned registration mutations when later authorized.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TXE-009",
+      "text": "Add privacy-preserving Telnyx operational visibility for message detail records, segments, encoding, cost, carrier outcome, number health, spend limits, queue/rate pressure, and actionable alerts without exposing private message content or provider secrets.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TXE-010",
+      "text": "Add explicit operator-gated messaging-profile features where they improve ForgeLink workflows: smart encoding and segment preview, MMS transcoding, daily spend limits, number pools, sticky sender, geomatch, unhealthy-number skipping, hosted SMS, and provider scheduling that never bypasses the local reviewed-outbox authority.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TXE-011",
+      "text": "Implement Telnyx Programmable Voice as a separate voice-edge adapter with its own credentials, Voice API application, webhook, call-control, status, consent, recording/transcription, retention, and rollback contracts before exposing any advanced media-streaming or AI capability.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TXE-012",
+      "text": "Gate Telnyx RCS, Verify, Number Lookup, and WhatsApp as distinct capability families with provider-native payloads, compliance and privacy rules, explicit fallback semantics, and separate implementation/evidence slices rather than generic SMS options.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TXE-013",
+      "text": "Expose bounded ForgeLink communications and redacted Telnyx operational capabilities through MCP for Fabric discovery, default agent activity to reviewed-draft creation, retain send approval in ForgeLink, correlate Fabric task IDs through decision and delivery evidence, and keep Telnyx secret values outside Fabric tasks, manifests, and audit.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "TXE-014",
+      "text": "Preserve local-only operation, Twilio behavior, communication-firewall authority, backup/export/retention semantics, shared-renderer accessibility, honest Tauri parity, operator documentation, durable redacted evidence, canonical dashboard generation, and complete repository validation across every shipped slice.",
+      "state": "pending",
+      "evidence": []
+    }
+  ],
+  "created": "2026-07-22",
+  "updated": "2026-07-22"
+}

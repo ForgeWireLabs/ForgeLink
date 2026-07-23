@@ -91,7 +91,8 @@ Current surface:
 - Contact points and channel identities.
 - Per-contact attention policy.
 - Redaction-aware contact timeline across messages, calls, and agent requests.
-- Provider-optional first run: usable local-only with no telecom provider.
+- Provider-specific first run: choose local-only, Twilio, or Telnyx; each
+  provider keeps its own setup and capability model.
 - Backup, restore, export, retention, and delivery-state handling.
 
 Channels are edges.
@@ -253,7 +254,7 @@ ForgeLink currently includes:
 - Rich contacts and contact points.
 - Per-contact policy.
 - Redaction-aware contact timeline across messages, calls, and agent requests.
-- Provider-optional local-only first run.
+- Provider-specific local-only, Twilio, and Telnyx first-run paths.
 - Local SQLite storage.
 - Backup, restore, export, and retention tools.
 - Conversation drafts.
