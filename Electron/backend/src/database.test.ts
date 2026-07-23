@@ -1057,7 +1057,7 @@ test("rolls back replacement registration when linked-node recovery linking fail
   }
 });
 
-test("upgrades the v26 device registry to v27 without losing identities (LNH-001)", () => {
+test("upgrades the v26 device registry through the current schema without losing identities (LNH-001)", () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-device-key-v26-upgrade-"));
   const path = join(directory, "phone.sqlite3");
   let database: PhoneDatabase | undefined;
@@ -1094,7 +1094,7 @@ test("upgrades the v26 device registry to v27 without losing identities (LNH-001
     legacy.close();
 
     database = new PhoneDatabase(path);
-    assert.equal(database.state.schemaVersion, 27);
+    assert.equal(database.state.schemaVersion, CURRENT_SCHEMA_VERSION);
     assert.ok(database.state.migrationBackup && existsSync(database.state.migrationBackup));
     const preserved = database.deviceKey("legacy-device")!;
     assert.equal(preserved.label, "Legacy device");
@@ -1764,5 +1764,38 @@ test("consumes an email quick-action nonce exactly once (EMAIL-006)", () => {
     assert.equal(database.consumeEmailAction("nonce-1", "agent-1", "approve"), true);
     assert.equal(database.consumeEmailAction("nonce-1", "agent-1", "approve"), false, "a replayed nonce must be rejected");
     assert.equal(database.consumeEmailAction("nonce-2", "agent-1", "deny"), true);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("TXE-002: Telnyx webhook ledger deduplicates, orders, and clears processed payloads", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-telnyx-events-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const enqueue = (eventId: string, occurredAt: string, payload: string) => database.enqueueTelnyxWebhookEvent({
+      event_id: eventId,
+      message_id: `msg-${eventId}`,
+      event_type: "message.received",
+      occurred_at: occurredAt,
+      received_at: "2026-07-22T12:01:00.000Z",
+      signed_at: "2026-07-22T12:01:00.000Z",
+      attempt: 1,
+      delivery_target_hash: createHash("sha256").update("https://private.invalid/hook?token=secret").digest("hex"),
+      payload_json: payload,
+      payload_sha256: createHash("sha256").update(payload).digest("hex")
+    });
+    const laterPayload = JSON.stringify({ private: "later message" });
+    const earlierPayload = JSON.stringify({ private: "earlier message" });
+    assert.equal(enqueue("evt-later", "2026-07-22T12:00:02.000Z", laterPayload), true);
+    assert.equal(enqueue("evt-earlier", "2026-07-22T12:00:01.000Z", earlierPayload), true);
+    assert.equal(enqueue("evt-later", "2026-07-22T12:00:02.000Z", laterPayload), false);
+    assert.deepEqual(database.pendingTelnyxWebhookEvents().map((row) => row.event_id), ["evt-earlier", "evt-later"]);
+    assert.equal(database.telnyxWebhookEvent("evt-earlier")!.delivery_target_hash.includes("private.invalid"), false);
+    assert.equal(database.completeTelnyxWebhookEvent("evt-earlier", "processed"), true);
+    const processed = database.telnyxWebhookEvent("evt-earlier")!;
+    assert.equal(processed.status, "processed");
+    assert.equal(processed.payload_json, "");
+    assert.ok(processed.processed_at);
+    assert.equal(database.completeTelnyxWebhookEvent("evt-later", "ignored", "unsupported_event"), true);
+    assert.equal(database.telnyxWebhookEvent("evt-later")!.payload_json, "");
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });

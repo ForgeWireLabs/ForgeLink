@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
 import test from "node:test";
 import { runSmsEdgeConformance } from "./channel-conformance";
-import { createTelnyxAdapter, validateTelnyxCredentials, validateTelnyxSignature, parseTelnyxInbound, parseTelnyxStatus } from "./telnyx";
+import { createTelnyxAdapter, parseTelnyxInbound, parseTelnyxStatus, parseTelnyxWebhookEnvelope, validateTelnyxCredentials, validateTelnyxSignature, verifyTelnyxWebhook } from "./telnyx";
 
 function ed25519() {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -77,6 +77,37 @@ test("Telnyx Ed25519 webhook signature validates and rejects tampering", () => {
   assert.equal(validateTelnyxSignature(`${body} `, ts, signatureB64, rawB64), false); // tampered body
   assert.equal(validateTelnyxSignature(body, "1718000001", signatureB64, rawB64), false); // wrong timestamp
   assert.equal(validateTelnyxSignature(body, ts, signatureB64, ""), false); // missing key
+});
+
+test("TXE-002: Telnyx webhook verification rejects stale and future signed requests", () => {
+  const { privateKey, rawB64 } = ed25519();
+  const body = JSON.stringify({ data: { id: "evt-1", event_type: "message.received", occurred_at: "2026-07-22T12:00:00.000Z", payload: { id: "tx-in" } } });
+  const nowSeconds = 1_753_184_000;
+  const signature = (timestamp: string) => sign(null, Buffer.from(`${timestamp}|${body}`, "utf8"), privateKey).toString("base64");
+  const current = String(nowSeconds);
+  assert.deepEqual(verifyTelnyxWebhook(body, current, signature(current), rawB64, nowSeconds * 1000), { ok: true, signedAt: new Date(nowSeconds * 1000).toISOString() });
+  const stale = String(nowSeconds - 301);
+  assert.deepEqual(verifyTelnyxWebhook(body, stale, signature(stale), rawB64, nowSeconds * 1000), { ok: false, reason: "stale_timestamp" });
+  const future = String(nowSeconds + 301);
+  assert.deepEqual(verifyTelnyxWebhook(body, future, signature(future), rawB64, nowSeconds * 1000), { ok: false, reason: "stale_timestamp" });
+  assert.deepEqual(verifyTelnyxWebhook(body, "not-a-time", "AAAA", rawB64, nowSeconds * 1000), { ok: false, reason: "invalid_timestamp" });
+  assert.deepEqual(verifyTelnyxWebhook(body, current, "AAAA", rawB64, nowSeconds * 1000), { ok: false, reason: "invalid_signature" });
+});
+
+test("TXE-002: parses durable Telnyx event identity and occurrence metadata", () => {
+  assert.deepEqual(parseTelnyxWebhookEnvelope({
+    data: { id: "evt-123", event_type: "message.finalized", occurred_at: "2026-07-22T12:00:00Z", payload: { id: "msg-123" } },
+    meta: { attempt: 2, delivered_to: "https://example.invalid/webhooks/telnyx?secret=private" }
+  }), {
+    eventId: "evt-123",
+    eventType: "message.finalized",
+    occurredAt: "2026-07-22T12:00:00.000Z",
+    messageId: "msg-123",
+    attempt: 2,
+    deliveredTo: "https://example.invalid/webhooks/telnyx?secret=private"
+  });
+  assert.equal(parseTelnyxWebhookEnvelope({ data: { event_type: "message.received", occurred_at: "2026-07-22T12:00:00Z" } }), null);
+  assert.equal(parseTelnyxWebhookEnvelope({ data: { id: "evt", event_type: "message.received", occurred_at: "invalid" } }), null);
 });
 
 test("TEL-003: validates the configured Telnyx number and messaging profile through read-only API calls", async () => {

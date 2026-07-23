@@ -24,6 +24,11 @@ versions tracked in `VERSION` and `Electron/package.json`.
   `docs/trusted-signals.md`.
 
 ### Changed
+- Replay-safe Telnyx webhook ingestion (work item 037, TXE-002): exact raw-body
+  Ed25519 verification now includes a five-minute signed timestamp window; valid
+  events are durably queued and deduplicated by Telnyx event ID before acknowledgement,
+  processed in occurrence order through an explicit messaging-event allow-list, and
+  retain only bounded non-content metadata after successful or unsupported handling.
 - Provider-specific communications experience (work item 036): first-run now
   offers separate local-only, Twilio, and Telnyx paths; the cockpit presents
   Twilio's Account SID/Auth Token/number and Voice model separately from

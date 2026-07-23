@@ -5,12 +5,12 @@ import { createServer, IncomingMessage, Server, ServerResponse } from "node:http
 import { promisify } from "node:util";
 import { extname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
-import { AGENT_CONTENT_PROVENANCE, AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, DecisionRecordRow, EvidencePack, FirewallBlockedError, isAuthorityScope, OutboundDraftRow, PhoneDatabase, redactEvidencePack, redactNotification, redactionProfile, REDACTION_PROFILES } from "./database";
+import { AGENT_CONTENT_PROVENANCE, AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, DecisionRecordRow, EvidencePack, FirewallBlockedError, isAuthorityScope, OutboundDraftRow, PhoneDatabase, redactEvidencePack, redactNotification, redactionProfile, REDACTION_PROFILES, TelnyxWebhookEventRow } from "./database";
 import { utcNow } from "./phone";
 import { fetchTrustedSignalFeed, sanitizeSignalError } from "./signals";
 import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, loadTwilioConfig, sendTwilioMessage, startTwilioCall, validateTwilioSignature } from "./twilio";
 import { createChannelRegistry, PLANNED_PROVIDERS } from "./channels";
-import { createTelnyxAdapter, sendTelnyxMessage, validateTelnyxSignature } from "./telnyx";
+import { createTelnyxAdapter, parseTelnyxWebhookEnvelope, sendTelnyxMessage, verifyTelnyxWebhook } from "./telnyx";
 import { createEmailAdapter, EmailTransport, emailConfigured, emailInboundConfigured, emailQuickActionConfigured, validateEmailWebhookSignature, verifyQuickActionToken } from "./email";
 import { createPushAdapter, loadPushConfig, PushTransport, pushConfigured } from "./push";
 
@@ -379,6 +379,54 @@ export function createBackend(options: BackendOptions): { server: Server; databa
   if (telnyxSmsConfigured) channels.register(telnyxAdapter);
   const selectedSmsProvider = String(process.env.FORGELINK_SMS_PROVIDER || "twilio").toLowerCase() === "telnyx" ? "telnyx" : "twilio";
   const selectedSmsEdge = () => channels.select("sms_send", selectedSmsProvider);
+  let backendClosing = false;
+  let telnyxDrainScheduled = false;
+  const processTelnyxWebhookEvent = (row: TelnyxWebhookEventRow): void => {
+    try {
+      const event = JSON.parse(row.payload_json) as unknown;
+      if (row.event_type === "message.received") {
+        const inbound = telnyxAdapter.parseInbound!(event);
+        if (!inbound.providerMessageId || !inbound.from) throw new Error("invalid_event_payload");
+        database.addMessage({
+          id: inbound.providerMessageId,
+          number: inbound.from,
+          direction: "inbound",
+          body: inbound.body,
+          media_urls: inbound.mediaUrls,
+          status: "received",
+          ts: row.occurred_at
+        });
+        database.completeTelnyxWebhookEvent(row.event_id, "processed");
+        return;
+      }
+      if (row.event_type === "message.sent" || row.event_type === "message.finalized") {
+        const update = telnyxAdapter.parseStatus!(event);
+        if (!update.providerMessageId) throw new Error("invalid_event_payload");
+        database.updateDeliveryStatus(update.providerMessageId, update.status);
+        database.completeTelnyxWebhookEvent(row.event_id, "processed");
+        return;
+      }
+      database.completeTelnyxWebhookEvent(row.event_id, "ignored", "unsupported_event");
+    } catch (error) {
+      const category = error instanceof Error && error.message === "invalid_event_payload" ? "invalid_event_payload" : "processing_failed";
+      try { database.completeTelnyxWebhookEvent(row.event_id, "failed", category); } catch { /* database may be closing */ }
+    }
+  };
+  const scheduleTelnyxWebhookDrain = (): void => {
+    if (backendClosing || telnyxDrainScheduled) return;
+    telnyxDrainScheduled = true;
+    setImmediate(() => {
+      try {
+        for (const row of database.pendingTelnyxWebhookEvents(100)) processTelnyxWebhookEvent(row);
+      } catch { /* a later startup can recover remaining pending events */ }
+      finally {
+        telnyxDrainScheduled = false;
+        try {
+          if (!backendClosing && database.pendingTelnyxWebhookEvents(1).length) scheduleTelnyxWebhookDrain();
+        } catch { /* database may be closing */ }
+      }
+    });
+  };
   // Email internet channel (work item 018, EMAIL-003): registered only when SMTP is
   // configured. Provider-neutral; a fallback/long-form channel, never the default
   // approval loop.
@@ -1623,21 +1671,31 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       }
       if (request.method === "POST" && url.pathname === "/webhooks/telnyx") {
         // Telnyx posts JSON events signed with Ed25519 over `${timestamp}|${rawBody}`.
-        const raw = (await readBody(request)).toString("utf8");
+        // Authentic events are durably queued by event id before acknowledgement;
+        // processing happens asynchronously in occurrence order.
+        const raw = (await readBody(request, 64 * 1024)).toString("utf8");
         const timestamp = String(request.headers["telnyx-timestamp"] || "");
         const signature = String(request.headers["telnyx-signature-ed25519"] || "");
-        if (!validateTelnyxSignature(raw, timestamp, signature, process.env.TELNYX_PUBLIC_KEY || "")) return sendJson(response, { error: "Invalid Telnyx signature" }, 403);
+        const verification = verifyTelnyxWebhook(raw, timestamp, signature, process.env.TELNYX_PUBLIC_KEY || "");
+        if (!verification.ok) return sendJson(response, { error: "Invalid Telnyx signature" }, 403);
         let event: unknown;
         try { event = JSON.parse(raw); } catch { return sendJson(response, { error: "Invalid payload" }, 400); }
-        const eventType = ((event as { data?: { event_type?: string } })?.data?.event_type) || "";
-        if (eventType === "message.received") {
-          const inbound = telnyxAdapter.parseInbound!(event);
-          database.addMessage({ id: inbound.providerMessageId || randomBytes(16).toString("hex"), number: inbound.from, direction: "inbound", body: inbound.body, media_urls: inbound.mediaUrls, status: "received", ts: utcNow() });
-        } else {
-          const update = telnyxAdapter.parseStatus!(event);
-          if (update.providerMessageId) database.updateDeliveryStatus(update.providerMessageId, update.status);
-        }
-        return sendJson(response, { ok: true });
+        const envelope = parseTelnyxWebhookEnvelope(event);
+        if (!envelope) return sendJson(response, { error: "Invalid Telnyx event envelope" }, 400);
+        const queued = database.enqueueTelnyxWebhookEvent({
+          event_id: envelope.eventId,
+          message_id: envelope.messageId,
+          event_type: envelope.eventType,
+          occurred_at: envelope.occurredAt,
+          received_at: utcNow(),
+          signed_at: verification.signedAt,
+          attempt: envelope.attempt,
+          delivery_target_hash: envelope.deliveredTo ? sha256(envelope.deliveredTo) : "",
+          payload_json: raw,
+          payload_sha256: sha256(raw)
+        });
+        scheduleTelnyxWebhookDrain();
+        return sendJson(response, { ok: true, queued, duplicate: !queued });
       }
       // Inbound email via a signed provider webhook (work item 018, EMAIL-004).
       // Disabled unless an inbound secret is configured; HMAC-signed over the raw
@@ -1684,6 +1742,10 @@ export function createBackend(options: BackendOptions): { server: Server; databa
       return sendJson(response, { error: error instanceof Error ? error.message : String(error) }, 400);
     }
   });
-  server.on("close", () => database.close());
+  scheduleTelnyxWebhookDrain();
+  server.on("close", () => {
+    backendClosing = true;
+    database.close();
+  });
   return { server, database };
 }

@@ -21,7 +21,7 @@ import {
 } from "./signals";
 import { CLOUD_SUMMARY_DISABLED, SUMMARY_CONTENT_TRUST, SUMMARY_NOTICE, SUMMARY_PROVENANCE, summarizeThread, ThreadSummary } from "./summary";
 
-export const CURRENT_SCHEMA_VERSION = 27;
+export const CURRENT_SCHEMA_VERSION = 28;
 
 export interface ThreadRow {
   id: number;
@@ -39,6 +39,27 @@ export interface MessageInput {
   media_urls?: string[] | string;
   status?: string;
   ts?: string;
+}
+
+export type TelnyxWebhookEventStatus = "pending" | "processed" | "ignored" | "failed";
+
+export interface TelnyxWebhookEventInput {
+  event_id: string;
+  message_id: string;
+  event_type: string;
+  occurred_at: string;
+  received_at: string;
+  signed_at: string;
+  attempt: number;
+  delivery_target_hash: string;
+  payload_json: string;
+  payload_sha256: string;
+}
+
+export interface TelnyxWebhookEventRow extends TelnyxWebhookEventInput {
+  status: TelnyxWebhookEventStatus;
+  failure_category: string;
+  processed_at: string | null;
 }
 
 export interface OutboundMessage {
@@ -1523,6 +1544,36 @@ export class PhoneDatabase {
         version = 27;
         this.connection.exec("PRAGMA user_version=27");
       }
+      if (version === 27) {
+        // Replay-safe durable Telnyx webhook intake (work item 037, TXE-002;
+        // schema v28 per decision 0011). The raw payload exists only while an
+        // event is pending/failed; successful and intentionally ignored events
+        // retain identity, order, and a payload hash without duplicating private
+        // message content indefinitely.
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS telnyx_webhook_events (
+            event_id TEXT PRIMARY KEY,
+            message_id TEXT NOT NULL DEFAULT '',
+            event_type TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            received_at TEXT NOT NULL,
+            signed_at TEXT NOT NULL,
+            attempt INTEGER NOT NULL DEFAULT 0,
+            delivery_target_hash TEXT NOT NULL DEFAULT '',
+            payload_json TEXT NOT NULL,
+            payload_sha256 TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            failure_category TEXT NOT NULL DEFAULT '',
+            processed_at TEXT
+          );
+          CREATE INDEX IF NOT EXISTS idx_telnyx_webhook_events_pending
+            ON telnyx_webhook_events(status, occurred_at, received_at);
+          CREATE INDEX IF NOT EXISTS idx_telnyx_webhook_events_message
+            ON telnyx_webhook_events(message_id, occurred_at);
+        `);
+        version = 28;
+        this.connection.exec("PRAGMA user_version=28");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -1790,6 +1841,49 @@ export class PhoneDatabase {
       this.connection.exec("COMMIT");
       return Number(result.lastInsertRowid);
     } catch (error) { this.connection.exec("ROLLBACK"); throw error; }
+  }
+
+  enqueueTelnyxWebhookEvent(input: TelnyxWebhookEventInput): boolean {
+    const eventId = String(input.event_id || "").trim();
+    const eventType = String(input.event_type || "").trim();
+    const occurredAt = String(input.occurred_at || "").trim();
+    const receivedAt = String(input.received_at || "").trim();
+    const signedAt = String(input.signed_at || "").trim();
+    const payload = String(input.payload_json || "");
+    const payloadHash = String(input.payload_sha256 || "").trim().toLowerCase();
+    if (!eventId || eventId.length > 120) throw new Error("Telnyx webhook event id is invalid.");
+    if (!eventType || eventType.length > 80) throw new Error("Telnyx webhook event type is invalid.");
+    if (![occurredAt, receivedAt, signedAt].every((value) => value && Number.isFinite(Date.parse(value)))) throw new Error("Telnyx webhook event timestamps are invalid.");
+    if (!payload || Buffer.byteLength(payload, "utf8") > 64 * 1024) throw new Error("Telnyx webhook payload is invalid.");
+    if (!/^[0-9a-f]{64}$/.test(payloadHash) || createHash("sha256").update(payload).digest("hex") !== payloadHash) throw new Error("Telnyx webhook payload hash is invalid.");
+    const attempt = Number.isInteger(input.attempt) ? Math.max(0, Math.min(100, input.attempt)) : 0;
+    const targetHash = /^[0-9a-f]{64}$/.test(String(input.delivery_target_hash || "")) ? String(input.delivery_target_hash) : "";
+    const result = this.connection.prepare(`
+      INSERT OR IGNORE INTO telnyx_webhook_events
+        (event_id, message_id, event_type, occurred_at, received_at, signed_at, attempt, delivery_target_hash, payload_json, payload_sha256)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(eventId, String(input.message_id || "").slice(0, 120), eventType, new Date(occurredAt).toISOString(), new Date(receivedAt).toISOString(), new Date(signedAt).toISOString(), attempt, targetHash, payload, payloadHash);
+    return result.changes === 1;
+  }
+
+  telnyxWebhookEvent(eventId: string): TelnyxWebhookEventRow | undefined {
+    return this.connection.prepare("SELECT * FROM telnyx_webhook_events WHERE event_id=?").get(String(eventId || "")) as unknown as TelnyxWebhookEventRow | undefined;
+  }
+
+  pendingTelnyxWebhookEvents(limit = 100): TelnyxWebhookEventRow[] {
+    const bounded = Math.max(1, Math.min(500, Math.trunc(limit)));
+    return this.connection.prepare("SELECT * FROM telnyx_webhook_events WHERE status='pending' ORDER BY occurred_at, received_at, event_id LIMIT ?").all(bounded) as unknown as TelnyxWebhookEventRow[];
+  }
+
+  completeTelnyxWebhookEvent(eventId: string, status: Exclude<TelnyxWebhookEventStatus, "pending">, failureCategory = ""): boolean {
+    if (!["processed", "ignored", "failed"].includes(status)) throw new Error("Telnyx webhook completion status is invalid.");
+    const clearPayload = status === "processed" || status === "ignored";
+    const result = this.connection.prepare(`
+      UPDATE telnyx_webhook_events
+      SET status=?, failure_category=?, processed_at=?, payload_json=CASE WHEN ? THEN '' ELSE payload_json END
+      WHERE event_id=? AND status='pending'
+    `).run(status, String(failureCategory || "").slice(0, 80), utcNow(), clearPayload ? 1 : 0, String(eventId || ""));
+    return result.changes === 1;
   }
 
   addMessage(message: MessageInput): boolean {

@@ -65,9 +65,12 @@ Adapter kinds:
   `SendResult`; the provider message ID and status are reconciled onto the row.
 - **Twilio inbound/status**: `/webhooks/sms` and `/webhooks/status` validate the
   Twilio signature before normalization.
-- **Telnyx inbound/status**: `/webhooks/telnyx` validates the Ed25519 signature,
-  distinguishes inbound from status events, and feeds the same normalized local
-  message/delivery contracts.
+- **Telnyx inbound/status**: `/webhooks/telnyx` validates the exact raw body and a
+  five-minute signed-timestamp freshness window, durably deduplicates by Telnyx
+  event ID before acknowledgement, processes recognized messaging events in
+  occurrence order, and feeds the same normalized local message/delivery contracts.
+  Authentic unknown event types are recorded as unsupported rather than treated as
+  generic status updates.
 
 Provider wire fields remain implementation details behind each adapter, but the
 providers are not interchangeable in the operator experience. The cockpit exposes

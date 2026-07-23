@@ -85,17 +85,28 @@ webhooks until the public key and profile ID are supplied.
 ## Inbound and status webhooks
 
 Telnyx posts JSON events signed with Ed25519 over
-`${telnyx-timestamp}|${rawBody}`. ForgeLink rejects missing, invalid, or tampered
-signatures before parsing the event.
+`${telnyx-timestamp}|${rawBody}`. ForgeLink verifies the exact raw body and rejects
+missing, invalid, tampered, more-than-five-minutes-old, or more-than-five-minutes-
+future signatures before parsing the event.
 
 - `message.received` events are normalized into the local inbox. SMS and MMS media
   URLs follow the provider-neutral message contract.
-- Status events update the matching provider message ID.
-- Duplicate inbound message IDs are idempotent.
+- `message.sent` and `message.finalized` events update the matching provider
+  message ID. Other authentic event types are acknowledged and recorded as
+  unsupported; they are never guessed to be delivery updates.
+- Every valid envelope is first durably queued by Telnyx `data.id`, with its
+  `occurred_at`, receipt/signature time, attempt, message ID, payload hash, and a
+  hash of `meta.delivered_to`. The public route then acknowledges it and the local
+  runtime processes pending events in occurrence order.
+- Duplicate event IDs and inbound message IDs are idempotent. A restart drains any
+  event that was committed but not yet processed.
 - Duplicate or backward delivery-status transitions are ignored.
 
-Telnyx requires a fast `2xx` webhook response and may retry failed deliveries, so
-deduplication remains part of the durable local contract.
+The raw payload is bounded to 64 KiB and retained only while processing or failed
+recovery remains necessary; successful and unsupported events clear it while
+retaining their non-content event ledger. The delivery target is never retained as
+a raw URL. This lets ForgeLink acknowledge quickly without turning private webhook
+content or URL secrets into an indefinite audit record.
 
 ## Outbound and diagnostics
 

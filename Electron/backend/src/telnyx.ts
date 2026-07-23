@@ -79,9 +79,35 @@ export function validateTelnyxSignature(rawBody: string, timestamp: string, sign
   }
 }
 
+export type TelnyxWebhookVerification =
+  | { ok: true; signedAt: string }
+  | { ok: false; reason: "invalid_timestamp" | "stale_timestamp" | "invalid_signature" };
+
+// Telnyx signs the timestamp but signature validity alone does not prevent a
+// captured request from being replayed. Enforce a symmetric clock-skew window so
+// both stale and implausibly future-dated requests fail before durable ingestion.
+export function verifyTelnyxWebhook(
+  rawBody: string,
+  timestamp: string,
+  signatureB64: string,
+  publicKeyB64: string,
+  nowMs = Date.now(),
+  toleranceSeconds = 300
+): TelnyxWebhookVerification {
+  if (!/^\d{1,12}$/.test(timestamp)) return { ok: false, reason: "invalid_timestamp" };
+  const signedAtMs = Number(timestamp) * 1000;
+  if (!Number.isSafeInteger(signedAtMs)) return { ok: false, reason: "invalid_timestamp" };
+  const toleranceMs = Math.max(1, Math.min(300, Math.trunc(toleranceSeconds))) * 1000;
+  if (Math.abs(nowMs - signedAtMs) > toleranceMs) return { ok: false, reason: "stale_timestamp" };
+  if (!validateTelnyxSignature(rawBody, timestamp, signatureB64, publicKeyB64)) return { ok: false, reason: "invalid_signature" };
+  return { ok: true, signedAt: new Date(signedAtMs).toISOString() };
+}
+
 interface TelnyxEvent {
   data?: {
+    id?: string;
     event_type?: string;
+    occurred_at?: string;
     payload?: {
       id?: string;
       text?: string;
@@ -90,6 +116,32 @@ interface TelnyxEvent {
       media?: Array<{ url?: string; content_type?: string }>;
     };
   };
+  meta?: {
+    attempt?: number;
+    delivered_to?: string;
+  };
+}
+
+export interface TelnyxWebhookEnvelope {
+  eventId: string;
+  eventType: string;
+  occurredAt: string;
+  messageId: string;
+  attempt: number;
+  deliveredTo: string;
+}
+
+export function parseTelnyxWebhookEnvelope(event: unknown): TelnyxWebhookEnvelope | null {
+  const value = event as TelnyxEvent;
+  const eventId = typeof value?.data?.id === "string" ? value.data.id.trim() : "";
+  const eventType = typeof value?.data?.event_type === "string" ? value.data.event_type.trim() : "";
+  const occurredAt = typeof value?.data?.occurred_at === "string" ? value.data.occurred_at.trim() : "";
+  if (!eventId || eventId.length > 120 || !eventType || eventType.length > 80 || !occurredAt || !Number.isFinite(Date.parse(occurredAt))) return null;
+  const messageId = typeof value.data?.payload?.id === "string" ? value.data.payload.id.trim().slice(0, 120) : "";
+  const rawAttempt = Number(value.meta?.attempt || 0);
+  const attempt = Number.isInteger(rawAttempt) && rawAttempt >= 0 && rawAttempt <= 100 ? rawAttempt : 0;
+  const deliveredTo = typeof value.meta?.delivered_to === "string" ? value.meta.delivered_to.trim().slice(0, 2048) : "";
+  return { eventId, eventType, occurredAt: new Date(occurredAt).toISOString(), messageId, attempt, deliveredTo };
 }
 
 export function parseTelnyxInbound(event: unknown): InboundMessage {

@@ -7,6 +7,7 @@
   "affected_scopes": [
     "work",
     "backend",
+    "data",
     "desktop",
     "ui",
     "security",
@@ -39,8 +40,8 @@
     {
       "id": "TXE-002",
       "text": "Harden Telnyx webhook ingestion with raw-body Ed25519 verification, bounded timestamp freshness, durable data.id idempotency, occurred_at ordering, explicit event routing, bounded enqueue-before-ack behavior, and deterministic replay/out-of-order tests.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": ["20260722-txe002-replay-safe-telnyx-webhooks"]
     },
     {
       "id": "TXE-003",

@@ -251,7 +251,7 @@ Rules:
 ## Acceptance criteria
 
 - [ ] **TXE-001** Preserve this research, priority, architecture, and security contract.
-- [ ] **TXE-002** Harden webhook verification, durable ingestion, deduplication, ordering, and acknowledgement.
+- [x] **TXE-002** Harden webhook verification, durable ingestion, deduplication, ordering, and acknowledgement.
 - [ ] **TXE-003** Complete status/error normalization and MDR reconciliation.
 - [ ] **TXE-004** Make inbound Telnyx MMS media durable, authenticated, bounded, private, and recoverable.
 - [ ] **TXE-005** Make webhook mutation ownership-safe, failover-aware, verified, and reversible.
@@ -312,8 +312,13 @@ Official Telnyx documentation reviewed on 2026-07-22:
 
 ## Evidence log
 
-Pending implementation. Work items 035 and 036 remain the evidence-backed baseline;
-their evidence does not satisfy these new criteria.
+| Criterion | Evidence | Result |
+| --- | --- | --- |
+| TXE-002 | `evidence/runs/20260722-txe002-replay-safe-telnyx-webhooks.json` | Exact-body Ed25519 verification with five-minute freshness; durable enqueue-before-ack, event-ID replay protection, occurrence ordering, startup recovery, explicit event routing, and bounded/redacted payload retention passed deterministic and full repository gates. |
+
+TXE-001 and TXE-003 through TXE-014 remain pending. Work items 035 and 036 remain
+the evidence-backed baseline for the existing integration but do not satisfy those
+remaining criteria.
 
 ## Rollback
 
