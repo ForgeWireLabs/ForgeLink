@@ -24,6 +24,10 @@ versions tracked in `VERSION` and `Electron/package.json`.
   `docs/trusted-signals.md`.
 
 ### Changed
+- Electron installer maintenance: production dependencies are now unpacked beside
+  the TypeScript backend utility process, so clean/replacement Windows installs can
+  resolve `fast-xml-parser`, `undici`, and future backend runtime dependencies instead
+  of launching a responsive shell with a crashed local service.
 - Replay-safe Telnyx webhook ingestion (work item 037, TXE-002): exact raw-body
   Ed25519 verification now includes a five-minute signed timestamp window; valid
   events are durably queued and deduplicated by Telnyx event ID before acknowledgement,

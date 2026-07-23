@@ -1,7 +1,7 @@
 ---
 audience: maintainers and implementation agents
 status: active
-last_verified: 2026-07-10
+last_verified: 2026-07-22
 source_of_truth: AGENTS.md; work/active/011-production-readiness/_audit/alignment-report.md
 ---
 
@@ -205,3 +205,4 @@ in [`work-item.json`](work-item.json); this is the human summary.
 | 2026-06-27 | shell strategy alignment | Operator decision: Tauri 2 is the long-term shared desktop/mobile shell. Work item 030 owns the migration and Electron retirement gate. | PR-014 remains pending for current desktop release/signing work, but future release planning must coordinate with 030 and avoid deepening Electron-only assumptions. |
 | 2026-06-29 | PR-014 (preflight automation) | Automated the non-signing release gates as `npm run release:check` (`scripts/release-preflight.js`): VERSION/package.json sync, `[Unreleased]` notes, electron-updater dependency, `builder.json` publish/asarUnpack/files config, referenced icon assets, and the auto-update guard; covered by `release-preflight.test.js` (in `npm test`) and wired into `docs/release-checklist.md`. All non-cert PR-014 work is now done. Evidence `20260629-pr014-release-preflight`. | PR-014 stays pending only on the operator-provided code-signing certificate and the signing-gated `latest.yml` feed. |
 | 2026-06-30 | PR-014 (scope reframing) | Decision 0018: the remaining certificate + signed-feed work is a public-distribution hardening gate held on an operator-supplied external dependency, not a blocker for work item 030 or the 019–024 adapters. Reframed 030 README/work-item/AGENTS.md and `docs/distribution-and-update-strategy.md` to distinguish unsigned/dev distribution (available now) from signed public distribution (cert-gated). | 011 stays active with cert-limited scope; project sequencing no longer waits on signing. |
+| 2026-07-22 | PR-014 (Electron maintenance) | A real replacement install exposed that unpacked `backend-dist` could not resolve production dependencies retained only in `app.asar`. The package now unpacks the production dependency tree beside the utility process, and the package contract verifies `fast-xml-parser` and `undici` placement. Rebuild, elevated silent replacement, installed schema-v28 startup, protected loopback health, and clean startup-log checks passed. Evidence `20260722-electron-packaged-backend-dependencies`. | Internal Electron 2.0.3 install is operational; PR-014 remains pending only on the operator-provided signing certificate and signing-gated public feed. |

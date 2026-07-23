@@ -1,0 +1,59 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260722-electron-packaged-backend-dependencies",
+  "timestamp": "2026-07-23T02:04:04Z",
+  "work_item": "011",
+  "result": "passed",
+  "provenance": "concrete",
+  "criteria": ["PR-014"],
+  "summary": "Repaired and regression-tested the Electron Windows package so the unpacked TypeScript backend utility process can resolve its complete production dependency tree, then rebuilt and replaced the local machine-wide ForgeLink installation and verified protected loopback service startup against the existing schema-v28 data store.",
+  "commands": [
+    {
+      "command": "npm run build",
+      "exit_code": 0,
+      "summary": "Electron Builder produced the ForgeLink 2.0.3 NSIS installer and unpacked Windows artifact with backend-dist and production node_modules colocated outside app.asar."
+    },
+    {
+      "command": "node --test packaging.test.js release-preflight.test.js",
+      "exit_code": 0,
+      "summary": "All six package-layout and release-preflight checks passed, including the new backend dependency placement assertions."
+    },
+    {
+      "command": "isolated packaged backend probe on 127.0.0.1:5088",
+      "exit_code": 0,
+      "summary": "The built package returned HTTP 200 with runtime node when supplied a synthetic launch token; no real provider credentials or communication data were used."
+    },
+    {
+      "command": "ForgeLink_2.0.3_x64-setup.exe /S (elevated replacement install)",
+      "exit_code": 0,
+      "summary": "The machine-wide replacement installation completed successfully without removing the existing user data directory."
+    },
+    {
+      "command": "installed application launch and loopback probe",
+      "exit_code": 0,
+      "summary": "The installed shell remained responsive, port 5055 returned the expected unauthenticated 401 boundary, the existing database reported schema v28, and startup logs contained no module-resolution or renderer-fetch failure."
+    },
+    {
+      "command": "npm test && npm run scan:secrets && python .local/validate_system.py && git diff --check",
+      "exit_code": 0,
+      "summary": "Full regression, secret scanning, governed validation, and whitespace checks passed after the package repair."
+    }
+  ],
+  "artifacts": [
+    "Electron/builder.json",
+    "Electron/packaging.test.js",
+    "Electron/dist/ForgeLink_2.0.3_x64-setup.exe",
+    "CHANGELOG.md",
+    "work/active/011-production-readiness/README.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "codex/first-class-telnyx",
+    "platform": "Windows 10 x64",
+    "install_scope": "machine-wide at C:/Program Files/ForgeLink",
+    "installer_sha256": "E352821B10D9BB6A6ACF6532BE6148A4D126AA58EB4986F54CFF033973251A5E",
+    "signing": "unsigned internal build; public distribution remains certificate-gated",
+    "data_safety": "existing user data preserved; installed database opened at schema v28",
+    "live_providers": "not used"
+  }
+}
