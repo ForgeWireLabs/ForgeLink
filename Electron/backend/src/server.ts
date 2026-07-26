@@ -377,8 +377,18 @@ export function createBackend(options: BackendOptions): { server: Server; databa
   const telnyxAdapter = createTelnyxAdapter(options.sendTelnyxMessage || sendTelnyxMessage);
   const telnyxSmsConfigured = Boolean(options.sendTelnyxMessage || (process.env.TELNYX_API_KEY && process.env.TELNYX_PHONE_NUMBER));
   if (telnyxSmsConfigured) channels.register(telnyxAdapter);
-  const selectedSmsProvider = String(process.env.FORGELINK_SMS_PROVIDER || "twilio").toLowerCase() === "telnyx" ? "telnyx" : "twilio";
-  const selectedSmsEdge = () => channels.select("sms_send", selectedSmsProvider);
+  const requestedSmsProvider = String(process.env.FORGELINK_SMS_PROVIDER || "").toLowerCase();
+  const selectedSmsProvider = requestedSmsProvider === "twilio" || requestedSmsProvider === "telnyx" || requestedSmsProvider === "none"
+    ? requestedSmsProvider
+    : telnyxSmsConfigured && !twilioSmsConfigured
+      ? "telnyx"
+      : twilioSmsConfigured
+        ? "twilio"
+        : "none";
+  const selectedSmsEdge = () => {
+    if (selectedSmsProvider === "none") throw new Error("Select and configure an SMS/MMS provider before sending.");
+    return channels.select("sms_send", selectedSmsProvider);
+  };
   let backendClosing = false;
   let telnyxDrainScheduled = false;
   const processTelnyxWebhookEvent = (row: TelnyxWebhookEventRow): void => {
@@ -552,7 +562,7 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         sms_provider: selectedSmsProvider,
         sms_providers: { twilio: { configured: twilioSmsConfigured }, telnyx: { configured: telnyxSmsConfigured, inbound_configured: Boolean(process.env.TELNYX_PUBLIC_KEY && process.env.TELNYX_MESSAGING_PROFILE_ID) } },
         public_base_url_configured: Boolean(process.env.TWILIO_PUBLIC_BASE_URL),
-        local_only: !(twilioSmsConfigured || telnyxSmsConfigured),
+        local_only: selectedSmsProvider === "none",
         channels: channels.list(),
         planned_channels: PLANNED_PROVIDERS,
         companion: companionEnabled ? "enabled" : "planned",

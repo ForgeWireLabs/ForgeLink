@@ -61,7 +61,8 @@ Adapter kinds:
 
 - **Outbound**: `POST /api/send`, retry, and approved outbound drafts build or
   reuse a local `pending` row, then select `sms_send` by the operator's explicit
-  `twilio` or `telnyx` preference. The adapter returns a provider-neutral
+  `twilio` or `telnyx` preference. An explicit `none` preference is the
+  local-only state and rejects external SMS/MMS before adapter selection. The adapter returns a provider-neutral
   `SendResult`; the provider message ID and status are reconciled onto the row.
 - **Twilio inbound/status**: `/webhooks/sms` and `/webhooks/status` validate the
   Twilio signature before normalization.
@@ -89,15 +90,21 @@ presentation stay provider-specific:
 | Telnyx | API v2 key, messaging number, messaging profile, Ed25519 public key | SMS, MMS | Messaging-profile webhook v2 and Ed25519 signatures |
 | Local-only | No telecom credentials | local agent/human workflows | local authenticated runtime only |
 
-First-run presents these as three distinct paths. The Channels overview, message
-composer, new-message dialog, and reviewed outbox show the selected SMS/MMS edge.
+First-run and Settings present these as three distinct paths. The shared provider
+overview comes before equal-hierarchy Twilio and Telnyx configuration cards. The
+Channels overview, message composer, new-message dialog, and reviewed outbox show
+the selected SMS/MMS edge only when one has been explicitly selected.
 ForgeLink does not imply that selecting Telnyx enables Voice; the current Voice edge
 remains Twilio-specific.
 
 ## Local-only operation
 
-With no telecom provider configured, the core still represents agent-to-human
+With no telecom provider selected, the core still represents agent-to-human
 messages and approval requests, contacts, threads, attention policy, and the
 local inbox — the SMS/MMS edge is simply one capability that is absent from the
-registry. First-run can continue local-only or open the provider-specific Twilio or
-Telnyx flow. Provider setup also remains available later from Settings.
+active route. External send controls remain disabled and the backend rejects send,
+retry, approval, and scheduled dispatch attempts until a configured edge is
+selected. First-run can continue local-only or open the provider-specific Twilio or
+Telnyx flow. Settings can return to local-only without deleting either provider's
+stored credentials. Stopping and restarting the local service does not change the
+explicit provider selection.

@@ -73,6 +73,7 @@ beforeEach(() => {
     validateSettings: vi.fn().mockResolvedValue({ account_name: "Test Account", account_status: "active", phone_number: "+15550002222" }),
     startServer: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5056", configured: true, credential_source: "stored", validation: { account_name: "Test Account", account_status: "active", phone_number: "+15550002222" }, settings: { account_sid: "AC999", auth_token_configured: true, twilio_number: "+15550002222", public_base_url: "https://new.example.com", webhook_host: "127.0.0.1", webhook_port: 5056 } }),
     startLocalOnly: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: false, credential_source: "none", onboarding_complete: true, needs_onboarding: false, settings: { account_sid: "", auth_token_configured: false, twilio_number: "", public_base_url: "", webhook_host: "127.0.0.1", webhook_port: 5055 } }),
+    startService: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored", onboarding_complete: true, needs_onboarding: false }),
     importEnvironment: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored" }),
     removeCredentials: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: false, credential_source: "none", onboarding_complete: true, needs_onboarding: false }),
     smsProviderSettings: vi.fn().mockResolvedValue(smsProviderSettings),
@@ -214,7 +215,7 @@ describe("React renderer parity", () => {
 
   it("documents the shared shell bridge capabilities needed by Tauri", async () => {
     const capabilityNames = Object.values(SHELL_BRIDGE_CAPABILITIES).flat();
-    expect(SHELL_BRIDGE_CAPABILITIES.localService).toEqual(expect.arrayContaining(["backendConnection", "startServer", "startLocalOnly", "stopServer"]));
+    expect(SHELL_BRIDGE_CAPABILITIES.localService).toEqual(expect.arrayContaining(["backendConnection", "startServer", "startLocalOnly", "startService", "stopServer"]));
     expect(SHELL_BRIDGE_CAPABILITIES.notifications).toEqual(expect.arrayContaining(["notify", "notifyEvent"]));
     expect(SHELL_BRIDGE_CAPABILITIES.navigation).toContain("openExternal");
     expect(SHELL_BRIDGE_CAPABILITIES.secureSettings).toEqual(expect.arrayContaining(["importEnvironment", "smsProviderSettings", "validateTelnyxSettings", "saveTelnyxSettings", "emailSettings", "pushSettings"]));
@@ -307,6 +308,18 @@ describe("React renderer parity", () => {
     expect(experience.twilio.capabilities.find((item) => item.id === "voice")?.supported).toBe(true);
     expect(experience.telnyx.capabilities.find((item) => item.id === "voice")?.supported).toBe(false);
     expect(experience.telnyx.webhookModel).toContain("Ed25519");
+  });
+
+  it("models no-provider as a first-class local-only selection (PNC-001/002)", () => {
+    const experience = buildCommunicationsProviderExperience(
+      { account_sid: true, auth_token: true, phone_number: true, public_base_url: true, sms_provider: "none" },
+      { ...smsProviderSettings, preferred_provider: "none" },
+      true,
+    );
+    expect(experience.selected.id).toBe("local");
+    expect(experience.smsReady).toBe(false);
+    expect(experience.twilio.configured).toBe(true);
+    expect(experience.local.setupModel).toContain("No telecom provider");
   });
 
   it("switches views and filters contacts", async () => {
@@ -853,6 +866,9 @@ describe("React renderer parity", () => {
     await waitFor(() => expect(window.desktop?.startServer).toHaveBeenCalledWith(expect.objectContaining({ account_sid: "AC999", webhook_port: 5056 })));
     await userEvent.click(screen.getByRole("button", { name: "Stop local service" }));
     expect(window.desktop?.stopServer).toHaveBeenCalled();
+    await userEvent.click(await screen.findByRole("button", { name: "Start local service" }));
+    expect(window.desktop?.startService).toHaveBeenCalled();
+    expect(window.desktop?.startServer).toHaveBeenCalledTimes(1);
     await userEvent.click(screen.getByRole("button", { name: "Open Twilio Console" }));
     expect(window.desktop?.openExternal).toHaveBeenCalledWith("https://console.twilio.com/");
     await userEvent.click(screen.getByRole("button", { name: "Remove stored credentials" }));
@@ -905,6 +921,22 @@ describe("React renderer parity", () => {
     await userEvent.click(screen.getByRole("button", { name: "Open reviewed outbox" }));
     expect(await screen.findByText("Approved SMS/MMS will use Telnyx")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Approve & send via Telnyx" })).toBeTruthy();
+  });
+
+  it("keeps shared settings and send surfaces provider-neutral in local-only mode (PNC-001/002/004)", async () => {
+    vi.mocked(window.desktop!.smsProviderSettings).mockResolvedValue({ ...smsProviderSettings, preferred_provider: "none" });
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(await screen.findByRole("heading", { name: "SMS/MMS providers" })).toBeTruthy();
+    expect(screen.getByText(/none — local-only/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Choose SMS/MMS provider" })).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Channels" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open messages" }));
+    expect(await screen.findByRole("status", { name: "No SMS and MMS provider selected; local-only mode" })).toBeTruthy();
+    await userEvent.click(await screen.findByRole("button", { name: /Ada Lovelace/ }));
+    expect(await screen.findByText(/Select and configure an SMS\/MMS provider before sending/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send message; SMS/MMS provider required" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("manages MCP token status without rendering the token value", async () => {

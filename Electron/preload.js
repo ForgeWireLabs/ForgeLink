@@ -11,6 +11,7 @@ const forgeLinkShell = {
   validateSettings: (settings) => ipcRenderer.invoke("validate-settings", settings),
   startServer: (settings) => ipcRenderer.invoke("start-server", settings),
   startLocalOnly: (settings) => ipcRenderer.invoke("start-local-only", settings),
+  startService: () => ipcRenderer.invoke("start-service"),
   importEnvironment: () => ipcRenderer.invoke("import-environment"),
   removeCredentials: () => ipcRenderer.invoke("remove-credentials"),
   smsProviderSettings: () => ipcRenderer.invoke("sms-provider-settings-get"),

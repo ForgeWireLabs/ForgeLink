@@ -24,6 +24,15 @@ versions tracked in `VERSION` and `Electron/package.json`.
   `docs/trusted-signals.md`.
 
 ### Changed
+- Provider-neutral communications cockpit (work item 038): local-only/no-provider
+  is now an explicit SMS/MMS selection instead of an implicit Twilio fallback;
+  shared Settings, Channels, compose, and reviewed-outbox surfaces use neutral
+  wording until a configured edge is selected; Twilio and Telnyx configuration
+  have equal hierarchy while retaining distinct capabilities and setup models;
+  removal falls back only to an actually configured provider; and every outbound
+  path is gated while local-only is active. Restarting an existing local service
+  also preserves the current provider selection instead of re-entering Twilio
+  onboarding.
 - Electron installer maintenance: production dependencies are now unpacked beside
   the TypeScript backend utility process, so clean/replacement Windows installs can
   resolve `fast-xml-parser`, `undici`, and future backend runtime dependencies instead

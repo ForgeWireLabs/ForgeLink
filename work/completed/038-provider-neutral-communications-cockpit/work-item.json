@@ -1,0 +1,60 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "038",
+  "title": "Provider-Neutral Communications Cockpit",
+  "status": "completed",
+  "owner_scope": "ui",
+  "affected_scopes": [
+    "work",
+    "ui",
+    "desktop",
+    "backend",
+    "providers",
+    "messaging",
+    "voice",
+    "docs",
+    "evidence",
+    "audit"
+  ],
+  "depends_on": ["011", "017", "035", "036", "037"],
+  "provenance": "concrete",
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-07-26T21:00:12Z",
+    "note": "Created after the operator identified that the completed provider-specific slice still left the shared cockpit Twilio-forward, and before changing selection, renderer, backend, tests, docs, or evidence."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "PNC-001",
+      "text": "Model no selected telecom provider as a first-class local-only state instead of defaulting an unconfigured installation to Twilio, while preserving configured legacy Twilio and explicit Telnyx selections.",
+      "state": "satisfied",
+      "evidence": ["20260726-provider-neutral-communications-cockpit"]
+    },
+    {
+      "id": "PNC-002",
+      "text": "Make shared channels, compose, new-message, reviewed-outbox, health, and settings overview surfaces provider-neutral and derive provider wording only from an explicit active SMS/MMS edge.",
+      "state": "satisfied",
+      "evidence": ["20260726-provider-neutral-communications-cockpit"]
+    },
+    {
+      "id": "PNC-003",
+      "text": "Give Twilio and Telnyx equal configuration hierarchy while keeping their credentials, webhook models, portals, capabilities, and Twilio-only Voice behavior explicitly provider-specific.",
+      "state": "satisfied",
+      "evidence": ["20260726-provider-neutral-communications-cockpit"]
+    },
+    {
+      "id": "PNC-004",
+      "text": "Make provider removal and local-only transitions honest and reversible: never silently select an unavailable provider, and prevent sends until an explicitly selected provider is ready.",
+      "state": "satisfied",
+      "evidence": ["20260726-provider-neutral-communications-cockpit"]
+    },
+    {
+      "id": "PNC-005",
+      "text": "Add deterministic renderer, desktop-store, and backend coverage for local-only, Twilio, and Telnyx selection; rebuild and reinstall the Windows app; update docs and changelog; and pass full repository validation with durable redacted evidence.",
+      "state": "satisfied",
+      "evidence": ["20260726-provider-neutral-communications-cockpit"]
+    }
+  ],
+  "created": "2026-07-26",
+  "updated": "2026-07-26"
+}

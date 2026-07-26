@@ -578,17 +578,22 @@ function Avatar({ name, size = "regular" }: { name: string; size?: string }) {
 
 function ProviderBadge({ provider, compact = false }: { provider: CommunicationsProviderExperience; compact?: boolean }) {
   const active = provider.selected;
+  const providerSelected = active.id !== "local";
   return (
     <span
-      className={`provider-badge provider-${active.id} ${active.configured ? "ready" : "missing"} ${compact ? "compact" : ""}`}
+      className={`provider-badge provider-${active.id} ${providerSelected ? (active.configured ? "ready" : "missing") : "neutral"} ${compact ? "compact" : ""}`}
       role="status"
-      aria-label={`Active SMS and MMS provider: ${active.label}; ${active.configured ? "ready" : "not configured"}`}
+      aria-label={
+        providerSelected
+          ? `Active SMS and MMS provider: ${active.label}; ${active.configured ? "ready" : "not configured"}`
+          : "No SMS and MMS provider selected; local-only mode"
+      }
     >
       <span className="provider-mark" aria-hidden="true">
-        {active.id === "twilio" ? "TW" : "TX"}
+        {active.id === "twilio" ? "TW" : active.id === "telnyx" ? "TX" : "FL"}
       </span>
       <span>{active.label}</span>
-      {!compact && <small>{active.configured ? "SMS/MMS ready" : "setup required"}</small>}
+      {!compact && <small>{providerSelected ? (active.configured ? "SMS/MMS ready" : "setup required") : "No telecom provider"}</small>}
     </span>
   );
 }
@@ -1227,7 +1232,8 @@ export function App() {
           attentionPolicy={attentionPolicy}
           presence={presence}
           host={host}
-          onConfigure={() => setModal({ kind: "settings", provider: "twilio" })}
+          onChooseProvider={() => setModal({ kind: "settings", provider: "choose" })}
+          onConfigureTwilio={() => setModal({ kind: "settings", provider: "twilio" })}
           onConsole={() => shell.openExternal("https://console.twilio.com/")}
           onImport={async () => {
             try {
@@ -1256,8 +1262,7 @@ export function App() {
           }}
           onToggle={async () => {
             try {
-              const next =
-                status?.running === false ? (status?.configured ? await shell.startServer({}) : await shell.startLocalOnly({})) : await shell.stopServer();
+              const next = status?.running === false ? await shell.startService() : await shell.stopServer();
               setStatus(next);
             } catch (cause) {
               setError(String(cause));
@@ -1392,18 +1397,26 @@ export function App() {
               const saved = await shell.selectSmsProvider(provider);
               setSmsProviderSettings(saved);
               setConfig(await api.config());
-              void notify({ kind: "system", title: "SMS/MMS provider selected", body: provider === "telnyx" ? "Telnyx" : "Twilio" });
+              void notify({
+                kind: "system",
+                title: provider === "none" ? "Local-only mode selected" : "SMS/MMS provider selected",
+                body: provider === "telnyx" ? "Telnyx" : provider === "twilio" ? "Twilio" : "No telecom provider is active.",
+              });
             } catch (cause) {
               setError(String(cause));
             }
           }}
           onTelnyxRemove={async () => {
-            if (!window.confirm("Remove stored Telnyx credentials and switch SMS/MMS back to Twilio?")) return;
+            if (!window.confirm("Remove stored Telnyx credentials? If no other configured SMS/MMS provider is available, ForgeLink will return to local-only mode.")) return;
             try {
               const saved = await shell.removeTelnyxSettings();
               setSmsProviderSettings(saved);
               setConfig(await api.config());
-              void notify({ kind: "system", title: "Telnyx credentials removed", body: "Stored Telnyx secrets were removed and Twilio is the selected SMS/MMS edge." });
+              void notify({
+                kind: "system",
+                title: "Telnyx credentials removed",
+                body: saved.preferred_provider === "twilio" ? "Twilio is now the selected SMS/MMS provider." : "ForgeLink is now in local-only mode.",
+              });
             } catch (cause) {
               setError(String(cause));
             }
@@ -1508,7 +1521,7 @@ export function App() {
           submitLabel="Start conversation"
           onClose={closeModal}
           onSubmit={async (data) => {
-            if (!providerExperience.smsReady) throw new Error(`${providerExperience.selected.label} must be configured before sending SMS/MMS.`);
+            if (!providerExperience.smsReady) throw new Error("Select and configure an SMS/MMS provider before sending.");
             await send(String(data.get("number")), String(data.get("message")));
           }}
         >
@@ -2547,7 +2560,7 @@ function Composer({
           </label>
           <button
             className="send-button"
-            aria-label={`Send message via ${provider.selected.label}`}
+            aria-label={provider.smsReady ? `Send message via ${provider.selected.label}` : "Send message; SMS/MMS provider required"}
             disabled={!provider.smsReady || sending || (!body.trim() && !attachment)}
             onClick={() => void submit()}
           >
@@ -2556,7 +2569,7 @@ function Composer({
         </div>
       </div>
       <div className="composer-hint">
-        {provider.smsReady ? `Sending through ${provider.selected.label}` : `${provider.selected.label} setup required before sending`} · Enter to send
+        {provider.smsReady ? `Sending through ${provider.selected.label}` : "Select and configure an SMS/MMS provider before sending"} · Enter to send
         <span>Shift + Enter for a new line</span>
       </div>
     </div>
@@ -2774,22 +2787,22 @@ function Channels({
         <section className="settings-card span-two">
           <div className="provider-overview-head">
             <div>
-              <span className="eyebrow">Active telecom edge</span>
-              <h2>{provider.selected.label}</h2>
+              <span className="eyebrow">{provider.selected.id === "local" ? "Telecom edge" : "Active telecom edge"}</span>
+              <h2>{provider.selected.id === "local" ? "No telecom provider selected" : provider.selected.label}</h2>
               <p>{provider.selected.setupModel}</p>
             </div>
             <ProviderBadge provider={provider} />
           </div>
-          <ProviderCapabilities provider={provider.selected} />
+          {provider.selected.id !== "local" && <ProviderCapabilities provider={provider.selected} />}
           <div className="provider-health-grid">
             <div>
               <span>Outbound SMS/MMS</span>
-              <strong className={provider.smsReady ? "health-ready" : "health-missing"}>{provider.smsReady ? "Ready" : "Setup required"}</strong>
+              <strong className={provider.smsReady ? "health-ready" : "health-missing"}>{provider.smsReady ? "Ready" : "Provider required"}</strong>
             </div>
             <div>
               <span>Inbound authenticity</span>
-              <strong className={provider.selected.inboundConfigured ? "health-ready" : "health-missing"}>
-                {provider.selected.inboundConfigured ? "Ready" : "Webhook setup required"}
+              <strong className={provider.smsReady && provider.selected.inboundConfigured ? "health-ready" : "health-missing"}>
+                {provider.smsReady && provider.selected.inboundConfigured ? "Ready" : provider.selected.id === "local" ? "Provider required" : "Webhook setup required"}
               </strong>
             </div>
             <div>
@@ -2952,7 +2965,7 @@ function OutboundDraftCard({
             </button>
           )}
           <button className="button primary small" disabled={!provider.smsReady} onClick={() => void onApproveSend(draft.id)}>
-            Approve &amp; send via {provider.selected.label}
+            {provider.smsReady ? `Approve & send via ${provider.selected.label}` : "Approve & send"}
           </button>
           <button className="button danger small" onClick={() => void onDeny(draft.id)}>
             Deny
@@ -3018,7 +3031,7 @@ function ReviewedOutbox({
       <div className={`provider-context ${provider.smsReady ? "ready" : "missing"}`} role="status">
         <ProviderBadge provider={provider} />
         <div>
-          <strong>{provider.smsReady ? `Approved SMS/MMS will use ${provider.selected.label}` : `${provider.selected.label} is not ready`}</strong>
+          <strong>{provider.smsReady ? `Approved SMS/MMS will use ${provider.selected.label}` : "No SMS/MMS provider selected"}</strong>
           <span>
             {provider.smsReady
               ? "Provider selection is applied when a human approves or a scheduled draft is dispatched."
@@ -3837,7 +3850,8 @@ function Settings({
   attentionPolicy,
   presence,
   host,
-  onConfigure,
+  onChooseProvider,
+  onConfigureTwilio,
   onConsole,
   onImport,
   onRemove,
@@ -3884,7 +3898,8 @@ function Settings({
   attentionPolicy?: AttentionPolicy;
   presence: PresenceSnapshot;
   host: string;
-  onConfigure(): void;
+  onChooseProvider(): void;
+  onConfigureTwilio(): void;
   onConsole(): void;
   onImport(): void;
   onRemove(): void;
@@ -3905,7 +3920,7 @@ function Settings({
   provider: CommunicationsProviderExperience;
   onTelnyxValidate(values: TelnyxSettingsInput): Promise<void>;
   onTelnyxSave(values: TelnyxSettingsInput): Promise<void>;
-  onSmsProviderSelect(provider: "twilio" | "telnyx"): void;
+  onSmsProviderSelect(provider: "none" | "twilio" | "telnyx"): void;
   onTelnyxRemove(): void;
   emailStatus?: EmailChannelStatus;
   emailSettings?: EmailSettingsStatus;
@@ -3999,7 +4014,36 @@ function Settings({
             </p>
           </section>
         )}
-        <section className="settings-card">
+        <section className="settings-card span-two">
+          <div className="settings-card-head">
+            <div className="settings-icon">
+              <Icon name="nodes" />
+            </div>
+            <div>
+              <h2>SMS/MMS providers</h2>
+              <p>Choose a telecom edge explicitly, or keep ForgeLink local-only. Provider setup and capabilities remain separate.</p>
+            </div>
+          </div>
+          <div className="status-list">
+            <StatusRow label="Local channels" ready={true} />
+            <StatusRow label="Twilio SMS/MMS" ready={provider.twilio.configured} />
+            <StatusRow label="Telnyx SMS/MMS" ready={provider.telnyx.configured} />
+          </div>
+          <p className="settings-source">
+            Selected SMS/MMS edge: <strong>{provider.selected.id === "local" ? "none — local-only" : provider.selected.label}</strong>.
+          </p>
+          <div className="data-actions">
+            <button className="button primary" onClick={onChooseProvider}>
+              Choose SMS/MMS provider
+            </button>
+            {provider.selected.id !== "local" && (
+              <button className="button secondary" onClick={() => onSmsProviderSelect("none")}>
+                Use local-only mode
+              </button>
+            )}
+          </div>
+        </section>
+        <section className="settings-card span-two">
           <div className="settings-card-head">
             <div className="settings-icon">
               <Icon name="settings" />
@@ -4034,7 +4078,7 @@ function Settings({
               Import environment credentials securely
             </button>
           )}
-          <button className="button primary full" onClick={onConfigure}>
+          <button className="button primary full" onClick={onConfigureTwilio}>
             {status?.configured ? "Update connection" : "Configure connection"}
           </button>
           {status?.configured && smsProviderSettings?.preferred_provider !== "twilio" && (
@@ -4047,17 +4091,6 @@ function Settings({
               Remove stored credentials
             </button>
           )}
-        </section>
-        <section className="settings-card">
-          <div className="settings-card-head">
-            <div className="settings-icon">
-              <Icon name="external" />
-            </div>
-            <div>
-              <h2>Twilio Console</h2>
-              <p>Manage numbers, messaging webhooks, voice, and usage.</p>
-            </div>
-          </div>
           <button className="button secondary full" onClick={onConsole}>
             Open Twilio Console <Icon name="external" size={16} />
           </button>
@@ -4096,26 +4129,6 @@ function Settings({
             </div>
           </section>
         )}
-        <section className="settings-card">
-          <div className="settings-card-head">
-            <div className="settings-icon">
-              <Icon name="nodes" />
-            </div>
-            <div>
-              <h2>Channels and providers</h2>
-              <p>ForgeLink delivers through provider-neutral channels.</p>
-            </div>
-          </div>
-          <div className="status-list">
-            <StatusRow label="Local (native)" ready={true} />
-            <StatusRow label="Twilio SMS/MMS" ready={status?.configured} />
-            <StatusRow label="Telnyx SMS/MMS" ready={smsProviderSettings?.telnyx.configured} />
-          </div>
-          <p className="settings-source">
-            Selected SMS/MMS edge: <strong>{smsProviderSettings?.preferred_provider || "twilio"}</strong>. Plivo and Bandwidth remain planned; local channels
-            work without a telecom provider.
-          </p>
-        </section>
         <section className="settings-card span-two">
           <h2>Agent apps / MCP</h2>
           <p>External tools use a separate local token file and can only reach agent-channel routes.</p>
@@ -4580,7 +4593,7 @@ function ConnectionModal(props: ConnectionModalProps) {
       ? props.initialProvider
       : props.firstRun
         ? "choose"
-        : "twilio",
+        : "choose",
   );
   const provider = buildCommunicationsProviderExperience(undefined, props.smsProviderSettings, props.status?.configured === true);
 

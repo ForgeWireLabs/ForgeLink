@@ -57,9 +57,19 @@ shows the active edge and offers **Use Twilio for SMS/MMS**. The selection appli
 consistently to ordinary sends, retries, and approved outbound drafts. ForgeLink
 does not silently choose the first registered adapter.
 
-The shared cockpit also shows the active edge in Channels, the conversation composer,
-the new-message dialog, and the reviewed outbox. Those surfaces report Telnyx SMS/MMS
-readiness without implying Twilio-shaped credentials or Telnyx Voice support.
+The provider-neutral Settings overview also offers **Use local-only mode**. This
+sets the selection to `none` without deleting stored Twilio or Telnyx credentials.
+The shared cockpit then reports that no telecom provider is selected and disables
+external SMS/MMS sends until a configured provider is chosen.
+
+The shared cockpit shows an active edge in Channels, the conversation composer,
+the new-message dialog, and the reviewed outbox only when one is selected. Those
+surfaces report Telnyx SMS/MMS readiness without implying Twilio-shaped credentials
+or Telnyx Voice support.
+
+Removing stored Telnyx credentials selects Twilio only when Twilio is actually
+configured. Otherwise ForgeLink returns to local-only; it never represents an
+unavailable provider as the active edge.
 
 Twilio remains the voice edge. Selecting Telnyx for SMS/MMS does not change voice
 behavior.

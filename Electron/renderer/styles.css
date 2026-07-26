@@ -483,8 +483,10 @@ h1, h2, h3, p { margin: 0; }
 .provider-badge.compact .provider-mark { min-width: 19px; height: 19px; border-radius: 6px; font-size: 7px; }
 .provider-twilio .provider-mark, .provider-choice.twilio .provider-mark { background: #d83b54; }
 .provider-telnyx .provider-mark, .provider-choice.telnyx .provider-mark { background: #3f8f78; }
+.provider-local .provider-mark { background: #68758a; }
 .provider-badge.ready { border-color: rgba(72,213,151,.25); }
 .provider-badge.missing { border-color: rgba(255,112,130,.25); }
+.provider-badge.neutral { border-color: var(--line-strong); }
 
 .provider-capabilities { margin: 14px 0; display: flex; flex-wrap: wrap; gap: 7px; }
 .provider-capabilities span {

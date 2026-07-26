@@ -91,9 +91,12 @@ async function configureTelnyxWebhook(settings, publicBaseUrl, fetchImpl = fetch
   return { configured: true, webhook_url: webhookUrl };
 }
 
-function createSmsProviderSettingsStore({ fs, path, safeStorage, env, userData }) {
+function createSmsProviderSettingsStore({ fs, path, safeStorage, env, userData, twilioConfigured = () => false }) {
   const file = path.join(userData, "sms-provider-settings.json");
-  let preferredProvider = String(env.FORGELINK_SMS_PROVIDER || "twilio").toLowerCase() === "telnyx" ? "telnyx" : "twilio";
+  const environmentPreference = String(env.FORGELINK_SMS_PROVIDER || "").toLowerCase();
+  let preferredProvider = environmentPreference === "telnyx" || environmentPreference === "twilio" || environmentPreference === "none"
+    ? environmentPreference
+    : "none";
   let source = "none";
   let telnyx = { api_key: "", phone_number: "", public_key: "", messaging_profile_id: "" };
 
@@ -121,7 +124,9 @@ function createSmsProviderSettingsStore({ fs, path, safeStorage, env, userData }
     let stored = null;
     try { stored = JSON.parse(fs.readFileSync(file, "utf8")); } catch (error) { if (error.code !== "ENOENT") throw error; }
     if (stored) {
-      preferredProvider = stored.preferred_provider === "telnyx" ? "telnyx" : "twilio";
+      preferredProvider = stored.preferred_provider === "telnyx" || stored.preferred_provider === "twilio" || stored.preferred_provider === "none"
+        ? stored.preferred_provider
+        : "none";
       telnyx = {
         api_key: decrypt(stored.telnyx_api_key_encrypted),
         phone_number: String(stored.telnyx_phone_number || "").trim(),
@@ -131,7 +136,9 @@ function createSmsProviderSettingsStore({ fs, path, safeStorage, env, userData }
       source = telnyx.api_key && telnyx.phone_number ? "stored" : "none";
     }
     if (source === "none" && environmentAvailable()) { telnyx = environmentTelnyx(); source = "environment"; }
-    if (preferredProvider === "telnyx" && !telnyx.api_key) preferredProvider = "twilio";
+    if (!stored && !environmentPreference && twilioConfigured()) preferredProvider = "twilio";
+    if (preferredProvider === "telnyx" && !telnyx.api_key) preferredProvider = twilioConfigured() ? "twilio" : "none";
+    if (preferredProvider === "twilio" && !twilioConfigured()) preferredProvider = "none";
     return current();
   }
 
@@ -157,13 +164,22 @@ function createSmsProviderSettingsStore({ fs, path, safeStorage, env, userData }
     fs.writeFileSync(file, JSON.stringify(stored, null, 2), { mode: 0o600 });
   }
 
+  function writePreference(nextPreferred) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ preferred_provider: nextPreferred }, null, 2), { mode: 0o600 });
+  }
+
   function persist(input = {}) {
     const next = candidate(input);
     if (!next.api_key) throw new Error("Telnyx requires an API key.");
     next.phone_number = normalizePhone(next.phone_number);
     next.public_key = validatePublicKey(next.public_key);
     next.messaging_profile_id = normalizeProfileId(next.messaging_profile_id);
-    const nextPreferred = input.preferred_provider === "telnyx" || preferredProvider === "telnyx" ? "telnyx" : "twilio";
+    const nextPreferred = input.preferred_provider === "none" || input.preferred_provider === "twilio" || input.preferred_provider === "telnyx"
+      ? input.preferred_provider
+      : preferredProvider === "telnyx"
+        ? "telnyx"
+        : "none";
     writeStored(next, nextPreferred);
     telnyx = next; preferredProvider = nextPreferred; source = "stored";
     return current();
@@ -171,16 +187,24 @@ function createSmsProviderSettingsStore({ fs, path, safeStorage, env, userData }
 
   function select(provider) {
     const next = String(provider || "").toLowerCase();
-    if (next !== "twilio" && next !== "telnyx") throw new Error("Select Twilio or Telnyx as the SMS/MMS provider.");
+    if (next !== "none" && next !== "twilio" && next !== "telnyx") throw new Error("Select local-only, Twilio, or Telnyx for SMS/MMS.");
+    if (next === "twilio" && !twilioConfigured()) throw new Error("Configure Twilio before selecting it.");
     if (next === "telnyx" && !(telnyx.api_key && telnyx.phone_number)) throw new Error("Configure Telnyx before selecting it.");
     preferredProvider = next;
     if (source === "stored") writeStored(telnyx, preferredProvider);
+    else writePreference(preferredProvider);
     return current();
   }
 
   function removeTelnyx() {
+    const removingSelectedProvider = preferredProvider === "telnyx";
     try { fs.unlinkSync(file); } catch (error) { if (error.code !== "ENOENT") throw error; }
-    preferredProvider = "twilio"; telnyx = { api_key: "", phone_number: "", public_key: "", messaging_profile_id: "" }; source = "none";
+    preferredProvider = removingSelectedProvider
+      ? (twilioConfigured() ? "twilio" : "none")
+      : preferredProvider === "twilio" && twilioConfigured()
+        ? "twilio"
+        : "none";
+    telnyx = { api_key: "", phone_number: "", public_key: "", messaging_profile_id: "" }; source = "none";
     if (environmentAvailable()) { telnyx = environmentTelnyx(); source = "environment"; }
     return current();
   }

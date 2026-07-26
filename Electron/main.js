@@ -291,6 +291,7 @@ ipcMain.handle("start-server", async (_, update = {}) => {
   const candidate = { ...current, ...update, auth_token: update.auth_token || current.auth_token };
   const validation = await validateTwilioCredentials(candidate);
   settingsStore.persist(validation.settings);
+  smsProviderSettingsStore.select("twilio");
   await startBackend();
   let ready = await waitForBackend();
   if (!ready) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
@@ -325,12 +326,14 @@ ipcMain.handle("import-environment", async () => {
   const candidate = settingsState().settings;
   const validation = await validateTwilioCredentials(candidate);
   settingsStore.importEnvironment();
+  smsProviderSettingsStore.select("twilio");
   await startBackend();
   if (!(await waitForBackend())) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
   return { ...publicStatus(), validation: { account_name: validation.account_name, account_status: validation.account_status, phone_number: validation.phone_number } };
 });
 ipcMain.handle("remove-credentials", async () => {
   settingsStore.removeCredentials();
+  if (smsProviderSettingsStore.current().preferred_provider === "twilio") smsProviderSettingsStore.select("none");
   await startBackend();
   await waitForBackend();
   return publicStatus();
@@ -410,10 +413,17 @@ ipcMain.handle("push-settings-remove", async () => {
 });
 ipcMain.handle("start-local-only", async (_, update = {}) => {
   settingsStore.startLocalOnly(update);
+  smsProviderSettingsStore.select("none");
   if (!smsProviderSettingsStore.current().telnyx.inbound_configured) {
     tunnelPublicUrl = "";
     await tunnelService().stop();
   }
+  await startBackend();
+  if (!(await waitForBackend())) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
+  broadcastStatus();
+  return publicStatus();
+});
+ipcMain.handle("start-service", async () => {
   await startBackend();
   if (!(await waitForBackend())) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
   broadcastStatus();
@@ -500,7 +510,14 @@ app.whenReady().then(async () => {
   try { emailSettingsStore.load(); } catch (error) { console.error(`Email settings load failed: ${error}`); }
   pushSettingsStore = createPushSettingsStore({ fs, path, safeStorage, userData: app.getPath("userData") });
   try { pushSettingsStore.load(); } catch (error) { console.error(`Push settings load failed: ${error}`); }
-  smsProviderSettingsStore = createSmsProviderSettingsStore({ fs, path, safeStorage, env: process.env, userData: app.getPath("userData") });
+  smsProviderSettingsStore = createSmsProviderSettingsStore({
+    fs,
+    path,
+    safeStorage,
+    env: process.env,
+    userData: app.getPath("userData"),
+    twilioConfigured: () => settingsState().configured
+  });
   try { smsProviderSettingsStore.load(); } catch (error) { console.error(`SMS provider settings load failed: ${error}`); }
   if (!(await backendIsReady())) await startBackend();
   const ready = await waitForBackend();

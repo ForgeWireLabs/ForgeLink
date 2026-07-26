@@ -1,0 +1,71 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260726-provider-neutral-communications-cockpit",
+  "timestamp": "2026-07-26T21:20:46Z",
+  "work_item": "038",
+  "result": "passed",
+  "provenance": "concrete",
+  "criteria": ["PNC-001", "PNC-002", "PNC-003", "PNC-004", "PNC-005"],
+  "summary": "Generalized the shared communications cockpit around an explicit local-only/no-provider state, equal-hierarchy but provider-specific Twilio and Telnyx setup, neutral send and health surfaces, durable provider selection, honest removal fallback, and backend enforcement that blocks external SMS/MMS while no provider is selected.",
+  "commands": [
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Complete Electron regression passed: 227 renderer tests and 235 runnable Node/backend/shell tests; the one live Twilio credential test remained intentionally opt-in and skipped."
+    },
+    {
+      "command": "cargo check --manifest-path Tauri/src-tauri/Cargo.toml",
+      "exit_code": 0,
+      "summary": "The Tauri shared-shell Rust bridge compiled with its redacted unavailable-provider status defaulting honestly to none."
+    },
+    {
+      "command": "npm run build",
+      "exit_code": 0,
+      "summary": "Built the Windows x64 NSIS installer and packaged renderer/backend artifacts for ForgeLink 2.0.3."
+    },
+    {
+      "command": "ForgeLink_2.0.3_x64-setup.exe /S; launch installed app; rebuild final package; launch win-unpacked runtime; authenticated GET /health",
+      "exit_code": 0,
+      "summary": "The replacement installation completed with exit code 0 and the installed 2.0.3 app launched five processes with authenticated 200 Node health. After the final provider-neutral service-restart hardening, the rebuilt win-unpacked runtime also launched five processes and returned authenticated 200 Node health; the final NSIS artifact SHA-256 was E20C15602051C81897EF6D746A1924DE3FE7A42D4CECD10F651B9383CCA860AF."
+    },
+    {
+      "command": "npm run scan:secrets",
+      "exit_code": 0,
+      "summary": "Repository secret scan passed with no credentials detected."
+    },
+    {
+      "command": "python -m repopact_cli dashboard --root . && python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Canonical dashboard generation and ForgeLink governed validation passed after work-item closeout."
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "summary": "The final patch passed whitespace validation."
+    }
+  ],
+  "artifacts": [
+    "Electron/smsProviderSettings.js",
+    "Electron/main.js",
+    "Electron/preload.js",
+    "Electron/backend/src/server.ts",
+    "Electron/renderer/src/providerExperience.ts",
+    "Electron/renderer/src/shell.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/styles.css",
+    "Tauri/src-tauri/src/lib.rs",
+    "docs/communications-runtime.md",
+    "docs/telnyx.md",
+    "work/completed/038-provider-neutral-communications-cockpit/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "codex/first-class-telnyx",
+    "platform": "Windows",
+    "installed_version": "2.0.3.0",
+    "live_providers": "not run; no real provider calls, credentials, phone numbers, messages, account identifiers, or private webhook URLs were used",
+    "installed_probe": "the replacement-installed build and final rebuilt win-unpacked package both passed authenticated loopback health; final NSIS replacement elevation was canceled twice after the neutral service-restart action, so the running verified final build is from dist/win-unpacked and the Program Files shortcut still needs that final installer rerun",
+    "tauri_limit": "shared renderer and bridge compilation only; work item 032 retains real local-service and secure-provider-storage parity"
+  }
+}

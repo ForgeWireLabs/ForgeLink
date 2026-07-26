@@ -42,7 +42,36 @@ test("TEL-002: encrypts Telnyx secrets, redacts the renderer view, selects it, a
   assert.equal(store.backendEnv().TELNYX_API_KEY, "KEY-secret");
   assert.equal(store.backendEnv().FORGELINK_SMS_PROVIDER, "telnyx");
   assert.equal(store.removeTelnyx().telnyx.configured, false);
-  assert.equal(store.current().preferred_provider, "twilio");
+  assert.equal(store.current().preferred_provider, "none");
+});
+
+test("PNC-001: local-only is the default and configured providers require explicit selection", () => {
+  const localStore = createSmsProviderSettingsStore(makeEnv());
+  assert.equal(localStore.load().preferred_provider, "none");
+  assert.equal(localStore.backendEnv().FORGELINK_SMS_PROVIDER, "none");
+  assert.throws(() => localStore.select("twilio"), /Configure Twilio/);
+
+  const fixture = makeEnv();
+  const twilioStore = createSmsProviderSettingsStore({ ...fixture, twilioConfigured: () => true });
+  assert.equal(twilioStore.load().preferred_provider, "twilio");
+  assert.equal(twilioStore.select("none").preferred_provider, "none");
+  const restarted = createSmsProviderSettingsStore({ ...fixture, twilioConfigured: () => true });
+  assert.equal(restarted.load().preferred_provider, "none");
+  assert.equal(twilioStore.select("twilio").preferred_provider, "twilio");
+});
+
+test("PNC-004: removing selected Telnyx falls back only to a configured Twilio edge", () => {
+  const fixture = makeEnv();
+  const store = createSmsProviderSettingsStore({ ...fixture, twilioConfigured: () => true });
+  store.load();
+  store.persist({ ...settings(), preferred_provider: "telnyx" });
+  assert.equal(store.removeTelnyx().preferred_provider, "twilio");
+
+  const localFixture = makeEnv();
+  const localStore = createSmsProviderSettingsStore({ ...localFixture, twilioConfigured: () => true });
+  localStore.load();
+  localStore.persist({ ...settings(), preferred_provider: "none" });
+  assert.equal(localStore.removeTelnyx().preferred_provider, "none");
 });
 
 test("TEL-002: environment fallback remains available without persisting plaintext", () => {

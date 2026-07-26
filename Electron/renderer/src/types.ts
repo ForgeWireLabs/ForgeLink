@@ -31,13 +31,14 @@ export interface GovernanceCapabilities { forgelink: boolean; governance: boolea
 export interface SignalSubscription { id: string; title: string; url: string; enabled: boolean; muted: boolean; fetch_interval_minutes: number; retention_days: number; last_fetch_at: string | null; last_fetch_status: string; last_error: string; created_at: string; updated_at: string; }
 export interface SignalItem { id: string; subscription_id: string; source_title: string; title: string; url: string; summary: string; author: string; published_at: string | null; received_at: string; status: "unread" | "read" | "archived"; muted: boolean; }
 export interface SmsProviderSummary { configured: boolean; inbound_configured?: boolean; }
-export interface ConfigStatus { account_sid: boolean; auth_token: boolean; phone_number: boolean; public_base_url: boolean; sms_provider?: "twilio" | "telnyx"; sms_providers?: { twilio: SmsProviderSummary; telnyx: SmsProviderSummary }; }
+export type SmsProviderSelection = "none" | "twilio" | "telnyx";
+export interface ConfigStatus { account_sid: boolean; auth_token: boolean; phone_number: boolean; public_base_url: boolean; sms_provider?: SmsProviderSelection; sms_providers?: { twilio: SmsProviderSummary; telnyx: SmsProviderSummary }; }
 export interface DesktopSettings { account_sid: string; auth_token_configured: boolean; twilio_number: string; public_base_url: string; webhook_host: string; webhook_port: number; }
 export interface ValidationResult { account_name: string; account_status: string; phone_number: string; }
 export interface TelnyxValidationResult extends ValidationResult { provider: "telnyx"; messaging_profile_id: string; messaging_profile_name: string; webhook_configured: boolean; public_key_valid: boolean; }
 export interface TelnyxSettingsStatus { configured: boolean; inbound_configured: boolean; source: "none" | "environment" | "stored"; environment_available: boolean; phone_number: string; messaging_profile_id: string; api_key_present: boolean; public_key_present: boolean; }
-export interface SmsProviderSettingsStatus { preferred_provider: "twilio" | "telnyx"; telnyx: TelnyxSettingsStatus; validation?: TelnyxValidationResult; webhook?: { configured: boolean; webhook_url: string }; }
-export interface TelnyxSettingsInput { api_key?: string; phone_number: string; public_key?: string; messaging_profile_id: string; preferred_provider?: "twilio" | "telnyx"; }
+export interface SmsProviderSettingsStatus { preferred_provider: SmsProviderSelection; telnyx: TelnyxSettingsStatus; validation?: TelnyxValidationResult; webhook?: { configured: boolean; webhook_url: string }; }
+export interface TelnyxSettingsInput { api_key?: string; phone_number: string; public_key?: string; messaging_profile_id: string; preferred_provider?: SmsProviderSelection; }
 export interface BackendConnection { baseUrl: string; apiToken: string; }
 export interface DataStatus { schema_version: number; latest_backup: string | null; backup_count: number; recovered_from: string | null; migration_backup: string | null; }
 export interface RetentionResult { deletedMessages: number; deletedThreads: number; deletedUploads: number; deletedAgentMessages: number; deletedSignalItems: number; deletedCalls: number; deletedEmailMessages?: number; }

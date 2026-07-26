@@ -1,6 +1,7 @@
-import type { ConfigStatus, SmsProviderSettingsStatus } from "./types";
+import type { ConfigStatus, SmsProviderSelection, SmsProviderSettingsStatus } from "./types";
 
 export type SmsProviderId = "twilio" | "telnyx";
+export type CommunicationsEdgeId = SmsProviderId | "local";
 
 export interface ProviderCapability {
   id: "sms" | "mms" | "voice" | "signed_webhooks";
@@ -9,8 +10,8 @@ export interface ProviderCapability {
 }
 
 export interface SmsProviderExperience {
-  id: SmsProviderId;
-  label: "Twilio" | "Telnyx";
+  id: CommunicationsEdgeId;
+  label: string;
   configured: boolean;
   inboundConfigured: boolean;
   setupModel: string;
@@ -20,6 +21,7 @@ export interface SmsProviderExperience {
 
 export interface CommunicationsProviderExperience {
   selected: SmsProviderExperience;
+  local: SmsProviderExperience;
   twilio: SmsProviderExperience;
   telnyx: SmsProviderExperience;
   smsReady: boolean;
@@ -45,8 +47,22 @@ export function buildCommunicationsProviderExperience(
   const twilioInbound = Boolean(twilioReported?.inbound_configured ?? (twilioConfigured && config?.public_base_url));
   const telnyxConfigured = Boolean(settings?.telnyx.configured ?? telnyxReported?.configured);
   const telnyxInbound = Boolean(settings?.telnyx.inbound_configured ?? telnyxReported?.inbound_configured);
-  const selectedId: SmsProviderId = settings?.preferred_provider || config?.sms_provider || "twilio";
+  const selectedId: SmsProviderSelection = settings?.preferred_provider || config?.sms_provider || "none";
 
+  const local: SmsProviderExperience = {
+    id: "local",
+    label: "Local-only",
+    configured: true,
+    inboundConfigured: true,
+    setupModel: "No telecom provider selected",
+    webhookModel: "Local authenticated runtime only",
+    capabilities: [
+      { id: "sms", label: "SMS", supported: false },
+      { id: "mms", label: "MMS", supported: false },
+      { id: "voice", label: "Voice", supported: false },
+      { id: "signed_webhooks", label: "Provider webhooks", supported: false },
+    ],
+  };
   const twilio: SmsProviderExperience = {
     id: "twilio",
     label: "Twilio",
@@ -65,6 +81,6 @@ export function buildCommunicationsProviderExperience(
     webhookModel: "Messaging-profile webhook v2 plus Ed25519 signatures",
     capabilities: capabilities("telnyx"),
   };
-  const selected = selectedId === "telnyx" ? telnyx : twilio;
-  return { selected, twilio, telnyx, smsReady: selected.configured };
+  const selected = selectedId === "telnyx" ? telnyx : selectedId === "twilio" ? twilio : local;
+  return { selected, local, twilio, telnyx, smsReady: selected.id !== "local" && selected.configured };
 }

@@ -1069,6 +1069,33 @@ test("TEL-005: routes outbound messages through the explicitly selected Telnyx e
   }
 });
 
+test("PNC-004: rejects outbound SMS/MMS when local-only is explicitly selected", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-local-only-send-"));
+  const previous = process.env.FORGELINK_SMS_PROVIDER;
+  process.env.FORGELINK_SMS_PROVIDER = "none";
+  let sendCalls = 0;
+  const sendMessage = async () => { sendCalls += 1; return { sid: "SM-WRONG", status: "queued" }; };
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken, sendMessage });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const localUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    const response = await fetch(`${localUrl}/api/send`, {
+      method: "POST",
+      headers: authorized({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ local_id: "local-provider-required", to: "+15551234567", body: "Must not send", media_urls: [] }),
+    });
+    assert.equal(response.status, 502);
+    assert.match((await response.json() as { error: string }).error, /Select and configure an SMS\/MMS provider/);
+    assert.equal(sendCalls, 0);
+    const config = await fetch(`${localUrl}/api/config-status`, { headers: authorized() }).then((item) => item.json()) as { sms_provider: string };
+    assert.equal(config.sms_provider, "none");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (previous === undefined) delete process.env.FORGELINK_SMS_PROVIDER; else process.env.FORGELINK_SMS_PROVIDER = previous;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("contacts metadata, points, and policy over HTTP (CLV-009/010/011)", async () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-contacts-http-"));
   const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });

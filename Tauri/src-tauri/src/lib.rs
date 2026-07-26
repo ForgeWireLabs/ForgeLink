@@ -275,6 +275,11 @@ fn forgelink_start_local_only(_payload: Value) -> Value {
 }
 
 #[tauri::command]
+fn forgelink_start_service() -> Value {
+    desktop_status()
+}
+
+#[tauri::command]
 fn forgelink_start_server(_payload: Value) -> Value {
     desktop_status()
 }
@@ -303,7 +308,7 @@ fn forgelink_remove_credentials() -> Value {
 
 fn telnyx_settings_status() -> Value {
     json!({
-        "preferred_provider": "twilio",
+        "preferred_provider": "none",
         "telnyx": {
             "configured": false,
             "inbound_configured": false,
@@ -482,6 +487,7 @@ pub fn run() {
             forgelink_desktop_linked_node_status,
             forgelink_get_status,
             forgelink_start_local_only,
+            forgelink_start_service,
             forgelink_start_server,
             forgelink_stop_server,
             forgelink_validate_settings,
@@ -577,6 +583,7 @@ mod tests {
     fn telnyx_bridge_status_is_redacted_and_does_not_claim_unproved_tauri_parity() {
         let status = telnyx_settings_status();
         let serialized = status.to_string();
+        assert_eq!(status["preferred_provider"], json!("none"));
         assert_eq!(status["telnyx"]["configured"], json!(false));
         assert_eq!(status["telnyx"]["availability"], json!("desktop_local_service_required"));
         assert!(!serialized.contains("api_key\":"));
