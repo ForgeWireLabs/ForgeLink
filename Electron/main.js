@@ -8,6 +8,7 @@ const { evaluateAttention, normalizeAttentionPolicy } = require("./attention");
 const { createSettingsStore, validateTwilioCredentials, configureNumberWebhook } = require("./onboarding");
 const { createEmailSettingsStore } = require("./emailSettings");
 const { createPushSettingsStore } = require("./pushSettings");
+const { createSmsProviderSettingsStore, validateTelnyxSettings, configureTelnyxWebhook } = require("./smsProviderSettings");
 const { createTunnelManager } = require("./tunnel");
 const { findAvailablePort, createRestartPolicy } = require("./lifecycle");
 const { shouldAutoUpdate } = require("./updates");
@@ -20,6 +21,7 @@ let mainWindow = null;
 let settingsStore = null;
 let emailSettingsStore = null;
 let pushSettingsStore = null;
+let smsProviderSettingsStore = null;
 let tunnel = null;
 let tunnelPublicUrl = "";
 let effectivePort = 0;
@@ -119,6 +121,7 @@ function publicStatus() {
     backend_restarts: backendRestarts.count,
     last_exit_code: lastExitCode,
     recovery_message: recoveryMessage,
+    sms_provider_settings: smsProviderSettingsStore ? smsProviderSettingsStore.current() : undefined,
     settings: {
       account_sid: settings.account_sid,
       auth_token_configured: Boolean(settings.auth_token),
@@ -135,6 +138,24 @@ function broadcastStatus() {
   mainWindow?.webContents.send("server-status", publicStatus());
 }
 
+async function ensureTelnyxWebhook() {
+  const provider = smsProviderSettingsStore?.current().telnyx;
+  if (!provider?.configured || !provider.inbound_configured) return { configured: false, reason: "telnyx_inbound_not_configured" };
+  let publicBaseUrl = settingsState().settings.public_base_url || tunnelPublicUrl;
+  let startedTunnel = false;
+  if (!publicBaseUrl) {
+    publicBaseUrl = await tunnelService().start(baseUrl());
+    tunnelPublicUrl = publicBaseUrl;
+    startedTunnel = true;
+  }
+  try {
+    return await configureTelnyxWebhook(smsProviderSettingsStore.candidate(), publicBaseUrl);
+  } catch (cause) {
+    if (startedTunnel) { tunnelPublicUrl = ""; await tunnelService().stop(); }
+    throw cause;
+  }
+}
+
 async function startBackend() {
   stopBackend();
   const settings = settingsState().settings;
@@ -149,6 +170,7 @@ async function startBackend() {
       ...process.env,
       ...(emailSettingsStore ? emailSettingsStore.backendEnv() : {}),
       ...(pushSettingsStore ? pushSettingsStore.backendEnv() : {}),
+      ...(smsProviderSettingsStore ? smsProviderSettingsStore.backendEnv() : {}),
       TWILIO_ACCOUNT_SID: settings.account_sid,
       TWILIO_AUTH_TOKEN: settings.auth_token,
       TWILIO_PHONE_NUMBER: settings.twilio_number,
@@ -269,6 +291,7 @@ ipcMain.handle("start-server", async (_, update = {}) => {
   const candidate = { ...current, ...update, auth_token: update.auth_token || current.auth_token };
   const validation = await validateTwilioCredentials(candidate);
   settingsStore.persist(validation.settings);
+  smsProviderSettingsStore.select("twilio");
   await startBackend();
   let ready = await waitForBackend();
   if (!ready) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
@@ -303,15 +326,56 @@ ipcMain.handle("import-environment", async () => {
   const candidate = settingsState().settings;
   const validation = await validateTwilioCredentials(candidate);
   settingsStore.importEnvironment();
+  smsProviderSettingsStore.select("twilio");
   await startBackend();
   if (!(await waitForBackend())) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
   return { ...publicStatus(), validation: { account_name: validation.account_name, account_status: validation.account_status, phone_number: validation.phone_number } };
 });
 ipcMain.handle("remove-credentials", async () => {
   settingsStore.removeCredentials();
+  if (smsProviderSettingsStore.current().preferred_provider === "twilio") smsProviderSettingsStore.select("none");
   await startBackend();
   await waitForBackend();
   return publicStatus();
+});
+
+// First-class Telnyx SMS/MMS settings (work item 035). Secrets stay in the main
+// process and OS-backed encrypted storage. Validation is read-only; saving is the
+// operator action that may configure the selected messaging profile webhook.
+ipcMain.handle("sms-provider-settings-get", () => smsProviderSettingsStore.current());
+ipcMain.handle("telnyx-settings-validate", async (_event, values = {}) => {
+  return validateTelnyxSettings(smsProviderSettingsStore.candidate(values || {}));
+});
+ipcMain.handle("telnyx-settings-save", async (_event, values = {}) => {
+  const candidate = smsProviderSettingsStore.candidate(values || {});
+  const validation = await validateTelnyxSettings(candidate);
+  const result = smsProviderSettingsStore.persist(values || {});
+  await startBackend();
+  if (!(await waitForBackend())) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
+
+  try {
+    const webhook = await ensureTelnyxWebhook();
+    broadcastStatus();
+    return { ...result, validation, webhook };
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`Telnyx settings were saved, but automatic webhook setup failed. ${detail}`);
+  }
+});
+ipcMain.handle("sms-provider-select", async (_event, provider) => {
+  if (provider === "twilio" && !settingsState().configured) throw new Error("Configure Twilio before selecting it.");
+  const result = smsProviderSettingsStore.select(provider);
+  await startBackend();
+  await waitForBackend();
+  broadcastStatus();
+  return result;
+});
+ipcMain.handle("telnyx-settings-remove", async () => {
+  const result = smsProviderSettingsStore.removeTelnyx();
+  await startBackend();
+  await waitForBackend();
+  broadcastStatus();
+  return result;
 });
 // Email channel credentials (work item 018, EMAIL-002): stored OS-encrypted in the
 // main process and applied by restarting the backend so the new env takes effect.
@@ -349,8 +413,17 @@ ipcMain.handle("push-settings-remove", async () => {
 });
 ipcMain.handle("start-local-only", async (_, update = {}) => {
   settingsStore.startLocalOnly(update);
-  tunnelPublicUrl = "";
-  await tunnelService().stop();
+  smsProviderSettingsStore.select("none");
+  if (!smsProviderSettingsStore.current().telnyx.inbound_configured) {
+    tunnelPublicUrl = "";
+    await tunnelService().stop();
+  }
+  await startBackend();
+  if (!(await waitForBackend())) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
+  broadcastStatus();
+  return publicStatus();
+});
+ipcMain.handle("start-service", async () => {
   await startBackend();
   if (!(await waitForBackend())) throw new Error(`Local service did not become ready at ${baseUrl()}.`);
   broadcastStatus();
@@ -437,9 +510,22 @@ app.whenReady().then(async () => {
   try { emailSettingsStore.load(); } catch (error) { console.error(`Email settings load failed: ${error}`); }
   pushSettingsStore = createPushSettingsStore({ fs, path, safeStorage, userData: app.getPath("userData") });
   try { pushSettingsStore.load(); } catch (error) { console.error(`Push settings load failed: ${error}`); }
+  smsProviderSettingsStore = createSmsProviderSettingsStore({
+    fs,
+    path,
+    safeStorage,
+    env: process.env,
+    userData: app.getPath("userData"),
+    twilioConfigured: () => settingsState().configured
+  });
+  try { smsProviderSettingsStore.load(); } catch (error) { console.error(`SMS provider settings load failed: ${error}`); }
   if (!(await backendIsReady())) await startBackend();
   const ready = await waitForBackend();
   if (!ready) console.error(`Backend did not become ready at ${baseUrl()}`);
+  if (ready) {
+    try { await ensureTelnyxWebhook(); }
+    catch (error) { console.error(`Telnyx webhook recovery failed; outbound messaging remains available: ${error instanceof Error ? error.message : error}`); }
+  }
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

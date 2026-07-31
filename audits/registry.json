@@ -92,6 +92,42 @@
       "notes": "Completed formal RepoPact 2.2.0 PyPI adoption, public package verification, governed validation, and closeout."
     },
     {
+      "path": "work/completed/035-first-class-telnyx-integration",
+      "owner": "planning-agent",
+      "contract": "work/completed/035-first-class-telnyx-integration/AGENTS.md",
+      "last_reviewed": "2026-07-22",
+      "next_review": "2026-10-20",
+      "alignment": "current",
+      "notes": "Completed first-class Telnyx SMS/MMS integration; scoped contract retained with secure settings, validation, selection, webhook, shared-shell, and evidence boundaries."
+    },
+    {
+      "path": "work/completed/036-provider-specific-communications-experience",
+      "owner": "planning-agent",
+      "contract": "work/completed/036-provider-specific-communications-experience/AGENTS.md",
+      "last_reviewed": "2026-07-22",
+      "next_review": "2026-10-20",
+      "alignment": "current",
+      "notes": "Completed provider-specific shared cockpit experience with distinct local-only, Twilio, and Telnyx onboarding, capabilities, health, selected-edge context, and evidence boundaries."
+    },
+    {
+      "path": "work/active/037-telnyx-production-hardening-and-expansion",
+      "owner": "planning-agent",
+      "contract": "work/active/037-telnyx-production-hardening-and-expansion/AGENTS.md",
+      "last_reviewed": "2026-07-22",
+      "next_review": "2026-10-20",
+      "alignment": "current",
+      "notes": "Active Telnyx production-hardening, operations, capability-expansion, and approval-aware ForgeLink MCP/Fabric integration arc; provider secrets and send authority remain in ForgeLink."
+    },
+    {
+      "path": "work/active/039-shared-node-identity-and-transport-contract",
+      "owner": "planning-agent",
+      "contract": "work/active/039-shared-node-identity-and-transport-contract/AGENTS.md",
+      "last_reviewed": "2026-07-31",
+      "next_review": "2026-10-29",
+      "alignment": "current",
+      "notes": "Active shared node identity and bounded transport contract arc consumed by ForgeLink and ForgeWire Fabric; ships no connectivity backend, claims no off-LAN reachability, and is subordinate to work items 031, 032, and 037."
+    },
+    {
       "path": "Tauri",
       "owner": "desktop-agent",
       "contract": "Tauri/AGENTS.md",

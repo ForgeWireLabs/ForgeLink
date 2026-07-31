@@ -8,7 +8,108 @@ supersedes: []
 
 # 0013: Ghost Fabric Channel — Provider-Less Peer Communication Across the Cluster
 
-## Disposition: deferred — not on the roadmap (2026-06-23)
+## Disposition: still deferred — need affirmed, direction settled, sequenced behind 031/032 (2026-07-31)
+
+**The need is confirmed and the design direction is settled. The timing is not.**
+
+On 2026-07-31 the operator confirmed the operator-need case below, and added a
+binding constraint: build it in-product, add **no new dependency for the operator or
+for potential customers**, and have ForgeLink and ForgeWire Fabric work *the same
+way* — potentially via a shared Rust crate released on its own.
+
+A ledger review the same day found that starting that work now conflicts with the
+project's own sequencing discipline:
+
+- All five active items (011, 024, 031, 032, 037) are production-hardening and
+  shell-retirement work. None is a new external-facing capability.
+- Work items 020, 021, and 022 (Telegram, WhatsApp, Discord) were deferred on
+  2026-07-10 for the reason *"higher-priority local-first adapter, linked-node
+  hardening, and Tauri retirement work should complete before adding another external
+  provider."* A cross-repo networking layer is a substantially larger commitment than
+  any of those adapters.
+- Work item 031's first criterion (LNH-001) is six implementation slices deep and
+  still pending; 037 has one of fourteen criteria satisfied; Electron is not yet
+  removed and the public signing gate is still open.
+
+The lane therefore **remains deferred**, and the groundwork it depends on is split
+into work item
+[039](../work/active/039-shared-node-identity-and-transport-contract/README.md)
+(shared node identity + transport contract), which is useful on its own merits
+regardless of whether this lane is ever built.
+
+### What the 2026-07-31 review settled (so it need not be re-derived)
+
+1. **Topology: client→server, not a mesh.** Both products are already
+   client/server — Fabric's `fabric-client` is a *"Typed HTTP client for the
+   ForgeWire Fabric hub API"*, and ForgeLink's cockpit is a client of its authority
+   node's backend. Only one side must be reachable, which removes NAT hole-punching,
+   STUN/TURN, and peer discovery from the problem entirely. This is **not** a VPN
+   requirement, and building mesh/IP-layer semantics would be wasted work.
+2. **A rendezvous point is unavoidable.** Two hosts behind NAT cannot connect
+   unaided. Every option — cloudflared quick tunnel (zero setup, already ships per
+   work item 014), an operator-run relay, or hole punching — requires some publicly
+   reachable point, and hole punching still needs relay fallback. Tailscale ships
+   DERP for exactly this reason. Any design claiming otherwise is hiding its relay.
+3. **Adopt connectivity, do not build it.** If the lane is reactivated, evaluate an
+   established Rust library (for example `iroh`: QUIC, ed25519 node identities,
+   hole punching with relay fallback) rather than implementing traversal and a relay
+   protocol in-house. Writing that layer is specialist, multi-month work where a
+   subtle bug is a silent security failure. Sealing must use a vetted library
+   (Noise/libsodium/QUIC-TLS), never a custom construction.
+4. **ForgeLink is not a cluster.** Work item 031 states plainly that linked nodes are
+   *"not a cluster, distributed database, failover topology, or automatic trust
+   relationship."* Fabric **is** a cluster (hub, runners, `fabric-store-rqlite`). Any
+   shared crate must serve both without importing Fabric's cluster assumptions into
+   ForgeLink.
+5. **The private-data gate already specifies the transport.** The WI019 private-data
+   sync policy gate requires authenticated encryption, link-scoped key material,
+   replay protection, stale/revoked-link rejection, wipe support, and rollback support
+   before any private data moves. The lane is therefore genuinely on the critical path
+   for cross-device private data — it is a sequencing question, not a dead end.
+
+### Reactivation criteria (revised 2026-07-31)
+
+Reopen as a new active work item when **all** hold:
+
+- work item 032's Electron retirement gate is satisfied and 031's threat review
+  (LNH-012) has landed;
+- work item 039 has delivered shared node identity and the transport contract, so the
+  remaining question is backend selection rather than protocol design;
+- the connectivity backend is an adopted, vetted library rather than an in-house
+  traversal/relay implementation;
+- work item 031's LNH-013 private-data readiness decision is recorded with evidence
+  before any private communication content rides the lane.
+
+The original 2026-06-23 deferral rationale and reactivation criteria are preserved
+below for lineage; the criteria above supersede them.
+
+## Reachability options (recorded 2026-07-31, not selected)
+
+Retained as analysis for a future reactivation. **No option is selected**, and no
+connectivity backend is authorized by this record.
+
+Under the operator's no-new-dependency constraint the candidates are:
+
+- **cloudflared quick tunnel** — zero setup and already shipped in-product for
+  webhooks (work item 014), no account required; but it is a free service with no
+  SLA, HTTP-only, its URL rotates per launch, and Cloudflare terminates TLS, so it is
+  only acceptable if payloads are sealed end-to-end so the tunnel carries ciphertext
+  and routing metadata only.
+- **An operator-run relay** — stable and fully controlled, blind by construction, but
+  it is infrastructure to operate, and shipping it to customers turns it into a
+  hosted service commitment.
+- **Adopted P2P with relay fallback** — direct connection where NAT allows, relay
+  otherwise; the best fit for "from anywhere," and the reason to adopt rather than
+  build.
+
+Whatever is chosen, three constraints hold: end-to-end sealing is mandatory (the
+relay must be blind by construction, never by promise); enabling the lane must be
+explicit opt-in, since it would start public surface for operators who currently have
+none; and decision [0003](0003-public-webhook-ingress-boundary.md)'s rule that
+`/api/*`, `/health`, and control routes are never served over the tunnel must not be
+weakened.
+
+## Disposition: deferred — not on the roadmap (2026-06-23, superseded)
 
 This record is `deferred` (the status added by decision
 [0014](0014-deferred-decision-status.md)): kept for its reasoning rather than
@@ -44,6 +145,113 @@ meet; and the design is re-scoped to ride existing ForgeWire transport with a
 vetted crypto library, with no bespoke relay or handshake built in-house. The
 design below is the shape to start from **if** those hold — not a commitment to
 build it.
+
+### Update (2026-07-31): the substrate now exists; the original criteria are met
+
+Since the 2026-06-23 deferral, the foundation this record was waiting on has been
+built — under a different name. It is worth re-reading the three reasons above
+against today's tree:
+
+- **Reason 1 (unbuilt foundation) is resolved.** AGH-025 key management shipped as
+  [0016](0016-decision-audit-key-management.md): a `device_keys` registry, Ed25519
+  in OS-backed secure storage, and honest rotation/revocation/recovery semantics.
+  Active work item
+  [031](../work/active/031-linked-node-metadata-transport-and-trust-hardening/README.md)
+  is extending that into full **production node identity** (LNH-001) with a
+  generation-scoped encrypted local vault.
+- **Reason 2 (a transport/crypto project) is largely resolved.** 031 is building
+  exactly the piece this record feared having to home-roll: canonical signed
+  envelopes (LNH-002/003, Ed25519), durable replay protection (LNH-004),
+  metadata checkpoints (LNH-005), a **bounded authenticated metadata transport**
+  (LNH-007), quarantine/change-set handling (LNH-008), and operator trust/revoke/
+  relink surfaces (LNH-009) — with a full threat review (LNH-012) as a gate. The
+  "blind relay + bespoke handshake" this record described is **superseded**: the
+  ghost lane should ride 031's authenticated transport, not invent its own. That is
+  precisely what reactivation criterion 3 demanded.
+- **Reason 3 (smaller kernel) is now literally true.** With 031 owning identity,
+  crypto, and transport, the ghost channel is no longer "build a messaging network."
+  It collapses to one question: **may a *private-communication* data class ride the
+  linked-node transport?**
+
+That question already has a home. 031 is **metadata-only by constitution** — its
+non-goals forbid message bodies, and **LNH-013** requires *"a separate evidence-based
+private-data readiness decision"* before any private communication data moves;
+closing 031 must not enable it automatically. **This record is that decision's
+subject.** The ghost fabric channel, reactivated, is not a standalone build — it is
+the LNH-013 private-data readiness decision, argued and gated.
+
+Scorecard against the reactivation criteria:
+
+| Criterion | Status (2026-07-31) |
+| --- | --- |
+| AGH-025 key management shipped | **Met** — [0016](0016-decision-audit-key-management.md); extended by 031/LNH-001 |
+| Re-scope onto existing transport + vetted crypto, no bespoke relay/handshake | **Met** — ride 031's authenticated Ed25519 metadata transport |
+| Concrete operator need the agent-channel and Fabric-HITL paths do not meet | **Met** — operator confirmed 2026-07-31 |
+
+This update does **not** flip the status. The original three criteria are met, but
+the 2026-07-31 ledger review added sequencing as the binding constraint — see the
+revised reactivation criteria in the disposition at the top of this record. What
+changed here is that the remaining blocker is priority and groundwork, not missing
+infrastructure or an unproven need.
+
+## The operator-need case (criterion 3)
+
+Criterion 3 asks for a concrete operator need that the existing provider-less paths
+do not already meet. Here it is, stated as an argument the operator can accept or
+reject — not as a need already asserted.
+
+**The gap: no path carries private communication *content* between the operator's
+own nodes without a third party.** Every channel that carries bodies is a provider;
+every provider-less cross-host path is content-free by design. The intersection is
+empty:
+
+| Path | Carries real content? | Provider-less? | Cross-host / off-LAN? |
+| --- | --- | --- | --- |
+| SMS/MMS, email, Telnyx/Twilio | Yes | **No** — third party holds plaintext | Yes |
+| Agent-channel / Fabric-HITL ([0004](0004-agent-facing-governance-contract-and-fabric-hitl.md)) | Approval-shaped only | Yes | Loopback/local |
+| Push ([019](../work/completed/019-push-notification-channel/README.md)) | **No** — redacted by design | Yes | Yes |
+| Linked-node transport ([031](../work/active/031-linked-node-metadata-transport-and-trust-hardening/README.md)) | **No** — metadata-only by non-goal | Yes | Yes |
+| **Ghost fabric channel** | **Yes** | **Yes** | **Yes** |
+
+Why the provider-less paths genuinely fall short:
+
+1. **Fabric-HITL is a governance lane, not a comms lane.** It is request → decision
+   → outcome. An operator cannot use it to send a paragraph, an artifact, or a
+   context note to their own other machine, and it is machine→human, not
+   human↔human or free-form human↔agent.
+2. **Push is intentionally content-free.** [019](../work/completed/019-push-notification-channel/README.md)
+   redacts by design; it is an attention ping, not a message.
+3. **Linked-node is metadata-only by constitution.** 031 moves identity, lifecycle,
+   and status — never bodies — and holds that line behind LNH-013.
+
+**The concrete need is created by a decision the team already made.**
+[0017](0017-mobile-is-a-full-cockpit.md) commits to mobile as a *full operator
+cockpit* and, in §4, forbids a private-data mirror: mobile is a **client** of the
+operator's local data over an authenticated connection, not a replicated database.
+Today that authenticated connection is the *local* one. The unanswered question:
+**when the phone is off-LAN, how does the full cockpit reach its own backend's
+content — privately, without a telco?** There is no answer in the current tree. The
+ghost lane is that answer: the provider-less, authenticated, cross-internet
+transport that makes "full mobile cockpit, anywhere, no provider" actually true.
+0017 §6's future "remote operator control surface" needs the same lane.
+
+**The framing that keeps this inside existing boundaries.** This must be transport
+for a **live client session reaching the operator's own backend**, not
+node-to-node content *replication*. Framed as "sync my messages to my phone," it
+collides head-on with the 030/0017 no-replication boundary. Framed as "the
+authenticated pipe the off-LAN full-cockpit client uses to reach its single
+source-of-truth backend," it is complementary and violates nothing.
+
+**The honest counter-argument the operator must weigh.** The operator could instead
+run a WireGuard/Tailscale mesh between their nodes and expose the local
+authenticated backend over it — no product feature required. That is a real
+alternative and it is cheaper. The case for building it into ForgeLink rests on two
+claims: (a) it removes operator network setup, the same friction
+[0003](0003-public-webhook-ingress-boundary.md)/013/014 worked to eliminate; and
+(b) a VPN grants *network reach*, whereas the ghost lane grants *governed,
+per-peer-trusted, revocable, audited* reach tied to the identity registry — a pipe
+versus a policy. If neither claim matters to the operator, a VPN is the right answer
+and this record should stay deferred. That judgment is criterion 3's real content.
 
 ## Context
 

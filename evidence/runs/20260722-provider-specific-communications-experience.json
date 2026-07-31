@@ -1,0 +1,65 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260722-provider-specific-communications-experience",
+  "timestamp": "2026-07-22T23:36:06Z",
+  "work_item": "036",
+  "result": "passed",
+  "provenance": "concrete",
+  "criteria": ["PFX-001", "PFX-002", "PFX-003", "PFX-004", "PFX-005", "PFX-006", "PFX-007"],
+  "summary": "Replaced the Twilio-shaped shared cockpit assumptions with explicit local-only, Twilio, and Telnyx onboarding; provider-specific setup, capability, help, and health models; and selected-edge context across channels, messaging, compose, and reviewed-outbox workflows.",
+  "commands": [
+    {
+      "command": "npm run renderer:build",
+      "exit_code": 0,
+      "summary": "The shared renderer artifact rebuilt successfully with the provider-specific experience."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx",
+      "exit_code": 0,
+      "summary": "All 225 renderer tests passed, including separate local-only, Twilio, and Telnyx first-run paths, capability modeling, selected-provider health, messaging, compose, and reviewed-outbox coverage."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Complete Electron regression passed: 225 renderer tests and 229 Node/backend/shell tests; the one live Twilio credential test remained intentionally opt-in and skipped."
+    },
+    {
+      "command": "npm run scan:secrets",
+      "exit_code": 0,
+      "summary": "Repository secret scan passed with no credentials detected."
+    },
+    {
+      "command": "cargo check --manifest-path Tauri/src-tauri/Cargo.toml",
+      "exit_code": 0,
+      "summary": "The Tauri shared-shell Rust bridge continued to compile without claiming unproved local-service or secure-provider-storage parity."
+    },
+    {
+      "command": "python -m repopact_cli dashboard --root . && python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Canonical dashboard generation and ForgeLink governed validation passed after closeout."
+    },
+    {
+      "command": "sh .githooks/pre-push",
+      "exit_code": 0,
+      "summary": "Complete push gate passed with governance validation, 225 renderer tests, and 229 of 230 Node/backend/shell checks with the one live-provider test intentionally opt-in."
+    }
+  ],
+  "artifacts": [
+    "Electron/renderer/src/providerExperience.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/styles.css",
+    "Electron/renderer/app.js",
+    "docs/communications-runtime.md",
+    "docs/telnyx.md",
+    "work/completed/036-provider-specific-communications-experience/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "codex/first-class-telnyx",
+    "platform": "Windows",
+    "visual_qa": "passed at desktop and 740x900 viewport widths using a temporary synthetic local harness that was removed after inspection",
+    "live_providers": "not run; no real credentials, phone numbers, messages, provider identifiers, or private webhook URLs were used",
+    "tauri_limit": "shared renderer and bridge compilation only; work item 032 retains real local-service and secure-provider-storage parity"
+  }
+}

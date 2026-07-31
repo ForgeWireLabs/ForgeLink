@@ -116,13 +116,15 @@ If an item is abandoned, superseded, merged, split, or rejected, keep its ID and
 
 ## Current Active Work
 
-As of the 2026-07-20 RSS/Atom follow-up closeout, the active product arcs are:
+As of the 2026-07-22 provider-specific communications experience closeout, the active product arcs are:
 
 ```text
 011-production-readiness
 024-local-webhook-lan-integrations
 031-linked-node-metadata-transport-and-trust-hardening
 032-tauri-production-parity-and-electron-retirement
+037-telnyx-production-hardening-and-expansion
+039-shared-node-identity-and-transport-contract
 ```
 
 `011` remains active only for the Tauri-first release/public-signing baseline in
@@ -139,6 +141,12 @@ private-data readiness decision.
 
 `032` owns Tauri production parity and actual Electron removal. Electron remains a
 compatibility shell until the parity gate is proven.
+
+`039` owns the shared node identity crate and the bounded transport contract consumed
+by both ForgeLink and ForgeWire Fabric. It ships no connectivity backend and is
+explicitly subordinate to `031`, `032`, and `037`. The provider-less peer lane that
+motivated it remains deferred in
+[decision 0013](../decisions/0013-ghost-fabric-channel.md).
 
 The following provider adapters remain valid but are intentionally deferred:
 
@@ -160,6 +168,8 @@ Completed foundation relevant to the current roadmap:
 030-tauri-shared-shell-and-electron-retirement
 033-canonical-dashboard-integrity
 034-repopact-2-2-0-formal-release
+035-first-class-telnyx-integration
+036-provider-specific-communications-experience
 ```
 
 Work item 030 completed the Tauri shared-shell foundation and retirement-gate
@@ -170,6 +180,21 @@ or missing dashboard now fails the same audit used by commit and push gates.
 
 Work item 034 replaced the interim git commit dependency with the formal, exact 2.2.0
 PyPI release and proved ForgeLink retains canonical dashboard enforcement.
+
+Work item 035 closed the gap between the shipped Telnyx adapter and a first-class
+operator workflow: encrypted settings, real validation, explicit provider selection,
+webhook automation, redacted status, shared cockpit UX, tests, and documentation.
+
+Work item 036 completed the provider-specific shared cockpit follow-through: separate
+local-only, Twilio, and Telnyx onboarding/configuration models, capability and health
+presentation, and selected-edge context across communications surfaces.
+
+Work item 037 owns the production-hardening and expansion arc discovered by the
+post-036 Telnyx/Fabric deep dive: replay-safe and durable webhook ingestion, complete
+delivery/error semantics, authenticated durable MMS, ownership-safe profile mutation,
+resource discovery, compliance/consent, operations, advanced messaging, separate
+Voice/RCS/Verify/Lookup/WhatsApp gates, and an approval-aware ForgeLink MCP boundary
+for Fabric discovery without moving credentials or send authority into Fabric.
 
 ## Lifecycle States
 

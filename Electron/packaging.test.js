@@ -57,6 +57,10 @@ test("backend utility process is unpacked for packaged launches", () => {
     (builder.asarUnpack || []).includes("backend-dist/**"),
     "backend-dist must be unpacked because utilityProcess.fork cannot launch the backend entry from app.asar"
   );
+  assert.ok(
+    (builder.asarUnpack || []).includes("node_modules/**"),
+    "production dependencies must be unpacked beside backend-dist so its Node resolver can load them"
+  );
   const mainSource = fs.readFileSync(path.join(__dirname, "main.js"), "utf8");
   assert.match(mainSource, /app\.asar\.unpacked/);
 });
@@ -73,6 +77,12 @@ test("if a build exists, the asar bundles electron-updater and app modules with 
     fs.existsSync(path.join(__dirname, "dist", "win-unpacked", "resources", "app.asar.unpacked", "backend-dist", "index.js")),
     "backend utility process entry must exist outside the asar"
   );
+  for (const dependency of ["fast-xml-parser", "undici"]) {
+    assert.ok(
+      fs.existsSync(path.join(__dirname, "dist", "win-unpacked", "resources", "app.asar.unpacked", "node_modules", dependency, "package.json")),
+      `${dependency} must be unpacked beside the backend utility process`
+    );
+  }
   assert.equal(entries.some((e) => e.endsWith(".test.js")), false, "no test files in the asar");
   assert.equal(entries.some((e) => e.includes("/backend/src/")), false, "no backend source in the asar");
 });

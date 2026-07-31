@@ -91,7 +91,8 @@ Current surface:
 - Contact points and channel identities.
 - Per-contact attention policy.
 - Redaction-aware contact timeline across messages, calls, and agent requests.
-- Provider-optional first run: usable local-only with no telecom provider.
+- Provider-specific first run: choose local-only, Twilio, or Telnyx; each
+  provider keeps its own setup and capability model.
 - Backup, restore, export, retention, and delivery-state handling.
 
 Channels are edges.
@@ -253,7 +254,7 @@ ForgeLink currently includes:
 - Rich contacts and contact points.
 - Per-contact policy.
 - Redaction-aware contact timeline across messages, calls, and agent requests.
-- Provider-optional local-only first run.
+- Provider-specific local-only, Twilio, and Telnyx first-run paths.
 - Local SQLite storage.
 - Backup, restore, export, and retention tools.
 - Conversation drafts.
@@ -311,13 +312,15 @@ npm install
 npm start
 ```
 
-On first launch, ForgeLink offers two paths:
+On first launch, ForgeLink offers local-only operation or the Twilio quick setup.
+Telnyx is configured from **Settings → Telnyx SMS/MMS** after entering the cockpit:
 
 1. **Start local-only**  
    Use ForgeLink for local agent approvals and the human decision loop without configuring a telecom provider.
 
 2. **Configure a channel provider**  
-   Set up an SMS/MMS edge such as Twilio or Telnyx.
+   Set up Twilio in the first-run dialog, or start local-only and configure Telnyx
+   from Settings with secure credential storage and an explicit SMS/MMS selection.
 
 Provider setup may include:
 

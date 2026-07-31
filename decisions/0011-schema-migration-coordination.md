@@ -83,6 +83,7 @@ the table is the single place that says who owns what.
 | v25 | 018 EMAIL-007 | `email_messages` (email channel messages as private communication data; participates in backup/export/retention) | unreleased |
 | v26 | 018 EMAIL-006 | `consumed_email_actions` (single-use anti-replay store for signed email quick-action nonces) | unreleased |
 | v27 | 031 LNH-001 | extend `device_keys` with linked-node algorithm, fingerprint, opaque secure-key reference, generation, revocation reason, and replacement/recovery lifecycle metadata | unreleased |
+| v28 | 037 TXE-002 | `telnyx_webhook_events` (durable event identity, occurrence ordering, replay state, bounded recovery payload, and redacted delivery-target metadata) | unreleased |
 
 Future allocations are appended to this table as they land. 015's dependent
 channel-adapter items (018–024) and the governance/cockpit items (016/017) all

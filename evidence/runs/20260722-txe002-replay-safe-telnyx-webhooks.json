@@ -1,0 +1,66 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260722-txe002-replay-safe-telnyx-webhooks",
+  "timestamp": "2026-07-23T01:32:10Z",
+  "work_item": "037",
+  "result": "passed",
+  "provenance": "concrete",
+  "criteria": ["TXE-002"],
+  "summary": "Hardened Telnyx webhook intake with raw-body Ed25519 verification and a five-minute signed timestamp window, durable event-ID enqueue before acknowledgement, occurrence-ordered asynchronous processing and restart recovery, explicit messaging-event routing, replay idempotency, and bounded/redacted recovery state.",
+  "commands": [
+    {
+      "command": "npm run backend:build && node --test backend-dist/telnyx.test.js backend-dist/database.test.js backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Focused deterministic Telnyx, database, and HTTP tests passed, including valid/invalid/stale/future signatures, event replay, duplicate message handling, occurrence ordering, unknown authentic events, and payload clearing."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Complete Electron renderer, backend, and shell regression passed."
+    },
+    {
+      "command": "npm run scan:secrets",
+      "exit_code": 0,
+      "summary": "Repository secret scan passed with no credentials detected."
+    },
+    {
+      "command": "cargo check --manifest-path Tauri/src-tauri/Cargo.toml",
+      "exit_code": 0,
+      "summary": "The Tauri shared-shell Rust bridge continued to compile without changing its honest provider-service parity gate."
+    },
+    {
+      "command": "python -m repopact_cli dashboard --root . && python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Canonical dashboard generation and ForgeLink governed validation passed after criterion reconciliation."
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "summary": "The final patch passed whitespace validation."
+    },
+    {
+      "command": "sh .githooks/pre-push",
+      "exit_code": 0,
+      "summary": "The complete repository push gate passed."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/telnyx.ts",
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/telnyx.test.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/server.test.ts",
+    "docs/telnyx.md",
+    "docs/communications-runtime.md",
+    "decisions/0011-schema-migration-coordination.md",
+    "work/active/037-telnyx-production-hardening-and-expansion/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "codex/first-class-telnyx",
+    "platform": "Windows",
+    "live_providers": "not run; deterministic generated keys and synthetic non-routable identifiers only; no real credentials, phone numbers, messages, provider account IDs, or private webhook URLs were used",
+    "scope": "TXE-002 only; TXE-001 and TXE-003 through TXE-014 remain pending"
+  }
+}

@@ -18,7 +18,7 @@ governance choices should be promoted to this directory.
 - 0010: Direct telecom research.
 - 0011: Schema migration coordination across concurrent work items.
 - 0012: RepoPact 1.5.0 upgrade and single-authoritative-validator architecture.
-- 0013: Ghost fabric channel — provider-less peer communication (deferred).
+- 0013: Ghost fabric channel — provider-less peer communication (deferred; need affirmed and direction settled, sequenced behind 031/032; groundwork split into work item 039).
 - 0014: Add a "deferred" status to the decision vocabulary.
 - 0015: Consume RepoPact from PyPI (drop vendoring).
 - 0016: Decision/audit key management and the audit chain's integrity guarantee.

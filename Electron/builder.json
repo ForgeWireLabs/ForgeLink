@@ -22,7 +22,8 @@
     "output": "dist"
   },
   "asarUnpack": [
-    "backend-dist/**"
+    "backend-dist/**",
+    "node_modules/**"
   ],
   "linux": {
     "target": ["AppImage", "deb"],

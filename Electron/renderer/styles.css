@@ -467,6 +467,77 @@ h1, h2, h3, p { margin: 0; }
   .page-header { flex-wrap: wrap; gap: 10px; }
 }
 
+/* Provider-specific communications experience (work item 036). The visual
+   language is shared, while setup and capability contracts remain distinct. */
+.provider-badge {
+  display: inline-flex; align-items: center; gap: 8px; width: fit-content;
+  padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 999px;
+  color: var(--muted-bright); background: rgba(255,255,255,.025); font-size: 11px; font-weight: 750;
+}
+.provider-badge small { color: var(--muted); font-size: 10px; font-weight: 600; }
+.provider-badge.compact { margin-top: 6px; padding: 3px 7px; gap: 5px; font-size: 10px; }
+.provider-mark {
+  min-width: 26px; height: 26px; padding: 0 5px; display: inline-grid; place-items: center;
+  border-radius: 8px; color: white; background: var(--accent); font-size: 9px; font-weight: 850; letter-spacing: .04em;
+}
+.provider-badge.compact .provider-mark { min-width: 19px; height: 19px; border-radius: 6px; font-size: 7px; }
+.provider-twilio .provider-mark, .provider-choice.twilio .provider-mark { background: #d83b54; }
+.provider-telnyx .provider-mark, .provider-choice.telnyx .provider-mark { background: #3f8f78; }
+.provider-local .provider-mark { background: #68758a; }
+.provider-badge.ready { border-color: rgba(72,213,151,.25); }
+.provider-badge.missing { border-color: rgba(255,112,130,.25); }
+.provider-badge.neutral { border-color: var(--line-strong); }
+
+.provider-capabilities { margin: 14px 0; display: flex; flex-wrap: wrap; gap: 7px; }
+.provider-capabilities span {
+  padding: 5px 8px; display: inline-flex; align-items: center; gap: 5px;
+  border: 1px solid var(--line); border-radius: 8px; font-size: 10px; font-weight: 700;
+}
+.provider-capabilities .supported { color: var(--green); background: rgba(72,213,151,.07); }
+.provider-capabilities .unsupported { color: var(--muted); background: rgba(255,255,255,.018); }
+.provider-contract { display: grid; gap: 5px; margin: 12px 0 16px; color: var(--muted); font-size: 11px; }
+.provider-contract strong { color: var(--muted-bright); }
+
+.provider-context {
+  margin: 0 24px 8px; padding: 12px 14px; display: flex; align-items: center; gap: 14px;
+  border: 1px solid var(--line-strong); border-radius: 13px; background: rgba(255,255,255,.018);
+}
+.provider-context > div { display: grid; gap: 3px; }
+.provider-context strong { font-size: 12px; }
+.provider-context span { color: var(--muted); font-size: 11px; }
+.provider-context.ready { border-color: rgba(72,213,151,.2); }
+.provider-context.missing { border-color: rgba(255,112,130,.25); }
+.modal-provider-context { margin: 0; }
+
+.provider-overview-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.provider-overview-head p { max-width: 620px; }
+.provider-health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.provider-health-grid > div { padding: 11px; display: grid; gap: 4px; border: 1px solid var(--line); border-radius: 10px; background: rgba(0,0,0,.1); }
+.provider-health-grid span { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+.provider-health-grid strong { font-size: 12px; }
+.health-ready { color: var(--green); }
+.health-missing { color: var(--red); }
+.health-neutral { color: var(--muted-bright); }
+
+.provider-setup-modal { width: min(720px, 100%); max-height: calc(100vh - 48px); overflow-y: auto; }
+.provider-choice-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
+.provider-choice {
+  min-height: 190px; padding: 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+  border: 1px solid var(--line-strong); border-radius: 15px; color: var(--text); text-align: left;
+  background: rgba(255,255,255,.018); cursor: pointer; transition: border-color .18s ease, background .18s ease, transform .18s ease;
+}
+.provider-choice:hover { border-color: rgba(149,137,255,.45); background: var(--accent-soft); transform: translateY(-1px); }
+.provider-choice strong { font-size: 14px; }
+.provider-choice small { flex: 1; color: var(--muted); line-height: 1.5; }
+.provider-choice-action { color: var(--accent-bright); font-size: 11px; font-weight: 750; }
+.provider-specific-help { margin-top: 0; }
+
+@media (max-width: 760px) {
+  .provider-choice-grid { grid-template-columns: minmax(0, 1fr); }
+  .provider-choice { min-height: 0; }
+  .provider-overview-head, .provider-context { align-items: flex-start; flex-direction: column; }
+}
+
 /* Reviewed outbox (OCX-014) and channel redaction previews (OCX-015) */
 .toast.sample { color: #ffe6b8; border: 1px solid rgba(255,196,84,.32); background: #2c2415; grid-template-columns: 20px 1fr; }
 .outbox-lanes { display: flex; flex-direction: column; gap: 18px; padding: 18px 24px; overflow-y: auto; }

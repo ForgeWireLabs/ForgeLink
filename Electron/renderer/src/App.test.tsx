@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { parseOperatorStatus } from "./operatorStatus";
@@ -16,6 +16,7 @@ import { buildCheckpointReplayKey, evaluateCheckpointReplayGuard, type Checkpoin
 import { serializeRedactedLinkedNodeAuditEvent, writeRedactedLinkedNodeAuditEvent, type RedactedLinkedNodeAuditInput } from "./redactedLinkedNodeAudit";
 import { queryAndroidLinkedNodeMetadata } from "./androidLinkedNodeMetadataQuery";
 import { buildCrossPlatformNodeMetadataContract } from "./crossPlatformNodeMetadataContract";
+import { buildCommunicationsProviderExperience } from "./providerExperience";
 
 const thread = { id: 1, canonical_number: "+15551234567", name: "Ada Lovelace", last_msg_ts: "2026-06-14T18:00:00.000Z", unread_count: 0 };
 const contact = { id: 7, name: "Grace Hopper", number: "+15557654321" };
@@ -31,6 +32,7 @@ const mcpStatus = { configured: false, created_at: null, rotated_at: null, revok
 const agentChannel = { channel_id: "forgewire", label: "ForgeWire Fabric", enabled: true, configured: true, created_at: "2026-06-15T22:00:00.000Z", rotated_at: "2026-06-15T22:00:00.000Z", revoked_at: null, last_used_at: null, last_rejected_at: null, rejection_count: 2, rate_limited_count: 1, token_file: "C:\\Users\\test\\.forgelink\\channels\\forgewire.token", token_file_present: true };
 const attentionPolicy = { enabled: true, operator_mode: "available", quiet_hours_enabled: false, quiet_hours_start: "22:00", quiet_hours_end: "07:00", quiet_hours_allow_urgent: false, redact_notification_bodies: true, sms_notifications: "all", agent_notifications: "high_and_urgent", signal_notifications: "off", system_notifications: "all", emergency_contact_bypass: true, emergency_agent_requires_policy: true, presence_enabled: true, presence_app_focus: "unknown", presence_input: "unknown", presence_network: "unknown", presence_do_not_disturb: false, presence_paired_mobile: "unknown", muted_sources: [] };
 const outboundDraft = { id: "draft-1", agent_id: "forgewire", channel_id: "forgewire", channel_kind: "sms", to_number: "+15557654321", contact_id: 7, body: "Hi from the agent. (draft)", media_urls: "", status: "draft", firewall_decision: "require_approval", reason: "needs_review", provider_message_id: "", last_error: "", created_at: "2026-06-20T20:00:00.000Z", updated_at: "2026-06-20T20:00:00.000Z", decided_at: null, scheduled_at: null };
+const smsProviderSettings = { preferred_provider: "twilio" as const, telnyx: { configured: false, inbound_configured: false, source: "none" as const, environment_available: false, phone_number: "", messaging_profile_id: "", api_key_present: false, public_key_present: false } };
 let outboundDraftsFixture: Array<Record<string, unknown>>;
 let sampleStatusFixture: Record<string, unknown>;
 let messagesFixture: Array<Record<string, unknown>>;
@@ -71,8 +73,14 @@ beforeEach(() => {
     validateSettings: vi.fn().mockResolvedValue({ account_name: "Test Account", account_status: "active", phone_number: "+15550002222" }),
     startServer: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5056", configured: true, credential_source: "stored", validation: { account_name: "Test Account", account_status: "active", phone_number: "+15550002222" }, settings: { account_sid: "AC999", auth_token_configured: true, twilio_number: "+15550002222", public_base_url: "https://new.example.com", webhook_host: "127.0.0.1", webhook_port: 5056 } }),
     startLocalOnly: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: false, credential_source: "none", onboarding_complete: true, needs_onboarding: false, settings: { account_sid: "", auth_token_configured: false, twilio_number: "", public_base_url: "", webhook_host: "127.0.0.1", webhook_port: 5055 } }),
+    startService: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored", onboarding_complete: true, needs_onboarding: false }),
     importEnvironment: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored" }),
     removeCredentials: vi.fn().mockResolvedValue({ running: true, baseUrl: "http://127.0.0.1:5055", configured: false, credential_source: "none", onboarding_complete: true, needs_onboarding: false }),
+    smsProviderSettings: vi.fn().mockResolvedValue(smsProviderSettings),
+    validateTelnyxSettings: vi.fn().mockResolvedValue({ provider: "telnyx", account_name: "ForgeLink", account_status: "active", phone_number: "+15551234567", messaging_profile_id: "3fa85f64-5717-4562-b3fc-2c963f66afa6", messaging_profile_name: "ForgeLink", webhook_configured: false, public_key_valid: true }),
+    saveTelnyxSettings: vi.fn().mockResolvedValue({ preferred_provider: "telnyx", telnyx: { configured: true, inbound_configured: true, source: "stored", environment_available: false, phone_number: "+15551234567", messaging_profile_id: "3fa85f64-5717-4562-b3fc-2c963f66afa6", api_key_present: true, public_key_present: true } }),
+    selectSmsProvider: vi.fn().mockResolvedValue(smsProviderSettings),
+    removeTelnyxSettings: vi.fn().mockResolvedValue(smsProviderSettings),
     stopServer: vi.fn().mockResolvedValue({ running: false, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored", settings: { account_sid: "AC999", auth_token_configured: true, twilio_number: "+15550002222", public_base_url: "https://new.example.com", webhook_host: "127.0.0.1", webhook_port: 5056 } }),
     mcpStatus: vi.fn().mockResolvedValue(mcpStatus),
     createMcpToken: vi.fn().mockResolvedValue({ ...mcpStatus, configured: true, token_file_present: true, rotated_at: "2026-06-15T22:00:00.000Z" }),
@@ -207,10 +215,10 @@ describe("React renderer parity", () => {
 
   it("documents the shared shell bridge capabilities needed by Tauri", async () => {
     const capabilityNames = Object.values(SHELL_BRIDGE_CAPABILITIES).flat();
-    expect(SHELL_BRIDGE_CAPABILITIES.localService).toEqual(expect.arrayContaining(["backendConnection", "startServer", "startLocalOnly", "stopServer"]));
+    expect(SHELL_BRIDGE_CAPABILITIES.localService).toEqual(expect.arrayContaining(["backendConnection", "startServer", "startLocalOnly", "startService", "stopServer"]));
     expect(SHELL_BRIDGE_CAPABILITIES.notifications).toEqual(expect.arrayContaining(["notify", "notifyEvent"]));
     expect(SHELL_BRIDGE_CAPABILITIES.navigation).toContain("openExternal");
-    expect(SHELL_BRIDGE_CAPABILITIES.secureSettings).toEqual(expect.arrayContaining(["importEnvironment", "emailSettings", "pushSettings"]));
+    expect(SHELL_BRIDGE_CAPABILITIES.secureSettings).toEqual(expect.arrayContaining(["importEnvironment", "smsProviderSettings", "validateTelnyxSettings", "saveTelnyxSettings", "emailSettings", "pushSettings"]));
     expect(SHELL_BRIDGE_CAPABILITIES.agentCredentials).toEqual(expect.arrayContaining(["mcpStatus", "agentChannels", "setAgentChannelEnabled"]));
     expect(capabilityNames.every(name => typeof window.desktop?.[name as keyof typeof window.desktop] === "function")).toBe(true);
   });
@@ -246,10 +254,11 @@ describe("React renderer parity", () => {
     vi.mocked(window.desktop!.getStatus).mockResolvedValueOnce({ running: true, baseUrl: "http://127.0.0.1:5055", configured: false, credential_source: "none", needs_onboarding: true, settings: { account_sid: "", auth_token_configured: false, twilio_number: "", public_base_url: "", webhook_host: "127.0.0.1", webhook_port: 5055 } });
     render(<App/>);
     expect(await screen.findByRole("dialog", { name: "Welcome to ForgeLink" })).toBeTruthy();
-    await userEvent.type(screen.getByLabelText("Account SID"), `AC${"a".repeat(32)}`);
-    await userEvent.type(screen.getByPlaceholderText("Enter auth token"), "secret");
-    await userEvent.type(screen.getByLabelText("Twilio number"), "+15550002222");
-    await userEvent.click(screen.getByRole("button", { name: "Test connection" }));
+    await userEvent.click(screen.getByRole("button", { name: /Configure Twilio/ }));
+    fireEvent.change(screen.getByLabelText("Account SID"), { target: { value: `AC${"a".repeat(32)}` } });
+    fireEvent.change(screen.getByPlaceholderText("Enter auth token"), { target: { value: "secret" } });
+    fireEvent.change(screen.getByLabelText("Twilio number"), { target: { value: "+15550002222" } });
+    await userEvent.click(within(screen.getByRole("dialog", { name: "Twilio connection" })).getByRole("button", { name: "Test connection" }));
     expect(await screen.findByText("Confirmed +15550002222")).toBeTruthy();
     expect(window.desktop?.validateSettings).toHaveBeenCalled();
     expect(window.desktop?.startServer).not.toHaveBeenCalled();
@@ -259,11 +268,58 @@ describe("React renderer parity", () => {
     vi.mocked(window.desktop!.getStatus).mockResolvedValueOnce({ running: true, baseUrl: "http://127.0.0.1:5055", configured: false, credential_source: "none", onboarding_complete: false, needs_onboarding: true, settings: { account_sid: "", auth_token_configured: false, twilio_number: "", public_base_url: "", webhook_host: "127.0.0.1", webhook_port: 5055 } });
     render(<App/>);
     expect(await screen.findByRole("dialog", { name: "Welcome to ForgeLink" })).toBeTruthy();
-    expect(screen.getByText(/ForgeLink works without a telecom provider/)).toBeTruthy();
+    expect(screen.getByText(/Providers keep their own setup and capability models/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: /Continue without telecom/ }));
     await userEvent.click(screen.getByRole("button", { name: "Start local-only" }));
     await waitFor(() => expect(window.desktop?.startLocalOnly).toHaveBeenCalledWith(expect.objectContaining({ webhook_host: "127.0.0.1", webhook_port: 5055 })));
     expect(window.desktop?.validateSettings).not.toHaveBeenCalled();
     expect(window.desktop?.startServer).not.toHaveBeenCalled();
+  });
+
+  it("offers a provider-specific Telnyx first-run path without Twilio-shaped fields (PFX-002/003/006)", async () => {
+    vi.mocked(window.desktop!.getStatus).mockResolvedValueOnce({ running: true, baseUrl: "http://127.0.0.1:5055", configured: false, credential_source: "none", onboarding_complete: false, needs_onboarding: true, settings: { account_sid: "", auth_token_configured: false, twilio_number: "", public_base_url: "", webhook_host: "127.0.0.1", webhook_port: 5055 } });
+    render(<App/>);
+    expect(await screen.findByRole("dialog", { name: "Welcome to ForgeLink" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: /Configure Telnyx/ }));
+    expect(await screen.findByRole("dialog", { name: "Connect Telnyx SMS/MMS" })).toBeTruthy();
+    expect(screen.queryByLabelText("Account SID")).toBeNull();
+    const telnyxDialog = screen.getByRole("dialog", { name: "Connect Telnyx SMS/MMS" });
+    fireEvent.change(within(telnyxDialog).getByPlaceholderText("KEY..."), { target: { value: "KEY-onboarding-secret" } });
+    fireEvent.change(within(telnyxDialog).getByPlaceholderText("+15551234567"), { target: { value: "+15551234567" } });
+    fireEvent.change(within(telnyxDialog).getByPlaceholderText("00000000-0000-4000-8000-000000000000"), { target: { value: "3fa85f64-5717-4562-b3fc-2c963f66afa6" } });
+    fireEvent.change(within(telnyxDialog).getByLabelText("Webhook public key"), { target: { value: "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=" } });
+    await userEvent.click(within(telnyxDialog).getByRole("button", { name: "Test connection" }));
+    await waitFor(() => expect(window.desktop?.validateTelnyxSettings).toHaveBeenCalled());
+    await userEvent.click(within(telnyxDialog).getByRole("button", { name: "Connect Telnyx" }));
+    await waitFor(() => expect(window.desktop?.startLocalOnly).toHaveBeenCalledWith(expect.objectContaining({ webhook_host: "127.0.0.1", webhook_port: 5055 })));
+    await waitFor(() => expect(window.desktop?.saveTelnyxSettings).toHaveBeenCalledWith(expect.objectContaining({ preferred_provider: "telnyx" })));
+    expect(screen.queryByText("KEY-onboarding-secret")).toBeNull();
+  });
+
+  it("keeps Twilio and Telnyx capability and setup contracts distinct (PFX-001/003)", () => {
+    const experience = buildCommunicationsProviderExperience(
+      { account_sid: true, auth_token: true, phone_number: true, public_base_url: true },
+      { preferred_provider: "telnyx", telnyx: { configured: true, inbound_configured: true, source: "stored", environment_available: false, phone_number: "+15551234567", messaging_profile_id: "profile", api_key_present: true, public_key_present: true } },
+      true,
+    );
+    expect(experience.selected.id).toBe("telnyx");
+    expect(experience.twilio.setupModel).toContain("Account SID");
+    expect(experience.telnyx.setupModel).toContain("messaging profile");
+    expect(experience.twilio.capabilities.find((item) => item.id === "voice")?.supported).toBe(true);
+    expect(experience.telnyx.capabilities.find((item) => item.id === "voice")?.supported).toBe(false);
+    expect(experience.telnyx.webhookModel).toContain("Ed25519");
+  });
+
+  it("models no-provider as a first-class local-only selection (PNC-001/002)", () => {
+    const experience = buildCommunicationsProviderExperience(
+      { account_sid: true, auth_token: true, phone_number: true, public_base_url: true, sms_provider: "none" },
+      { ...smsProviderSettings, preferred_provider: "none" },
+      true,
+    );
+    expect(experience.selected.id).toBe("local");
+    expect(experience.smsReady).toBe(false);
+    expect(experience.twilio.configured).toBe(true);
+    expect(experience.local.setupModel).toContain("No telecom provider");
   });
 
   it("switches views and filters contacts", async () => {
@@ -810,10 +866,77 @@ describe("React renderer parity", () => {
     await waitFor(() => expect(window.desktop?.startServer).toHaveBeenCalledWith(expect.objectContaining({ account_sid: "AC999", webhook_port: 5056 })));
     await userEvent.click(screen.getByRole("button", { name: "Stop local service" }));
     expect(window.desktop?.stopServer).toHaveBeenCalled();
+    await userEvent.click(await screen.findByRole("button", { name: "Start local service" }));
+    expect(window.desktop?.startService).toHaveBeenCalled();
+    expect(window.desktop?.startServer).toHaveBeenCalledTimes(1);
     await userEvent.click(screen.getByRole("button", { name: "Open Twilio Console" }));
     expect(window.desktop?.openExternal).toHaveBeenCalledWith("https://console.twilio.com/");
     await userEvent.click(screen.getByRole("button", { name: "Remove stored credentials" }));
     expect(window.desktop?.removeCredentials).toHaveBeenCalled();
+  });
+
+  it("configures and selects Telnyx without rendering stored secrets (TEL-002/003/004)", async () => {
+    render(<App/>);
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(await screen.findByRole("heading", { name: "Telnyx SMS/MMS" })).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText("KEY..."), { target: { value: "KEY-secret-value" } });
+    fireEvent.change(screen.getByPlaceholderText("+15551234567"), { target: { value: "+15551234567" } });
+    fireEvent.change(screen.getByPlaceholderText("00000000-0000-4000-8000-000000000000"), { target: { value: "3fa85f64-5717-4562-b3fc-2c963f66afa6" } });
+    const publicKeyInput = screen.getByLabelText("Webhook public key");
+    fireEvent.change(publicKeyInput, { target: { value: "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=" } });
+    await userEvent.click(screen.getByRole("button", { name: "Test connection" }));
+    await waitFor(() => expect(window.desktop?.validateTelnyxSettings).toHaveBeenCalledWith(expect.objectContaining({ phone_number: "+15551234567" })));
+    await userEvent.click(screen.getByRole("button", { name: "Save and use Telnyx" }));
+    await waitFor(() => expect(window.desktop?.saveTelnyxSettings).toHaveBeenCalledWith(expect.objectContaining({ preferred_provider: "telnyx" })));
+    expect(screen.queryByText("KEY-secret-value")).toBeNull();
+  });
+
+  it("surfaces the selected Telnyx edge across channels, compose, and reviewed outbox (PFX-004/005)", async () => {
+    vi.mocked(window.desktop!.smsProviderSettings).mockResolvedValue({
+      preferred_provider: "telnyx",
+      telnyx: {
+        configured: true,
+        inbound_configured: true,
+        source: "stored",
+        environment_available: false,
+        phone_number: "+15551234567",
+        messaging_profile_id: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        api_key_present: true,
+        public_key_present: true,
+      },
+    });
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Channels" }));
+    expect(await screen.findByRole("status", { name: /Active SMS and MMS provider: Telnyx; ready/ })).toBeTruthy();
+    expect(screen.getByText("Ed25519 webhooks")).toBeTruthy();
+    expect(screen.getByText("Twilio ready")).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Open messages" }));
+    expect(await screen.findByRole("status", { name: /Active SMS and MMS provider: Telnyx; ready/ })).toBeTruthy();
+    await userEvent.click(await screen.findByRole("button", { name: /Ada Lovelace/ }));
+    expect(await screen.findByText(/Sending through Telnyx/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send message via Telnyx" })).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Channels" }));
+    await userEvent.click(screen.getByRole("button", { name: "Open reviewed outbox" }));
+    expect(await screen.findByText("Approved SMS/MMS will use Telnyx")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Approve & send via Telnyx" })).toBeTruthy();
+  });
+
+  it("keeps shared settings and send surfaces provider-neutral in local-only mode (PNC-001/002/004)", async () => {
+    vi.mocked(window.desktop!.smsProviderSettings).mockResolvedValue({ ...smsProviderSettings, preferred_provider: "none" });
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(await screen.findByRole("heading", { name: "SMS/MMS providers" })).toBeTruthy();
+    expect(screen.getByText(/none — local-only/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Choose SMS/MMS provider" })).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Channels" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open messages" }));
+    expect(await screen.findByRole("status", { name: "No SMS and MMS provider selected; local-only mode" })).toBeTruthy();
+    await userEvent.click(await screen.findByRole("button", { name: /Ada Lovelace/ }));
+    expect(await screen.findByText(/Select and configure an SMS\/MMS provider before sending/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send message; SMS/MMS provider required" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("manages MCP token status without rendering the token value", async () => {
@@ -872,7 +995,7 @@ describe("React renderer parity", () => {
     await waitFor(() => expect(screen.getAllByText(/body hidden on this channel/).length).toBeGreaterThan(0));
     // Denying the draft removes the pending send action.
     await userEvent.click(screen.getByRole("button", { name: "Deny" }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Approve & send" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Approve & send via/ })).toBeNull());
   });
 
   it("shows the email channel configuration card (EMAIL-005)", async () => {

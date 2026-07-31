@@ -52,30 +52,59 @@ selects an adapter by capability and rejects unsupported capabilities cleanly.
 Adapter kinds:
 - **native** — local desktop / agent delivery (no provider).
 - **internet** — email, push, chat (future).
-- **sms_mms_edge** — carrier SMS/MMS (Twilio today; Telnyx/Plivo/Bandwidth later).
+- **sms_mms_edge** — carrier SMS/MMS (Twilio and Telnyx shipped; Plivo and
+  Bandwidth planned).
 - **voice_edge** — PSTN voice call control and call-history reconciliation
   through a telecom edge.
 
 ## How existing SMS/MMS maps in
 
-- **Outbound**: `POST /api/send` builds a local `pending` row, then
-  `registry.select("sms_send").send({to, body, mediaUrls})`. The Twilio adapter
-  delegates to the Twilio API and returns a provider-neutral `SendResult`; the
-  provider message ID and status are reconciled back onto the local row.
-- **Inbound**: `POST /webhooks/sms` is signature-validated, then the Twilio
-  adapter's `parseInbound` normalizes the form payload into an `InboundMessage`
-  that maps onto a local inbound `messages` row.
-- **Delivery status**: `POST /webhooks/status` normalizes via `parseStatus` into a
-  `DeliveryStatusUpdate` applied to the local row.
+- **Outbound**: `POST /api/send`, retry, and approved outbound drafts build or
+  reuse a local `pending` row, then select `sms_send` by the operator's explicit
+  `twilio` or `telnyx` preference. An explicit `none` preference is the
+  local-only state and rejects external SMS/MMS before adapter selection. The adapter returns a provider-neutral
+  `SendResult`; the provider message ID and status are reconciled onto the row.
+- **Twilio inbound/status**: `/webhooks/sms` and `/webhooks/status` validate the
+  Twilio signature before normalization.
+- **Telnyx inbound/status**: `/webhooks/telnyx` validates the exact raw body and a
+  five-minute signed-timestamp freshness window, durably deduplicates by Telnyx
+  event ID before acknowledgement, processes recognized messaging events in
+  occurrence order, and feeds the same normalized local message/delivery contracts.
+  Authentic unknown event types are recorded as unsupported rather than treated as
+  generic status updates.
 
-The provider is now an implementation detail behind the adapter; the durable
-communication model is identical whether the transport is Twilio, a future
-provider, a native local channel, or an agent message with no provider at all.
+Provider wire fields remain implementation details behind each adapter, but the
+providers are not interchangeable in the operator experience. The cockpit exposes
+which edge is selected, whether that edge is ready, and the capabilities ForgeLink
+actually implements. The durable message, approval, retry, and audit model remains
+provider-neutral.
+
+## Provider-specific operator contract
+
+The shared contract stops at normalized communication behavior. Setup and capability
+presentation stay provider-specific:
+
+| ForgeLink edge | Setup model | Implemented capabilities | Inbound authenticity |
+| --- | --- | --- | --- |
+| Twilio | Account SID, Auth Token, SMS-capable number | SMS, MMS, Voice | Twilio request signatures and per-number webhooks |
+| Telnyx | API v2 key, messaging number, messaging profile, Ed25519 public key | SMS, MMS | Messaging-profile webhook v2 and Ed25519 signatures |
+| Local-only | No telecom credentials | local agent/human workflows | local authenticated runtime only |
+
+First-run and Settings present these as three distinct paths. The shared provider
+overview comes before equal-hierarchy Twilio and Telnyx configuration cards. The
+Channels overview, message composer, new-message dialog, and reviewed outbox show
+the selected SMS/MMS edge only when one has been explicitly selected.
+ForgeLink does not imply that selecting Telnyx enables Voice; the current Voice edge
+remains Twilio-specific.
 
 ## Local-only operation
 
-With no telecom provider configured, the core still represents agent-to-human
+With no telecom provider selected, the core still represents agent-to-human
 messages and approval requests, contacts, threads, attention policy, and the
 local inbox — the SMS/MMS edge is simply one capability that is absent from the
-registry. First-run setup can now be completed in local-only mode without Twilio
-credentials; SMS/MMS provider setup is an explicit later step from Settings.
+active route. External send controls remain disabled and the backend rejects send,
+retry, approval, and scheduled dispatch attempts until a configured edge is
+selected. First-run can continue local-only or open the provider-specific Twilio or
+Telnyx flow. Settings can return to local-only without deleting either provider's
+stored credentials. Stopping and restarting the local service does not change the
+explicit provider selection.

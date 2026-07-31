@@ -997,7 +997,7 @@ test("exposes local-only channels and a gated companion route (CLV-004/006)", as
   }
 });
 
-test("Telnyx webhook stores signed inbound, dedupes, and rejects bad signatures (CLV-007)", async () => {
+test("TXE-002: Telnyx webhook durably queues, dedupes, rejects stale signatures, and ignores unknown events", async () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-telnyx-"));
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   const der = publicKey.export({ format: "der", type: "spki" }) as Buffer;
@@ -1006,23 +1006,92 @@ test("Telnyx webhook stores signed inbound, dedupes, and rejects bad signatures 
   const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
-  const post = (body: string, signature?: string, ts = "1718000000") =>
+  const post = (body: string, signature?: string, ts = String(Math.floor(Date.now() / 1000))) =>
     fetch(`http://127.0.0.1:${port}/webhooks/telnyx`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "telnyx-timestamp": ts, "telnyx-signature-ed25519": signature ?? sign(null, Buffer.from(`${ts}|${body}`, "utf8"), privateKey).toString("base64") },
       body
     });
   try {
-    const inbound = JSON.stringify({ data: { event_type: "message.received", payload: { id: "TX-IN", from: { phone_number: "+15557654321" }, to: [{ phone_number: "+15550002222" }], text: "telnyx hi", media: [] } } });
+    const occurredAt = new Date().toISOString();
+    const inbound = JSON.stringify({ data: { id: "evt-inbound", event_type: "message.received", occurred_at: occurredAt, payload: { id: "TX-IN", from: { phone_number: "+15557654321" }, to: [{ phone_number: "+15550002222" }], text: "telnyx hi", media: [] } }, meta: { attempt: 1, delivered_to: "https://private.invalid/webhooks/telnyx?token=secret" } });
     assert.equal((await post(inbound)).status, 200);
     assert.equal((await post(inbound)).status, 200); // duplicate webhook
+    for (let i = 0; i < 100 && database.telnyxWebhookEvent("evt-inbound")?.status !== "processed"; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    const storedEvent = database.telnyxWebhookEvent("evt-inbound")!;
+    assert.equal(storedEvent.status, "processed");
+    assert.equal(storedEvent.payload_json, "");
+    assert.equal(storedEvent.delivery_target_hash.includes("private.invalid"), false);
     const thread = database.threads().find((t) => t.canonical_number === "+15557654321")!;
     assert.equal(database.messages(thread.id).length, 1); // idempotent on provider message id
     assert.equal(database.messages(thread.id)[0].body, "telnyx hi");
     assert.equal((await post(inbound, "AAAA")).status, 403); // invalid signature
+    const staleTimestamp = String(Math.floor(Date.now() / 1000) - 301);
+    const stale = JSON.stringify({ data: { id: "evt-stale", event_type: "message.received", occurred_at: occurredAt, payload: { id: "TX-STALE", from: { phone_number: "+15557654321" } } } });
+    assert.equal((await post(stale, undefined, staleTimestamp)).status, 403);
+    assert.equal(database.telnyxWebhookEvent("evt-stale"), undefined);
+    const unknown = JSON.stringify({ data: { id: "evt-unknown", event_type: "profile.updated", occurred_at: occurredAt, payload: {} } });
+    assert.equal((await post(unknown)).status, 200);
+    for (let i = 0; i < 100 && database.telnyxWebhookEvent("evt-unknown")?.status !== "ignored"; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(database.telnyxWebhookEvent("evt-unknown")?.failure_category, "unsupported_event");
+    assert.equal(database.telnyxWebhookEvent("evt-unknown")?.payload_json, "");
   } finally {
     if (previous === undefined) delete process.env.TELNYX_PUBLIC_KEY; else process.env.TELNYX_PUBLIC_KEY = previous;
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("TEL-005: routes outbound messages through the explicitly selected Telnyx edge", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-telnyx-selected-"));
+  const previous = process.env.FORGELINK_SMS_PROVIDER;
+  process.env.FORGELINK_SMS_PROVIDER = "telnyx";
+  let twilioCalls = 0;
+  let telnyxCalls = 0;
+  const sendMessage = async () => { twilioCalls += 1; return { sid: "SM-WRONG", status: "queued" }; };
+  const sendTelnyxMessage = async () => { telnyxCalls += 1; return { id: "TX-SELECTED", to: [{ status: "queued" }] }; };
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken, sendMessage, sendTelnyxMessage });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const localUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    const response = await fetch(`${localUrl}/api/send`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ local_id: "local-telnyx-selected", to: "+15551234567", body: "Telnyx first class", media_urls: [] }) });
+    assert.equal(response.status, 200);
+    const payload = await response.json() as { sid: string; status: string };
+    assert.equal(payload.sid, "TX-SELECTED");
+    assert.equal(telnyxCalls, 1);
+    assert.equal(twilioCalls, 0);
+    const config = await fetch(`${localUrl}/api/config-status`, { headers: authorized() }).then((item) => item.json()) as { sms_provider: string };
+    assert.equal(config.sms_provider, "telnyx");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (previous === undefined) delete process.env.FORGELINK_SMS_PROVIDER; else process.env.FORGELINK_SMS_PROVIDER = previous;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("PNC-004: rejects outbound SMS/MMS when local-only is explicitly selected", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-local-only-send-"));
+  const previous = process.env.FORGELINK_SMS_PROVIDER;
+  process.env.FORGELINK_SMS_PROVIDER = "none";
+  let sendCalls = 0;
+  const sendMessage = async () => { sendCalls += 1; return { sid: "SM-WRONG", status: "queued" }; };
+  const { server } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken, sendMessage });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const localUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    const response = await fetch(`${localUrl}/api/send`, {
+      method: "POST",
+      headers: authorized({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ local_id: "local-provider-required", to: "+15551234567", body: "Must not send", media_urls: [] }),
+    });
+    assert.equal(response.status, 502);
+    assert.match((await response.json() as { error: string }).error, /Select and configure an SMS\/MMS provider/);
+    assert.equal(sendCalls, 0);
+    const config = await fetch(`${localUrl}/api/config-status`, { headers: authorized() }).then((item) => item.json()) as { sms_provider: string };
+    assert.equal(config.sms_provider, "none");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (previous === undefined) delete process.env.FORGELINK_SMS_PROVIDER; else process.env.FORGELINK_SMS_PROVIDER = previous;
     rmSync(directory, { recursive: true, force: true });
   }
 });

@@ -1,0 +1,79 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "035",
+  "title": "First-Class Telnyx Integration",
+  "status": "completed",
+  "owner_scope": "providers",
+  "affected_scopes": [
+    "work",
+    "backend",
+    "desktop",
+    "ui",
+    "security",
+    "providers",
+    "messaging",
+    "docs",
+    "tooling",
+    "evidence",
+    "audit"
+  ],
+  "depends_on": ["015", "030"],
+  "provenance": "concrete",
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-07-22T00:00:00Z",
+    "note": "Created before changing Telnyx settings, provider selection, validation, webhook automation, shared-shell UX, tests, or documentation."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "TEL-001",
+      "text": "Record the shipped Telnyx integration gaps and define a provider-neutral first-class operator contract without weakening the local-first channel architecture.",
+      "state": "satisfied",
+      "evidence": ["20260722-first-class-telnyx-integration"]
+    },
+    {
+      "id": "TEL-002",
+      "text": "Store Telnyx API and webhook credentials through OS-backed encrypted desktop storage, expose only redacted presence/status fields, support environment fallback, and remove stored credentials safely.",
+      "state": "satisfied",
+      "evidence": ["20260722-first-class-telnyx-integration"]
+    },
+    {
+      "id": "TEL-003",
+      "text": "Validate the Telnyx API key, E.164 phone number, messaging capability, messaging-profile assignment, and webhook public key with deterministic tests and redacted provider errors.",
+      "state": "satisfied",
+      "evidence": ["20260722-first-class-telnyx-integration"]
+    },
+    {
+      "id": "TEL-004",
+      "text": "Let the operator configure, select, inspect, and remove Telnyx from the shared Settings experience without breaking Twilio or local-only onboarding, and make the selected SMS/MMS provider explicit in runtime status.",
+      "state": "satisfied",
+      "evidence": ["20260722-first-class-telnyx-integration"]
+    },
+    {
+      "id": "TEL-005",
+      "text": "Route sends, retries, and approved outbound drafts through the selected configured SMS/MMS provider, fail clearly when it is unavailable, and preserve deterministic inbound and delivery-status normalization.",
+      "state": "satisfied",
+      "evidence": ["20260722-first-class-telnyx-integration"]
+    },
+    {
+      "id": "TEL-006",
+      "text": "Configure the selected Telnyx messaging profile webhook for the ForgeLink Telnyx route when a public HTTPS base URL is available, with deterministic request-shaping tests and no unapproved profile mutation.",
+      "state": "satisfied",
+      "evidence": ["20260722-first-class-telnyx-integration"]
+    },
+    {
+      "id": "TEL-007",
+      "text": "Keep the shared Tauri bridge contract honest about Telnyx capability while work item 032 owns real Tauri local-service and secure-storage parity; do not deepen an untracked Electron-only UI fork.",
+      "state": "satisfied",
+      "evidence": ["20260722-first-class-telnyx-integration"]
+    },
+    {
+      "id": "TEL-008",
+      "text": "Update operator documentation and pass focused provider, shell, renderer, Tauri bridge, complete Electron, secret-scan, and governed repository validation with durable evidence and explicit remaining risks.",
+      "state": "satisfied",
+      "evidence": ["20260722-first-class-telnyx-integration"]
+    }
+  ],
+  "created": "2026-07-22",
+  "updated": "2026-07-22"
+}

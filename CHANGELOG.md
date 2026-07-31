@@ -7,6 +7,12 @@ versions tracked in `VERSION` and `Electron/package.json`.
 ## [Unreleased]
 
 ### Added
+- First-class Telnyx SMS/MMS integration (work item 035): OS-encrypted in-app
+  credentials, read-only number/profile validation, explicit Twilio/Telnyx
+  selection used by send/retry/approved-draft paths, redacted provider status,
+  and bounded automatic messaging-profile webhook setup. The shared Tauri bridge
+  reports its still-gated desktop-service requirement instead of claiming
+  unproved secure-storage parity. See `docs/telnyx.md`.
 - Trusted-signal follow-up (work item 023): RSS/Atom stays a reading lane only.
   Hardening covers bounded XML validation, DNS pin-on-connect under a shared
   deadline, always-forbidden metadata/link-local ranges, IANA special-purpose
@@ -18,11 +24,38 @@ versions tracked in `VERSION` and `Electron/package.json`.
   `docs/trusted-signals.md`.
 
 ### Changed
-- Repository integrity: ForgeLink now pins RepoPact 2.1.0 at immutable commit
-  `126264a`; governance validation rejects a missing or stale generated dashboard,
-  and RepoPact mutation/repair commands regenerate the canonical projection. The
-  commit and push gates therefore cannot pass while dashboard work counts or active
-  items disagree with the source ledger (work item 033).
+- Provider-neutral communications cockpit (work item 038): local-only/no-provider
+  is now an explicit SMS/MMS selection instead of an implicit Twilio fallback;
+  shared Settings, Channels, compose, and reviewed-outbox surfaces use neutral
+  wording until a configured edge is selected; Twilio and Telnyx configuration
+  have equal hierarchy while retaining distinct capabilities and setup models;
+  removal falls back only to an actually configured provider; and every outbound
+  path is gated while local-only is active. Restarting an existing local service
+  also preserves the current provider selection instead of re-entering Twilio
+  onboarding.
+- Electron installer maintenance: production dependencies are now unpacked beside
+  the TypeScript backend utility process, so clean/replacement Windows installs can
+  resolve `fast-xml-parser`, `undici`, and future backend runtime dependencies instead
+  of launching a responsive shell with a crashed local service.
+- Replay-safe Telnyx webhook ingestion (work item 037, TXE-002): exact raw-body
+  Ed25519 verification now includes a five-minute signed timestamp window; valid
+  events are durably queued and deduplicated by Telnyx event ID before acknowledgement,
+  processed in occurrence order through an explicit messaging-event allow-list, and
+  retain only bounded non-content metadata after successful or unsupported handling.
+- Provider-specific communications experience (work item 036): first-run now
+  offers separate local-only, Twilio, and Telnyx paths; the cockpit presents
+  Twilio's Account SID/Auth Token/number and Voice model separately from
+  Telnyx's API key/messaging-profile/Ed25519 model; and Channels, compose, and
+  the reviewed outbox show the selected SMS/MMS edge and its implemented
+  capabilities instead of inferring readiness from Twilio fields.
+- Repository integrity: governance validation rejects a missing or stale generated
+  dashboard, and RepoPact mutation/repair commands regenerate the canonical
+  projection. The commit and push gates therefore cannot pass while dashboard work
+  counts or active items disagree with the source ledger (work item 033).
+- RepoPact dependency: ForgeLink consumes the formal RepoPact **2.2.0** release from
+  PyPI as an exact pin, replacing the earlier interim git-commit dependency, and
+  proves canonical dashboard enforcement is retained under the released package
+  (work item 034, [decision 0015](decisions/0015-consume-repopact-from-pypi.md)).
 - Responsive cockpit layout: metric and card grids now use fluid `auto-fit`
   columns, and the two-pane content layouts (calls, signals, mobile terminal)
   stack on narrow widths, so the UI reflows cleanly as the window resizes and
