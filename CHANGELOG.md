@@ -48,11 +48,14 @@ versions tracked in `VERSION` and `Electron/package.json`.
   Telnyx's API key/messaging-profile/Ed25519 model; and Channels, compose, and
   the reviewed outbox show the selected SMS/MMS edge and its implemented
   capabilities instead of inferring readiness from Twilio fields.
-- Repository integrity: ForgeLink now pins RepoPact 2.1.0 at immutable commit
-  `126264a`; governance validation rejects a missing or stale generated dashboard,
-  and RepoPact mutation/repair commands regenerate the canonical projection. The
-  commit and push gates therefore cannot pass while dashboard work counts or active
-  items disagree with the source ledger (work item 033).
+- Repository integrity: governance validation rejects a missing or stale generated
+  dashboard, and RepoPact mutation/repair commands regenerate the canonical
+  projection. The commit and push gates therefore cannot pass while dashboard work
+  counts or active items disagree with the source ledger (work item 033).
+- RepoPact dependency: ForgeLink consumes the formal RepoPact **2.2.0** release from
+  PyPI as an exact pin, replacing the earlier interim git-commit dependency, and
+  proves canonical dashboard enforcement is retained under the released package
+  (work item 034, [decision 0015](decisions/0015-consume-repopact-from-pypi.md)).
 - Responsive cockpit layout: metric and card grids now use fluid `auto-fit`
   columns, and the two-pane content layouts (calls, signals, mobile terminal)
   stack on narrow widths, so the UI reflows cleanly as the window resizes and
