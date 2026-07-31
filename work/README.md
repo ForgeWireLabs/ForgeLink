@@ -124,6 +124,7 @@ As of the 2026-07-22 provider-specific communications experience closeout, the a
 031-linked-node-metadata-transport-and-trust-hardening
 032-tauri-production-parity-and-electron-retirement
 037-telnyx-production-hardening-and-expansion
+039-shared-node-identity-and-transport-contract
 ```
 
 `011` remains active only for the Tauri-first release/public-signing baseline in
@@ -140,6 +141,12 @@ private-data readiness decision.
 
 `032` owns Tauri production parity and actual Electron removal. Electron remains a
 compatibility shell until the parity gate is proven.
+
+`039` owns the shared node identity crate and the bounded transport contract consumed
+by both ForgeLink and ForgeWire Fabric. It ships no connectivity backend and is
+explicitly subordinate to `031`, `032`, and `037`. The provider-less peer lane that
+motivated it remains deferred in
+[decision 0013](../decisions/0013-ghost-fabric-channel.md).
 
 The following provider adapters remain valid but are intentionally deferred:
 

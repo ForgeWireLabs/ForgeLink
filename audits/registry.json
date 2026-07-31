@@ -119,6 +119,15 @@
       "notes": "Active Telnyx production-hardening, operations, capability-expansion, and approval-aware ForgeLink MCP/Fabric integration arc; provider secrets and send authority remain in ForgeLink."
     },
     {
+      "path": "work/active/039-shared-node-identity-and-transport-contract",
+      "owner": "planning-agent",
+      "contract": "work/active/039-shared-node-identity-and-transport-contract/AGENTS.md",
+      "last_reviewed": "2026-07-31",
+      "next_review": "2026-10-29",
+      "alignment": "current",
+      "notes": "Active shared node identity and bounded transport contract arc consumed by ForgeLink and ForgeWire Fabric; ships no connectivity backend, claims no off-LAN reachability, and is subordinate to work items 031, 032, and 037."
+    },
+    {
       "path": "Tauri",
       "owner": "desktop-agent",
       "contract": "Tauri/AGENTS.md",

@@ -10,8 +10,8 @@
 | --- | ---: |
 | Invariants | 6 |
 | Frozen-surface entries | 5 |
-| Scope contracts | 16 |
-| Audit registry entries | 16 |
+| Scope contracts | 17 |
+| Audit registry entries | 17 |
 | Audit findings | 0 |
 | Decision records | 18 |
 | Policy records | 0 |
@@ -22,7 +22,7 @@
 | Status | Count |
 | --- | ---: |
 | proposed | 0 |
-| active | 5 |
+| active | 6 |
 | blocked | 0 |
 | deferred | 3 |
 | completed | 31 |
@@ -38,3 +38,4 @@ All audit scopes are within their review cadence.
 - 031: Linked-Node Metadata Transport and Trust Hardening (active)
 - 032: Tauri Production Parity and Electron Retirement (active)
 - 037: Telnyx Production Hardening and Expansion (active)
+- 039: Shared Node Identity and Transport Contract (active)

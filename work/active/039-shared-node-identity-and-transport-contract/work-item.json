@@ -1,0 +1,97 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "039",
+  "title": "Shared Node Identity and Transport Contract",
+  "status": "active",
+  "owner_scope": "work",
+  "affected_scopes": [
+    "work",
+    "backend",
+    "desktop",
+    "mobile",
+    "local-runtime",
+    "security",
+    "docs",
+    "tooling"
+  ],
+  "depends_on": [
+    "016",
+    "030",
+    "031"
+  ],
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-07-31T00:00:00Z",
+    "note": "Created before any shared crate extraction, identity convergence, or transport contract work started."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "SNI-001",
+      "text": "Record the shared-crate boundary: what the crate owns (node identity, canonical envelope, transport contract) and what it must never import (store, rqlite, policy, cluster, failover, or any connectivity backend).",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SNI-002",
+      "text": "Create the companion governed work item in the canonical in-tree ForgeWire Fabric implementation before any Fabric-side change, per the work item 037 cross-repo rule.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SNI-003",
+      "text": "Extract a shared ed25519 node identity crate with a deterministic key and serialization contract, proving no private key material appears in serialized output, diagnostics, or logs.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SNI-004",
+      "text": "Converge ForgeLink node identity onto the shared crate without regressing shipped work item 031 LNH-001 desktop vault behavior, sequenced so in-flight LNH-001 desktop slices are not rewritten mid-flight.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SNI-005",
+      "text": "Prove the crate is consumable from both the ForgeLink Tauri shell and the Fabric workspace with a pinned version and reproducible builds on both sides.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SNI-006",
+      "text": "Define the bounded authenticated transport as a versioned trait or contract with no connectivity backend, sufficient to satisfy the interface need of work item 031 LNH-007.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SNI-007",
+      "text": "Provide a loopback or LAN reference implementation of the transport contract for tests only, explicitly not an off-LAN connectivity path.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SNI-008",
+      "text": "Prove the contract admits only approved metadata classes and that private communication data remains inexpressible through it until work item 031 LNH-013 is recorded with evidence.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SNI-009",
+      "text": "Define the shared crate release and versioning contract, including semantic versioning, changelog, and the pinning policy each consumer follows.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SNI-010",
+      "text": "Document the boundary and record a threat note covering identity convergence and key handling, making no claim of off-LAN connectivity.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SNI-011",
+      "text": "Prove this item does not block or regress work items 031, 032, and 037, and that ForgeLink builds and ships unchanged if the shared crate is not adopted.",
+      "state": "pending",
+      "evidence": []
+    }
+  ],
+  "created": "2026-07-31",
+  "updated": "2026-07-31"
+}
