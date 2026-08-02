@@ -7,6 +7,16 @@ versions tracked in `VERSION` and `Electron/package.json`.
 ## [Unreleased]
 
 ### Added
+- Authenticated local webhook/LAN boundary foundation (work item 024, LAN-001 and
+  LAN-002): redacted capability discovery, disabled-by-default loopback exposure,
+  explicit private-LAN opt-in, Host/Origin enforcement, token or replay-bounded
+  HMAC authentication, bounded JSON bodies, and per-source rate limiting. LAN-003
+  through LAN-005 add hash-only per-integration credential lifecycle and scopes,
+  replay-safe low/normal local-notice normalization through agent/contact policy,
+  and signed, expiring, single-use pending-action outcome records. LAN-006 through
+  LAN-008 complete the desktop operator workflow with protected token-file
+  handling, scope/state/counter health, synthetic tests, lifecycle controls,
+  deterministic failure-path coverage, and setup/risk/failure guidance.
 - First-class Telnyx SMS/MMS integration (work item 035): OS-encrypted in-app
   credentials, read-only number/profile validation, explicit Twilio/Telnyx
   selection used by send/retry/approved-draft paths, redacted provider status,

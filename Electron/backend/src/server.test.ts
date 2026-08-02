@@ -107,6 +107,52 @@ test("serves health and contact HTTP contracts", async () => {
   }
 });
 
+test("LAN-001..005: manages credentials, normalizes bounded events, and records replay-safe actions", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-local-integration-"));
+  const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const localUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    const createdResponse = await fetch(`${localUrl}/api/local-integrations`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ integration_id: "home-assistant", label: "Home Assistant", scopes: ["agent_message", "actions"] }) });
+    assert.equal(createdResponse.status, 201); const created = await createdResponse.json() as { token: string }; const token = created.token;
+    assert.doesNotMatch(readFileSync(join(directory, "local-integrations.json"), "utf8"), new RegExp(token));
+    const capabilitiesResponse = await fetch(`${localUrl}/api/local-integrations/capabilities`, { headers: authorized() });
+    assert.equal(capabilitiesResponse.status, 200);
+    const capabilities = await capabilitiesResponse.json() as Record<string, any>;
+    assert.equal(capabilities.exposure, "loopback_only");
+    assert.deepEqual(capabilities.inbound.normalized_types, ["agent_message"]);
+    assert.equal(capabilities.outbound.state, "pending_actions_available");
+    assert.doesNotMatch(JSON.stringify(capabilities), new RegExp(token));
+
+    const eventBody = JSON.stringify({ schema_version: 1, event_id: "evt-1", event_type: "agent_message", occurred_at: new Date().toISOString(), payload: { title: "Garage door", body: "The garage door remained open.", urgency: "normal" } });
+    const unauthorized = await fetch(`${localUrl}/local-integrations/home-assistant/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: eventBody });
+    assert.equal(unauthorized.status, 401);
+    const accepted = await fetch(`${localUrl}/local-integrations/home-assistant/events`, { method: "POST", headers: { "Content-Type": "application/json", "X-ForgeLink-Local-Token": token }, body: eventBody });
+    assert.equal(accepted.status, 201); assert.equal(database.agentMessages()[0].source, "local:home-assistant"); assert.equal(database.agentMessages()[0].kind, "local_notice");
+    assert.equal((await fetch(`${localUrl}/local-integrations/home-assistant/events`, { method: "POST", headers: { "Content-Type": "application/json", "X-ForgeLink-Local-Token": token }, body: eventBody })).status, 409);
+    const urgentBody = JSON.stringify({ schema_version: 1, event_id: "evt-urgent", event_type: "agent_message", occurred_at: new Date().toISOString(), payload: { title: "Unsafe", body: "Cannot self-elevate.", urgency: "urgent" } });
+    assert.equal((await fetch(`${localUrl}/local-integrations/home-assistant/events`, { method: "POST", headers: { "Content-Type": "application/json", "X-ForgeLink-Local-Token": token }, body: urgentBody })).status, 403);
+    const diagnostics = await fetch(`${localUrl}/api/local-integrations`, { headers: authorized() }).then((response) => response.json()) as Array<Record<string, unknown>>;
+    assert.equal(diagnostics[0].accepted_count, 1); assert.equal(diagnostics[0].rejected_count, 3); assert.equal(diagnostics[0].credential_configured, true); assert.equal("credential_hash" in diagnostics[0], false); assert.doesNotMatch(JSON.stringify(diagnostics), new RegExp(token));
+
+    const pendingResponse = await fetch(`${localUrl}/api/local-integrations/home-assistant/pending-actions`, { method: "POST", headers: authorized({ "Content-Type": "application/json" }), body: JSON.stringify({ action: "acknowledge", ttl_seconds: 300 }) });
+    assert.equal(pendingResponse.status, 201); const pending = await pendingResponse.json() as { token: string };
+    const outcomeOptions = { method: "POST", headers: { "Content-Type": "application/json", "X-ForgeLink-Local-Token": token }, body: JSON.stringify({ outcome: "succeeded" }) };
+    assert.equal((await fetch(`${localUrl}/local-integrations/home-assistant/actions/${pending.token}`, outcomeOptions)).status, 200);
+    assert.equal((await fetch(`${localUrl}/local-integrations/home-assistant/actions/${pending.token}`, outcomeOptions)).status, 409);
+
+    const rotatedResponse = await fetch(`${localUrl}/api/local-integrations/home-assistant/rotate`, { method: "POST", headers: authorized() }); const rotated = await rotatedResponse.json() as { token: string };
+    const secondBody = JSON.stringify({ schema_version: 1, event_id: "evt-2", event_type: "agent_message", occurred_at: new Date().toISOString(), payload: { title: "Rotated", body: "New credential works." } });
+    assert.equal((await fetch(`${localUrl}/local-integrations/home-assistant/events`, { method: "POST", headers: { "Content-Type": "application/json", "X-ForgeLink-Local-Token": token }, body: secondBody })).status, 401);
+    assert.equal((await fetch(`${localUrl}/local-integrations/home-assistant/events`, { method: "POST", headers: { "Content-Type": "application/json", "X-ForgeLink-Local-Token": rotated.token }, body: secondBody })).status, 201);
+    assert.equal((await fetch(`${localUrl}/api/local-integrations/home-assistant/revoke`, { method: "POST", headers: authorized() })).status, 200);
+    assert.equal((await fetch(`${localUrl}/local-integrations/home-assistant/events`, { method: "POST", headers: { "Content-Type": "application/json", "X-ForgeLink-Local-Token": rotated.token }, body: JSON.stringify({ ...JSON.parse(secondBody), event_id: "evt-3" }) })).status, 503);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("preserves webhook, status, upload, and media HTTP contracts", async () => {
   const directory = mkdtempSync(join(tmpdir(), "twilio-phone-parity-"));
   const previous = {

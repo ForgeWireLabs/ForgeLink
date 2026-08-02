@@ -15,17 +15,17 @@
 | Audit findings | 0 |
 | Decision records | 18 |
 | Policy records | 0 |
-| Evidence runs | 106 |
+| Evidence runs | 109 |
 
 ## Work
 
 | Status | Count |
 | --- | ---: |
 | proposed | 0 |
-| active | 6 |
+| active | 5 |
 | blocked | 0 |
 | deferred | 3 |
-| completed | 31 |
+| completed | 32 |
 
 ## Audit freshness
 
@@ -34,7 +34,6 @@ All audit scopes are within their review cadence.
 ## Active items
 
 - 011: Production Readiness (active)
-- 024: Local Webhook and LAN Integrations (active)
 - 031: Linked-Node Metadata Transport and Trust Hardening (active)
 - 032: Tauri Production Parity and Electron Retirement (active)
 - 037: Telnyx Production Hardening and Expansion (active)

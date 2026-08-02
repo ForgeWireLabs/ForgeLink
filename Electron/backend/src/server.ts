@@ -13,6 +13,7 @@ import { createChannelRegistry, PLANNED_PROVIDERS } from "./channels";
 import { createTelnyxAdapter, parseTelnyxWebhookEnvelope, sendTelnyxMessage, verifyTelnyxWebhook } from "./telnyx";
 import { createEmailAdapter, EmailTransport, emailConfigured, emailInboundConfigured, emailQuickActionConfigured, validateEmailWebhookSignature, verifyQuickActionToken } from "./email";
 import { createPushAdapter, loadPushConfig, PushTransport, pushConfigured } from "./push";
+import { LocalIntegrationBoundary, LocalIntegrationConfig, LocalIntegrationRegistry, LocalIntegrationScope, LOCAL_INTEGRATION_SCOPES, loadLocalIntegrationConfig, LOCAL_INTEGRATION_MAX_BODY_BYTES } from "./localIntegrations";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const ALLOWED_UPLOADS = new Set([".gif", ".jpeg", ".jpg", ".pdf", ".png", ".txt", ".webp"]);
@@ -101,7 +102,7 @@ async function readForm(request: IncomingMessage): Promise<Record<string, string
   return Object.fromEntries(params.entries());
 }
 
-export interface BackendOptions { host: string; port: number; dataDir: string; apiToken: string; sendMessage?: typeof sendTwilioMessage; sendTelnyxMessage?: typeof sendTelnyxMessage; startCall?: typeof startTwilioCall; endCall?: typeof endTwilioCall; operatorStatus?: (requestId: string) => Promise<unknown>; emailTransport?: EmailTransport; pushTransport?: PushTransport; }
+export interface BackendOptions { host: string; port: number; dataDir: string; apiToken: string; sendMessage?: typeof sendTwilioMessage; sendTelnyxMessage?: typeof sendTelnyxMessage; startCall?: typeof startTwilioCall; endCall?: typeof endTwilioCall; operatorStatus?: (requestId: string) => Promise<unknown>; emailTransport?: EmailTransport; pushTransport?: PushTransport; localIntegration?: LocalIntegrationConfig; }
 
 function isPrivateRoute(pathname: string): boolean {
   return pathname === "/health" || pathname === "/upload" || pathname.startsWith("/api/");
@@ -494,6 +495,8 @@ export function createBackend(options: BackendOptions): { server: Server; databa
   };
   // Timestamps of recent public webhook hits, for the AGH-023 ingress rate limit.
   const webhookHits: number[] = [];
+  const localIntegrationRegistry = new LocalIntegrationRegistry(options.dataDir);
+  const localIntegrations = new LocalIntegrationBoundary(options.localIntegration ?? loadLocalIntegrationConfig(), options.localIntegration ? undefined : localIntegrationRegistry);
   // Dispatch an authorized outbound draft (AGH-020). Mirrors /api/send: persist a
   // pending message so the sent external message appears in the thread, send through
   // the channel registry, then reconcile both the message and the draft. The draft's
@@ -526,6 +529,40 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         while (webhookHits.length && webhookHits[0] <= nowMs - 60_000) webhookHits.shift();
         if (webhookHits.length >= WEBHOOK_RATE_LIMIT_PER_MINUTE) return sendJson(response, { error: "Rate limit exceeded", retry_after_seconds: 60 }, 429);
         webhookHits.push(nowMs);
+      }
+      const localIntegrationMatch = url.pathname.match(/^\/local-integrations\/([A-Za-z0-9_.:-]{1,80})\/events$/);
+      if (request.method === "POST" && localIntegrationMatch) {
+        let body: Buffer;
+        try { body = await readBody(request, LOCAL_INTEGRATION_MAX_BODY_BYTES); }
+        catch { return sendJson(response, { error: "Request is too large.", code: "payload_out_of_bounds" }, 413); }
+        const decision = localIntegrations.inspect({ integrationId: localIntegrationMatch[1], remoteAddress: request.socket.remoteAddress || "", host: String(request.headers.host || ""), origin: String(request.headers.origin || ""), contentType: String(request.headers["content-type"] || ""), authorization: String(request.headers.authorization || ""), channelToken: String(request.headers["x-forgelink-local-token"] || ""), signature: String(request.headers["x-forgelink-local-signature"] || ""), timestamp: String(request.headers["x-forgelink-local-timestamp"] || ""), nonce: String(request.headers["x-forgelink-local-nonce"] || ""), body });
+        if (!decision.ok) { localIntegrationRegistry.mark(localIntegrationMatch[1], false); return sendJson(response, { error: "Local integration request rejected.", code: decision.code }, decision.status); }
+        let payload: Record<string, unknown>;
+        try { payload = JSON.parse(body.toString("utf8")) as Record<string, unknown>; } catch { localIntegrationRegistry.mark(localIntegrationMatch[1], false); return sendJson(response, { error: "Malformed local event.", code: "malformed_event" }, 400); }
+        const eventId = typeof payload.event_id === "string" && /^[A-Za-z0-9_.:-]{1,120}$/.test(payload.event_id) ? payload.event_id : "";
+        const eventType = String(payload.event_type || ""); const occurredAt = typeof payload.occurred_at === "string" && Number.isFinite(new Date(payload.occurred_at).getTime()) ? new Date(payload.occurred_at).toISOString() : "";
+        const content = payload.payload && typeof payload.payload === "object" && !Array.isArray(payload.payload) ? payload.payload as Record<string, unknown> : undefined;
+        if (payload.schema_version !== 1 || !eventId || !occurredAt || !content || eventType !== "agent_message") { localIntegrationRegistry.mark(localIntegrationMatch[1], false); return sendJson(response, { error: "Unsupported or malformed local event schema.", code: "schema_rejected" }, 422); }
+        if (!localIntegrationRegistry.hasScope(localIntegrationMatch[1], "agent_message")) { localIntegrationRegistry.mark(localIntegrationMatch[1], false); return sendJson(response, { error: "Integration lacks the required scope.", code: "scope_rejected" }, 403); }
+        const urgency = String(content.urgency || "normal"); if (!new Set(["low", "normal"]).has(urgency)) { localIntegrationRegistry.mark(localIntegrationMatch[1], false); return sendJson(response, { error: "Local integrations may submit only low or normal urgency.", code: "policy_rejected" }, 403); }
+        const source = `local:${localIntegrationMatch[1]}`; const identity = database.recordAgentIdentitySeen(source, "local_integration");
+        if (["blocked", "muted"].includes(identity.trust_state)) { localIntegrationRegistry.mark(localIntegrationMatch[1], false); return sendJson(response, { error: "Local integration identity is not permitted.", code: "policy_rejected" }, 403); }
+        const policy = database.agentContactPolicyDecision(source, "local_notice", urgency); if (!policy.allowed) { localIntegrationRegistry.mark(localIntegrationMatch[1], false); return sendJson(response, { error: "Contact policy rejected this local event.", code: "policy_rejected" }, 403); }
+        let title: string, messageBody: string, expiresAt: string | null; try { title = boundedText(content.title, "title", 160); messageBody = boundedText(content.body, "body", 4000); expiresAt = optionalIso(content.expires_at); } catch { localIntegrationRegistry.mark(localIntegrationMatch[1], false); return sendJson(response, { error: "Local event fields are invalid.", code: "schema_rejected" }, 422); }
+        if (!localIntegrationRegistry.consumeEvent(localIntegrationMatch[1], eventId)) { localIntegrationRegistry.mark(localIntegrationMatch[1], false); return sendJson(response, { error: "Local event was already consumed.", code: "event_replay_rejected" }, 409); }
+        const message = database.addAgentMessage({ id: `local-${localIntegrationMatch[1]}-${eventId}`.slice(0, 120), channel_id: `local:${localIntegrationMatch[1]}`, source, kind: "local_notice", urgency: urgency as AgentUrgency, title, body: messageBody, actions: [], created_at: occurredAt, expires_at: expiresAt });
+        localIntegrationRegistry.mark(localIntegrationMatch[1], true); return sendJson(response, { ok: true, event_id: eventId, normalized: "agent_message", message: { id: message.id, status: message.status }, authenticated_via: decision.authMode }, 201);
+      }
+      const localActionMatch = url.pathname.match(/^\/local-integrations\/([A-Za-z0-9_.:-]{1,80})\/actions\/([A-Za-z0-9_.-]+)$/);
+      if (request.method === "POST" && localActionMatch) {
+        let body: Buffer; try { body = await readBody(request, 4096); } catch { return sendJson(response, { error: "Request is too large.", code: "payload_out_of_bounds" }, 413); }
+        const decision = localIntegrations.inspect({ integrationId: localActionMatch[1], remoteAddress: request.socket.remoteAddress || "", host: String(request.headers.host || ""), origin: String(request.headers.origin || ""), contentType: String(request.headers["content-type"] || ""), authorization: String(request.headers.authorization || ""), channelToken: String(request.headers["x-forgelink-local-token"] || ""), signature: String(request.headers["x-forgelink-local-signature"] || ""), timestamp: String(request.headers["x-forgelink-local-timestamp"] || ""), nonce: String(request.headers["x-forgelink-local-nonce"] || ""), body });
+        if (!decision.ok) return sendJson(response, { error: "Local action request rejected.", code: decision.code }, decision.status);
+        if (!localIntegrationRegistry.hasScope(localActionMatch[1], "actions")) return sendJson(response, { error: "Integration lacks the actions scope.", code: "scope_rejected" }, 403);
+        let payload: Record<string, unknown>; try { payload = JSON.parse(body.toString("utf8")) as Record<string, unknown>; } catch { return sendJson(response, { error: "Malformed action outcome.", code: "malformed_outcome" }, 400); }
+        const outcome = boundedText(payload.outcome, "outcome", 40, /^(?:succeeded|failed|cancelled|rejected)$/); const completed = localIntegrationRegistry.completePendingAction(localActionMatch[1], localActionMatch[2], outcome);
+        if (!completed.ok) return sendJson(response, { error: "Local action was not accepted.", code: completed.code }, completed.code.includes("replay") ? 409 : completed.code.includes("expired") ? 410 : 403);
+        localIntegrationRegistry.mark(localActionMatch[1], true); return sendJson(response, { ok: true, action: completed.pending }, 200);
       }
       let auth: AuthKind = "none";
       if (isPrivateRoute(url.pathname)) {
@@ -573,6 +610,37 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         // RSSF-007: counts and health states only — never feed URLs, titles, summaries, or item bodies.
         signals: database.signalDiagnostics()
       });
+      if (request.method === "GET" && url.pathname === "/api/local-integrations/capabilities") return sendJson(response, localIntegrations.capabilities());
+      if (request.method === "GET" && url.pathname === "/api/local-integrations") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        return sendJson(response, localIntegrationRegistry.list());
+      }
+      if (request.method === "POST" && url.pathname === "/api/local-integrations") {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request); const integrationId = boundedText(payload.integration_id, "integration_id", 80, /^[A-Za-z0-9_.:-]+$/); const label = boundedText(payload.label || integrationId, "label", 120);
+        const requestedScopes = boundedStringList(payload.scopes, "scopes", LOCAL_INTEGRATION_SCOPES.length, 40); if (!requestedScopes.length || requestedScopes.some((scope) => !(LOCAL_INTEGRATION_SCOPES as readonly string[]).includes(scope))) throw new Error("scopes are invalid.");
+        const token = `fllocal_${randomBytes(32).toString("base64url")}`; const integration = localIntegrationRegistry.create(integrationId, label, requestedScopes as LocalIntegrationScope[], token); return sendJson(response, { ok: true, token, integration }, 201);
+      }
+      const localCredentialMatch = url.pathname.match(/^\/api\/local-integrations\/([A-Za-z0-9_.:-]{1,80})\/(rotate|revoke|enable|disable)$/);
+      if (request.method === "POST" && localCredentialMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const [id, action] = [localCredentialMatch[1], localCredentialMatch[2]]; if (action === "rotate") { const token = `fllocal_${randomBytes(32).toString("base64url")}`; return sendJson(response, { ok: true, token, integration: localIntegrationRegistry.rotate(id, token) }); }
+        if (action === "revoke") return sendJson(response, { ok: true, integration: localIntegrationRegistry.revoke(id) });
+        return sendJson(response, { ok: true, integration: localIntegrationRegistry.setEnabled(id, action === "enable") });
+      }
+      const localUpdateMatch = url.pathname.match(/^\/api\/local-integrations\/([A-Za-z0-9_.:-]{1,80})$/);
+      if (request.method === "POST" && localUpdateMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request); const current = localIntegrationRegistry.record(localUpdateMatch[1]); if (!current) return sendJson(response, { error: "Local integration not found." }, 404);
+        const label = boundedText(payload.label || current.label, "label", 120); const requestedScopes = payload.scopes === undefined ? current.scopes : boundedStringList(payload.scopes, "scopes", LOCAL_INTEGRATION_SCOPES.length, 40); if (!requestedScopes.length || requestedScopes.some((scope) => !(LOCAL_INTEGRATION_SCOPES as readonly string[]).includes(scope))) throw new Error("scopes are invalid.");
+        return sendJson(response, { ok: true, integration: localIntegrationRegistry.update(current.id, label, requestedScopes as LocalIntegrationScope[]) });
+      }
+      const localPendingMatch = url.pathname.match(/^\/api\/local-integrations\/([A-Za-z0-9_.:-]{1,80})\/pending-actions$/);
+      if (request.method === "GET" && localPendingMatch) { if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401); return sendJson(response, localIntegrationRegistry.pendingActions(localPendingMatch[1])); }
+      if (request.method === "POST" && localPendingMatch) {
+        if (auth !== "launch") return sendJson(response, { error: "Unauthorized" }, 401);
+        const payload = await readJson(request); const action = boundedText(payload.action, "action", 80, /^[A-Za-z0-9_.:-]+$/); const ttlSeconds = Number(payload.ttl_seconds || 300); if (!Number.isFinite(ttlSeconds)) throw new Error("ttl_seconds is invalid."); const created = localIntegrationRegistry.createPendingAction(localPendingMatch[1], action, ttlSeconds); return sendJson(response, { ok: true, token: created.token, action: { ...created.pending, nonce: "[redacted]" } }, 201);
+      }
       if (url.pathname === "/api/companion/pair" || url.pathname === "/api/companion/status") {
         // CLV-006 planning gate: disabled by default, authenticated (under /api/),
         // LAN-only by design, never a public relay.

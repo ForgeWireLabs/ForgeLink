@@ -120,7 +120,6 @@ As of the 2026-07-22 provider-specific communications experience closeout, the a
 
 ```text
 011-production-readiness
-024-local-webhook-lan-integrations
 031-linked-node-metadata-transport-and-trust-hardening
 032-tauri-production-parity-and-electron-retirement
 037-telnyx-production-hardening-and-expansion
@@ -131,8 +130,8 @@ As of the 2026-07-22 provider-specific communications experience closeout, the a
 PR-014. Unsigned development and test artifacts are valid evidence; signed public
 distribution remains gated on the operator-provided certificate.
 
-`023` (RSS/Atom signal follow-up) is completed. `024` remains the active
-local-first adapter priority for webhook/LAN integrations.
+`023` (RSS/Atom signal follow-up) and `024` (authenticated local webhook/LAN
+integrations) are completed.
 
 `031` owns the production identity, cryptography, durable replay/checkpoint/audit,
 bounded authenticated metadata transport, quarantine, wipe, rollback, recovery,
@@ -164,6 +163,7 @@ Completed foundation relevant to the current roadmap:
 017-operator-cockpit-and-native-experience
 018-email-channel-adapter
 019-push-notification-channel
+024-local-webhook-lan-integrations
 025-ledger-integrity-enforcement
 030-tauri-shared-shell-and-electron-retirement
 033-canonical-dashboard-integrity

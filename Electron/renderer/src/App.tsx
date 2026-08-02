@@ -22,6 +22,8 @@ import type {
   EmailSettingsInput,
   EmailSettingsStatus,
   ForgeLinkNodeLinkStatus,
+  LocalIntegrationScope,
+  LocalIntegrationStatus,
   McpStatus,
   Message,
   OutboundDraft,
@@ -632,6 +634,7 @@ export function App() {
   const [dataStatus, setDataStatus] = useState<DataStatus>();
   const [mcpStatus, setMcpStatus] = useState<McpStatus>();
   const [agentChannels, setAgentChannels] = useState<AgentChannelStatus[]>([]);
+  const [localIntegrations, setLocalIntegrations] = useState<LocalIntegrationStatus[]>([]);
   const [outboundDrafts, setOutboundDrafts] = useState<OutboundDraft[]>([]);
   const [sampleStatus, setSampleStatus] = useState<SampleStatus>();
   const [emailStatus, setEmailStatus] = useState<EmailChannelStatus>();
@@ -673,6 +676,7 @@ export function App() {
     setConfig(MOBILE_LOCAL_CONFIG);
     setDataStatus(MOBILE_LOCAL_DATA_STATUS);
     setMcpStatus(undefined);
+    setLocalIntegrations([]);
     void shell
       .agentChannels()
       .then(setAgentChannels)
@@ -717,6 +721,7 @@ export function App() {
       nextDataStatus,
       nextMcpStatus,
       nextAgentChannels,
+      nextLocalIntegrations,
       nextAttentionPolicy,
       nextPairingStatus,
       nextNodeLinkStatus,
@@ -738,6 +743,7 @@ export function App() {
       api.dataStatus(),
       shell.mcpStatus(),
       shell.agentChannels(),
+      shell.localIntegrations().catch(() => [] as LocalIntegrationStatus[]),
       shell.attentionPolicy(),
       shell.pairingStatus().catch(() => DEFAULT_ANDROID_PAIRING_STATUS),
       shell.nodeLinkStatus().catch(() => DEFAULT_NODE_LINK_STATUS),
@@ -759,6 +765,7 @@ export function App() {
     setDataStatus(nextDataStatus);
     if (nextMcpStatus) setMcpStatus(nextMcpStatus);
     if (nextAgentChannels) setAgentChannels(nextAgentChannels);
+    if (nextLocalIntegrations) setLocalIntegrations(nextLocalIntegrations);
     if (nextAttentionPolicy) setAttentionPolicy(nextAttentionPolicy);
     setPairingStatus(nextPairingStatus || DEFAULT_ANDROID_PAIRING_STATUS);
     setNodeLinkStatus(nextNodeLinkStatus || DEFAULT_NODE_LINK_STATUS);
@@ -1229,6 +1236,7 @@ export function App() {
           dataStatus={dataStatus}
           mcpStatus={mcpStatus}
           agentChannels={agentChannels}
+          localIntegrations={localIntegrations}
           attentionPolicy={attentionPolicy}
           presence={presence}
           host={host}
@@ -1378,6 +1386,25 @@ export function App() {
             } catch (cause) {
               setError(String(cause));
             }
+          }}
+          onLocalIntegrationCreate={async (payload) => {
+            try { const integration = await shell.createLocalIntegration(payload); setLocalIntegrations((current) => [integration, ...current.filter((item) => item.id !== integration.id)]); void notify({ kind: "system", title: "Local integration ready", body: "Credential saved to its protected token file." }); } catch (cause) { setError(String(cause)); }
+          }}
+          onLocalIntegrationScopes={async (id, scopes) => {
+            try { const integration = await shell.updateLocalIntegration(id, { scopes }); setLocalIntegrations((current) => current.map((item) => item.id === id ? integration : item)); } catch (cause) { setError(String(cause)); }
+          }}
+          onLocalIntegrationRotate={async (id) => {
+            try { const integration = await shell.rotateLocalIntegration(id); setLocalIntegrations((current) => current.map((item) => item.id === id ? integration : item)); void notify({ kind: "system", title: "Local integration rotated", body: id }); } catch (cause) { setError(String(cause)); }
+          }}
+          onLocalIntegrationRevoke={async (id) => {
+            if (!window.confirm(`Revoke local integration ${id}?`)) return;
+            try { const integration = await shell.revokeLocalIntegration(id); setLocalIntegrations((current) => current.map((item) => item.id === id ? integration : item)); } catch (cause) { setError(String(cause)); }
+          }}
+          onLocalIntegrationEnabled={async (id, enabled) => {
+            try { const integration = await shell.setLocalIntegrationEnabled(id, enabled); setLocalIntegrations((current) => current.map((item) => item.id === id ? integration : item)); } catch (cause) { setError(String(cause)); }
+          }}
+          onLocalIntegrationTest={async (id) => {
+            try { const integration = await shell.testLocalIntegration(id); setLocalIntegrations((current) => current.map((item) => item.id === id ? integration : item)); await loadAll(); void notify({ kind: "system", title: "Local integration test passed", body: id }); } catch (cause) { setError(String(cause)); }
           }}
           smsProviderSettings={smsProviderSettings}
           provider={providerExperience}
@@ -3847,6 +3874,7 @@ function Settings({
   dataStatus,
   mcpStatus,
   agentChannels,
+  localIntegrations,
   attentionPolicy,
   presence,
   host,
@@ -3868,6 +3896,12 @@ function Settings({
   onChannelRotate,
   onChannelRevoke,
   onChannelEnabled,
+  onLocalIntegrationCreate,
+  onLocalIntegrationScopes,
+  onLocalIntegrationRotate,
+  onLocalIntegrationRevoke,
+  onLocalIntegrationEnabled,
+  onLocalIntegrationTest,
   smsProviderSettings,
   provider,
   onTelnyxValidate,
@@ -3895,6 +3929,7 @@ function Settings({
   dataStatus?: DataStatus;
   mcpStatus?: McpStatus;
   agentChannels: AgentChannelStatus[];
+  localIntegrations: LocalIntegrationStatus[];
   attentionPolicy?: AttentionPolicy;
   presence: PresenceSnapshot;
   host: string;
@@ -3916,6 +3951,12 @@ function Settings({
   onChannelRotate(id: string): void;
   onChannelRevoke(id: string): void;
   onChannelEnabled(id: string, enabled: boolean): void;
+  onLocalIntegrationCreate(payload: { integration_id: string; label: string; scopes: LocalIntegrationScope[] }): void;
+  onLocalIntegrationScopes(id: string, scopes: LocalIntegrationScope[]): void;
+  onLocalIntegrationRotate(id: string): void;
+  onLocalIntegrationRevoke(id: string): void;
+  onLocalIntegrationEnabled(id: string, enabled: boolean): void;
+  onLocalIntegrationTest(id: string): void;
   smsProviderSettings?: SmsProviderSettingsStatus;
   provider: CommunicationsProviderExperience;
   onTelnyxValidate(values: TelnyxSettingsInput): Promise<void>;
@@ -3936,6 +3977,9 @@ function Settings({
   onSampleClear(): void;
 }) {
   const [retentionDays, setRetentionDays] = useState(365);
+  const [localIntegrationId, setLocalIntegrationId] = useState("");
+  const [localIntegrationLabel, setLocalIntegrationLabel] = useState("");
+  const [localIntegrationScopes, setLocalIntegrationScopes] = useState<LocalIntegrationScope[]>(["agent_message"]);
   const [policyDraft, setPolicyDraft] = useState<AttentionPolicy>(attentionPolicy || DEFAULT_ATTENTION_POLICY);
   const commands = mcpStatus?.install_commands || {};
   useEffect(() => {
@@ -4211,6 +4255,39 @@ function Settings({
               <div className="empty-inline">No agent channel credentials yet.</div>
             )}
           </div>
+        </section>
+        <section className="settings-card span-two" aria-labelledby="local-integrations-heading">
+          <h2 id="local-integrations-heading">Local webhook and LAN integrations</h2>
+          <p>Operator-controlled local systems use separate least-privilege credentials. LAN access stays off unless enabled outside this screen.</p>
+          <div className="attention-grid">
+            <label className="field"><span>Integration ID</span><input value={localIntegrationId} placeholder="home-assistant" onChange={(event) => setLocalIntegrationId(event.target.value)} /></label>
+            <label className="field"><span>Label</span><input value={localIntegrationLabel} placeholder="Home Assistant" onChange={(event) => setLocalIntegrationLabel(event.target.value)} /></label>
+            {(["agent_message", "actions"] as LocalIntegrationScope[]).map((scope) => (
+              <label className="toggle-row" key={scope}><input type="checkbox" checked={localIntegrationScopes.includes(scope)} onChange={(event) => setLocalIntegrationScopes((current) => event.target.checked ? [...new Set([...current, scope])] : current.filter((item) => item !== scope))} /><span>{scope === "agent_message" ? "Create low/normal local notices" : "Report signed pending-action outcomes"}</span></label>
+            ))}
+          </div>
+          <div className="data-actions"><button className="button primary" disabled={!localIntegrationId.trim() || !localIntegrationScopes.length} onClick={() => { onLocalIntegrationCreate({ integration_id: localIntegrationId.trim(), label: localIntegrationLabel.trim() || localIntegrationId.trim(), scopes: localIntegrationScopes }); setLocalIntegrationId(""); setLocalIntegrationLabel(""); }}>Create local integration</button></div>
+          <div className="channel-list">
+            {localIntegrations.length ? localIntegrations.map((integration) => (
+              <div className="channel-row" key={integration.id}>
+                <div>
+                  <strong>{integration.label}</strong>
+                  <span>{integration.id} · {integration.enabled ? "enabled" : "disabled"} · {integration.credential_configured ? "credential configured" : "credential revoked"}</span>
+                  <code>{integration.token_file}</code>
+                  <small>Scopes: {integration.scopes.join(", ")} · Accepted {integration.accepted_count} · Rejected {integration.rejected_count}</small>
+                  <small>Last used: {integration.last_used_at ? formatListTime(integration.last_used_at) : "never"} · Last rejected: {integration.last_rejected_at ? formatListTime(integration.last_rejected_at) : "never"}</small>
+                </div>
+                <div className="channel-actions">
+                  <button className="button secondary" disabled={!integration.enabled || !integration.credential_configured || !integration.scopes.includes("agent_message")} onClick={() => onLocalIntegrationTest(integration.id)}>Test {integration.label}</button>
+                  <button className="button secondary" onClick={() => onLocalIntegrationScopes(integration.id, integration.scopes.includes("actions") ? ["agent_message"] : ["agent_message", "actions"])}> {integration.scopes.includes("actions") ? "Remove actions scope" : "Allow action outcomes"}</button>
+                  <button className="button secondary" onClick={() => onLocalIntegrationRotate(integration.id)}>Rotate {integration.label}</button>
+                  <button className="button secondary" disabled={!integration.credential_configured} onClick={() => onLocalIntegrationEnabled(integration.id, !integration.enabled)}>{integration.enabled ? "Disable" : "Enable"} {integration.label}</button>
+                  <button className="button danger" disabled={!integration.credential_configured} onClick={() => onLocalIntegrationRevoke(integration.id)}>Revoke {integration.label}</button>
+                </div>
+              </div>
+            )) : <div className="empty-inline">No local integration credentials yet.</div>}
+          </div>
+          <p className="settings-source">Credentials are written to protected token files and never rendered. A test creates a synthetic low-urgency notice only.</p>
         </section>
         <section className="settings-card span-two">
           <h2>Attention policy</h2>

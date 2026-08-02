@@ -1,4 +1,4 @@
-import type { AgentChannelStatus, AndroidPairingStatus, AttentionDecision, AttentionEvent, AttentionPolicy, BackendConnection, DesktopLinkedNodeStatus, DesktopStatus, EmailSettingsInput, EmailSettingsStatus, ForgeLinkNodeLinkStatus, McpStatus, PushSettingsInput, PushSettingsStatus, SmsProviderSettingsStatus, TelnyxSettingsInput, TelnyxValidationResult, ValidationResult } from "./types";
+import type { AgentChannelStatus, AndroidPairingStatus, AttentionDecision, AttentionEvent, AttentionPolicy, BackendConnection, DesktopLinkedNodeStatus, DesktopStatus, EmailSettingsInput, EmailSettingsStatus, ForgeLinkNodeLinkStatus, LocalIntegrationScope, LocalIntegrationStatus, McpStatus, PushSettingsInput, PushSettingsStatus, SmsProviderSettingsStatus, TelnyxSettingsInput, TelnyxValidationResult, ValidationResult } from "./types";
 
 export const SHELL_BRIDGE_CAPABILITIES = {
   localService: ["backendConnection", "getStatus", "startServer", "startLocalOnly", "startService", "stopServer", "onServerStatus"],
@@ -6,7 +6,7 @@ export const SHELL_BRIDGE_CAPABILITIES = {
   navigation: ["openExternal"],
   secureSettings: ["validateSettings", "importEnvironment", "removeCredentials", "smsProviderSettings", "validateTelnyxSettings", "saveTelnyxSettings", "selectSmsProvider", "removeTelnyxSettings", "emailSettings", "saveEmailSettings", "removeEmailSettings", "pushSettings", "savePushSettings", "removePushSettings"],
   attentionPolicy: ["attentionPolicy", "saveAttentionPolicy"],
-  agentCredentials: ["mcpStatus", "createMcpToken", "revokeMcpToken", "testMcpBridge", "agentChannels", "createAgentChannel", "rotateAgentChannel", "revokeAgentChannel", "setAgentChannelEnabled"],
+  agentCredentials: ["mcpStatus", "createMcpToken", "revokeMcpToken", "testMcpBridge", "agentChannels", "createAgentChannel", "rotateAgentChannel", "revokeAgentChannel", "setAgentChannelEnabled", "localIntegrations", "createLocalIntegration", "updateLocalIntegration", "rotateLocalIntegration", "revokeLocalIntegration", "setLocalIntegrationEnabled", "testLocalIntegration"],
   androidPairing: ["pairingStatus"],
   nodeLink: ["nodeLinkStatus", "desktopLinkedNodeStatus"]
 } as const;
@@ -40,6 +40,13 @@ export interface ForgeLinkShellBridge {
   rotateAgentChannel(channelId: string): Promise<AgentChannelStatus>;
   revokeAgentChannel(channelId: string): Promise<AgentChannelStatus>;
   setAgentChannelEnabled(channelId: string, enabled: boolean): Promise<AgentChannelStatus>;
+  localIntegrations(): Promise<LocalIntegrationStatus[]>;
+  createLocalIntegration(payload: { integration_id: string; label: string; scopes: LocalIntegrationScope[] }): Promise<LocalIntegrationStatus>;
+  updateLocalIntegration(integrationId: string, payload: { label?: string; scopes?: LocalIntegrationScope[] }): Promise<LocalIntegrationStatus>;
+  rotateLocalIntegration(integrationId: string): Promise<LocalIntegrationStatus>;
+  revokeLocalIntegration(integrationId: string): Promise<LocalIntegrationStatus>;
+  setLocalIntegrationEnabled(integrationId: string, enabled: boolean): Promise<LocalIntegrationStatus>;
+  testLocalIntegration(integrationId: string): Promise<LocalIntegrationStatus>;
   emailSettings(): Promise<EmailSettingsStatus>;
   saveEmailSettings(values: EmailSettingsInput): Promise<EmailSettingsStatus>;
   removeEmailSettings(): Promise<EmailSettingsStatus>;
@@ -88,6 +95,13 @@ function createTauriBridge(invoke: TauriInvoke): ForgeLinkShellBridge {
     rotateAgentChannel: channelId => invoke<AgentChannelStatus>("forgelink_rotate_agent_channel", { channelId }),
     revokeAgentChannel: channelId => invoke<AgentChannelStatus>("forgelink_revoke_agent_channel", { channelId }),
     setAgentChannelEnabled: (channelId, enabled) => invoke<AgentChannelStatus>("forgelink_set_agent_channel_enabled", { channelId, enabled }),
+    localIntegrations: unavailable("localIntegrations"),
+    createLocalIntegration: unavailable("createLocalIntegration"),
+    updateLocalIntegration: unavailable("updateLocalIntegration"),
+    rotateLocalIntegration: unavailable("rotateLocalIntegration"),
+    revokeLocalIntegration: unavailable("revokeLocalIntegration"),
+    setLocalIntegrationEnabled: unavailable("setLocalIntegrationEnabled"),
+    testLocalIntegration: unavailable("testLocalIntegration"),
     emailSettings: () => invoke<EmailSettingsStatus>("forgelink_email_settings"),
     saveEmailSettings: values => invokeWithPayload<EmailSettingsStatus>(invoke, "forgelink_save_email_settings", values as unknown as Record<string, unknown>),
     removeEmailSettings: () => invoke<EmailSettingsStatus>("forgelink_remove_email_settings"),
@@ -135,6 +149,13 @@ export function getShellBridge(): ForgeLinkShellBridge {
       rotateAgentChannel: unavailable("rotateAgentChannel"),
       revokeAgentChannel: unavailable("revokeAgentChannel"),
       setAgentChannelEnabled: unavailable("setAgentChannelEnabled"),
+      localIntegrations: unavailable("localIntegrations"),
+      createLocalIntegration: unavailable("createLocalIntegration"),
+      updateLocalIntegration: unavailable("updateLocalIntegration"),
+      rotateLocalIntegration: unavailable("rotateLocalIntegration"),
+      revokeLocalIntegration: unavailable("revokeLocalIntegration"),
+      setLocalIntegrationEnabled: unavailable("setLocalIntegrationEnabled"),
+      testLocalIntegration: unavailable("testLocalIntegration"),
       emailSettings: unavailable("emailSettings"),
       saveEmailSettings: unavailable("saveEmailSettings"),
       removeEmailSettings: unavailable("removeEmailSettings"),
@@ -179,6 +200,13 @@ export const shell: ForgeLinkShellBridge = {
   rotateAgentChannel: channelId => getShellBridge().rotateAgentChannel(channelId),
   revokeAgentChannel: channelId => getShellBridge().revokeAgentChannel(channelId),
   setAgentChannelEnabled: (channelId, enabled) => getShellBridge().setAgentChannelEnabled(channelId, enabled),
+  localIntegrations: () => getShellBridge().localIntegrations(),
+  createLocalIntegration: payload => getShellBridge().createLocalIntegration(payload),
+  updateLocalIntegration: (integrationId, payload) => getShellBridge().updateLocalIntegration(integrationId, payload),
+  rotateLocalIntegration: integrationId => getShellBridge().rotateLocalIntegration(integrationId),
+  revokeLocalIntegration: integrationId => getShellBridge().revokeLocalIntegration(integrationId),
+  setLocalIntegrationEnabled: (integrationId, enabled) => getShellBridge().setLocalIntegrationEnabled(integrationId, enabled),
+  testLocalIntegration: integrationId => getShellBridge().testLocalIntegration(integrationId),
   emailSettings: () => getShellBridge().emailSettings(),
   saveEmailSettings: values => getShellBridge().saveEmailSettings(values),
   removeEmailSettings: () => getShellBridge().removeEmailSettings(),

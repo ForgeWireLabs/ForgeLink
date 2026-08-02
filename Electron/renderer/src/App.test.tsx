@@ -30,6 +30,7 @@ const signalItem = { id: "sigitem-1", subscription_id: "sigsub-1", source_title:
 const callRow = { id: 1, local_call_id: "call-1", provider_kind: "voice_edge", provider_name: "twilio", provider_call_id: "CA1", direction: "outbound", from_number: "+15550001111", to_number: "+15557654321", contact_id: 7, contact_point_id: 70, status: "in_progress", started_at: "2026-06-20T21:00:00.000Z", answered_at: "2026-06-20T21:00:10.000Z", ended_at: null, duration_seconds: null, redacted_error: "", created_at: "2026-06-20T21:00:00.000Z", updated_at: "2026-06-20T21:00:10.000Z", contact_name: "Grace Hopper", contact_point_label: "primary", contact_point_value: "+15557654321" };
 const mcpStatus = { configured: false, created_at: null, rotated_at: null, revoked_at: null, last_used_at: null, last_test_at: null, last_test_status: null, token_file: "C:\\Users\\test\\.forgelink\\api.token", token_file_present: false, bridge_server: "C:\\Projects\\TWL_phone\\mcp\\forgelink-human\\dist\\server.js", bridge_built: true, base_url: "http://127.0.0.1:5055", install_commands: { vscode: "install vscode", claude: "install claude", codex: "install codex", forgewire: "install forgewire" } };
 const agentChannel = { channel_id: "forgewire", label: "ForgeWire Fabric", enabled: true, configured: true, created_at: "2026-06-15T22:00:00.000Z", rotated_at: "2026-06-15T22:00:00.000Z", revoked_at: null, last_used_at: null, last_rejected_at: null, rejection_count: 2, rate_limited_count: 1, token_file: "C:\\Users\\test\\.forgelink\\channels\\forgewire.token", token_file_present: true };
+const localIntegration = { id: "home-assistant", label: "Home Assistant", scopes: ["agent_message", "actions"] as const, enabled: true, credential_configured: true, created_at: "2026-08-02T20:00:00.000Z", rotated_at: "2026-08-02T20:00:00.000Z", revoked_at: null, last_used_at: "2026-08-02T20:01:00.000Z", last_rejected_at: null, accepted_count: 3, rejected_count: 1, token_file: "C:\\Users\\test\\.forgelink\\local-integrations\\home-assistant.token", token_file_present: true };
 const attentionPolicy = { enabled: true, operator_mode: "available", quiet_hours_enabled: false, quiet_hours_start: "22:00", quiet_hours_end: "07:00", quiet_hours_allow_urgent: false, redact_notification_bodies: true, sms_notifications: "all", agent_notifications: "high_and_urgent", signal_notifications: "off", system_notifications: "all", emergency_contact_bypass: true, emergency_agent_requires_policy: true, presence_enabled: true, presence_app_focus: "unknown", presence_input: "unknown", presence_network: "unknown", presence_do_not_disturb: false, presence_paired_mobile: "unknown", muted_sources: [] };
 const outboundDraft = { id: "draft-1", agent_id: "forgewire", channel_id: "forgewire", channel_kind: "sms", to_number: "+15557654321", contact_id: 7, body: "Hi from the agent. (draft)", media_urls: "", status: "draft", firewall_decision: "require_approval", reason: "needs_review", provider_message_id: "", last_error: "", created_at: "2026-06-20T20:00:00.000Z", updated_at: "2026-06-20T20:00:00.000Z", decided_at: null, scheduled_at: null };
 const smsProviderSettings = { preferred_provider: "twilio" as const, telnyx: { configured: false, inbound_configured: false, source: "none" as const, environment_available: false, phone_number: "", messaging_profile_id: "", api_key_present: false, public_key_present: false } };
@@ -93,6 +94,13 @@ beforeEach(() => {
     rotateAgentChannel: vi.fn().mockResolvedValue({ ...agentChannel, rotated_at: "2026-06-15T22:03:00.000Z" }),
     revokeAgentChannel: vi.fn().mockResolvedValue({ ...agentChannel, configured: false, revoked_at: "2026-06-15T22:04:00.000Z", token_file_present: false }),
     setAgentChannelEnabled: vi.fn().mockResolvedValue({ ...agentChannel, enabled: false }),
+    localIntegrations: vi.fn().mockResolvedValue([localIntegration]),
+    createLocalIntegration: vi.fn().mockResolvedValue(localIntegration),
+    updateLocalIntegration: vi.fn().mockResolvedValue({ ...localIntegration, scopes: ["agent_message"] }),
+    rotateLocalIntegration: vi.fn().mockResolvedValue({ ...localIntegration, rotated_at: "2026-08-02T20:02:00.000Z" }),
+    revokeLocalIntegration: vi.fn().mockResolvedValue({ ...localIntegration, enabled: false, credential_configured: false, revoked_at: "2026-08-02T20:03:00.000Z", token_file_present: false }),
+    setLocalIntegrationEnabled: vi.fn().mockResolvedValue({ ...localIntegration, enabled: false }),
+    testLocalIntegration: vi.fn().mockResolvedValue({ ...localIntegration, accepted_count: 4 }),
     emailSettings: vi.fn().mockResolvedValue({ configured: false, host: "", port: 465, secure: true, user: "", from: "", password_present: false, inbound_secret_present: false, action_secret_present: false }),
     saveEmailSettings: vi.fn().mockResolvedValue({ configured: true, host: "smtp.example.com", port: 587, secure: false, user: "ops@example.com", from: "ops@example.com", password_present: true, inbound_secret_present: false, action_secret_present: false }),
     removeEmailSettings: vi.fn().mockResolvedValue({ configured: false, host: "", port: 465, secure: true, user: "", from: "", password_present: false, inbound_secret_present: false, action_secret_present: false }),
@@ -972,6 +980,31 @@ describe("React renderer parity", () => {
     await userEvent.click(screen.getByRole("button", { name: "Revoke" }));
     await waitFor(() => expect(window.desktop?.revokeAgentChannel).toHaveBeenCalledWith("forgewire"));
     expect(screen.queryByText(/flchan_/)).toBeNull();
+  });
+
+  it("LAN-006: manages local integrations with redacted health, scopes, lifecycle, and test events", async () => {
+    render(<App/>);
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(await screen.findByRole("heading", { name: "Local webhook and LAN integrations" })).toBeTruthy();
+    expect(screen.getByText("Home Assistant")).toBeTruthy();
+    expect(screen.getByText(/Scopes: agent_message, actions · Accepted 3 · Rejected 1/)).toBeTruthy();
+    expect(screen.getByText(/home-assistant\.token/)).toBeTruthy();
+    expect(screen.queryByText(/fllocal_/)).toBeNull();
+    await userEvent.type(screen.getByLabelText("Integration ID"), "home-bridge");
+    await userEvent.type(screen.getByLabelText("Label"), "Home Bridge");
+    await userEvent.click(screen.getByRole("button", { name: "Create local integration" }));
+    await waitFor(() => expect(window.desktop?.createLocalIntegration).toHaveBeenCalledWith({ integration_id: "home-bridge", label: "Home Bridge", scopes: ["agent_message"] }));
+    await userEvent.click(screen.getByRole("button", { name: "Test Home Assistant" }));
+    await waitFor(() => expect(window.desktop?.testLocalIntegration).toHaveBeenCalledWith("home-assistant"));
+    await userEvent.click(screen.getByRole("button", { name: "Remove actions scope" }));
+    await waitFor(() => expect(window.desktop?.updateLocalIntegration).toHaveBeenCalledWith("home-assistant", { scopes: ["agent_message"] }));
+    await userEvent.click(screen.getByRole("button", { name: "Rotate Home Assistant" }));
+    await waitFor(() => expect(window.desktop?.rotateLocalIntegration).toHaveBeenCalledWith("home-assistant"));
+    await userEvent.click(screen.getByRole("button", { name: "Disable Home Assistant" }));
+    await waitFor(() => expect(window.desktop?.setLocalIntegrationEnabled).toHaveBeenCalledWith("home-assistant", false));
+    await userEvent.click(screen.getByRole("button", { name: "Revoke Home Assistant" }));
+    await waitFor(() => expect(window.desktop?.revokeLocalIntegration).toHaveBeenCalledWith("home-assistant"));
+    expect(screen.queryByText(/fllocal_/)).toBeNull();
   });
 
   it("imports complete environment credentials explicitly", async () => {

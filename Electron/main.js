@@ -62,6 +62,10 @@ function channelTokenFile(channelId = "forgewire") {
   return path.join(os.homedir(), ".forgelink", "channels", `${channelId}.token`);
 }
 
+function localIntegrationTokenFile(integrationId) {
+  return path.join(os.homedir(), ".forgelink", "local-integrations", `${integrationId}.token`);
+}
+
 function mcpServerPath() {
   return path.resolve(__dirname, "..", "mcp", "forgelink-human", "dist", "server.js");
 }
@@ -479,6 +483,29 @@ ipcMain.handle("agent-channel-revoke", async (_, channelId = "forgewire") => {
 ipcMain.handle("agent-channel-enabled", async (_, channelId = "forgewire", enabled = true) => {
   const result = await backendJson(`/api/agent-channels/${encodeURIComponent(String(channelId))}/${enabled ? "enable" : "disable"}`, { method: "POST" });
   return { ...result.channel, token_file: channelTokenFile(result.channel.channel_id), token_file_present: fs.existsSync(channelTokenFile(result.channel.channel_id)) };
+});
+function localIntegrationView(integration) {
+  const file = localIntegrationTokenFile(integration.id);
+  return { ...integration, token_file: file, token_file_present: fs.existsSync(file) };
+}
+ipcMain.handle("local-integrations", async () => (await backendJson("/api/local-integrations")).map(localIntegrationView));
+ipcMain.handle("local-integration-create", async (_, payload = {}) => {
+  const result = await backendJson("/api/local-integrations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ integration_id: payload.integration_id, label: payload.label, scopes: payload.scopes }) });
+  const file = localIntegrationTokenFile(result.integration.id); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, result.token, { mode: 0o600 }); return localIntegrationView(result.integration);
+});
+ipcMain.handle("local-integration-update", async (_, integrationId, payload = {}) => localIntegrationView((await backendJson(`/api/local-integrations/${encodeURIComponent(String(integrationId))}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })).integration));
+ipcMain.handle("local-integration-rotate", async (_, integrationId) => {
+  const result = await backendJson(`/api/local-integrations/${encodeURIComponent(String(integrationId))}/rotate`, { method: "POST" }); const file = localIntegrationTokenFile(result.integration.id); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, result.token, { mode: 0o600 }); return localIntegrationView(result.integration);
+});
+ipcMain.handle("local-integration-revoke", async (_, integrationId) => {
+  const result = await backendJson(`/api/local-integrations/${encodeURIComponent(String(integrationId))}/revoke`, { method: "POST" }); const file = localIntegrationTokenFile(result.integration.id); try { fs.unlinkSync(file); } catch (error) { if (error.code !== "ENOENT") throw error; } return localIntegrationView(result.integration);
+});
+ipcMain.handle("local-integration-enabled", async (_, integrationId, enabled = true) => localIntegrationView((await backendJson(`/api/local-integrations/${encodeURIComponent(String(integrationId))}/${enabled ? "enable" : "disable"}`, { method: "POST" })).integration));
+ipcMain.handle("local-integration-test", async (_, integrationId) => {
+  const id = String(integrationId); const file = localIntegrationTokenFile(id); const token = fs.readFileSync(file, "utf8").trim();
+  const response = await fetch(`${baseUrl()}/local-integrations/${encodeURIComponent(id)}/events`, { method: "POST", headers: { "Content-Type": "application/json", "X-ForgeLink-Local-Token": token }, body: JSON.stringify({ schema_version: 1, event_id: `desktop-test-${Date.now()}`, event_type: "agent_message", occurred_at: new Date().toISOString(), payload: { title: "Local integration test", body: "Synthetic local integration test event.", urgency: "low" } }) });
+  if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(payload.error || `Local integration test failed (${response.status}).`); }
+  const integrations = await backendJson("/api/local-integrations"); return localIntegrationView(integrations.find((item) => item.id === id));
 });
 
 // Single-instance: a second launch focuses the first window and never starts a

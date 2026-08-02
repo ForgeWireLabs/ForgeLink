@@ -1,0 +1,59 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260802-lan003-lan005-local-integration-lifecycle",
+  "timestamp": "2026-08-02T20:16:00Z",
+  "work_item": "024",
+  "result": "passed",
+  "provenance": "concrete",
+  "criteria": ["LAN-003", "LAN-004", "LAN-005"],
+  "summary": "Implemented a durable hash-only per-integration registry with labels, scopes, create/rotate/revoke/enable/disable lifecycle and redacted counters; schema-v1 low/normal local-notice normalization through identity and contact policy with durable event replay protection; and integration-bound signed, expiring, single-use pending actions with durable redacted outcomes.",
+  "commands": [
+    {
+      "command": "npm run backend:build && node --test backend-dist/localIntegrations.test.js backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "Focused registry and HTTP suite passed 37 tests, including hash-only persistence, lifecycle, least-privilege scopes, malformed/urgent/unauthorized/replayed event rejection, local-notice normalization, pending-action signature/expiry/replay, durable outcomes, and credential rotation/revocation."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Full Electron renderer, backend, packaging, and shell regression passed: 227 renderer tests and 241 runnable Node tests passed, with one intentional opt-in live-Twilio skip."
+    },
+    {
+      "command": "npm run scan:secrets",
+      "exit_code": 0,
+      "summary": "Repository secret scan passed from the Electron package root."
+    },
+    {
+      "command": "cargo check --manifest-path Tauri/src-tauri/Cargo.toml",
+      "exit_code": 0,
+      "summary": "The Tauri shared-shell crate continued to compile."
+    },
+    {
+      "command": "python -m repopact_cli dashboard --root . && python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Canonical dashboard regeneration and ForgeLink governed validation passed with RepoPact 2.2.0 and zero audit findings."
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "summary": "Patch whitespace validation passed; Git reported only expected Windows line-ending notices."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/localIntegrations.ts",
+    "Electron/backend/src/localIntegrations.test.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "docs/local-integrations.md",
+    "work/active/024-local-webhook-lan-integrations/README.md",
+    "work/active/024-local-webhook-lan-integrations/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "network": "deterministic loopback and synthetic address tests only; no LAN service was exposed",
+    "data": "synthetic local integration ids, notices, credentials, and action outcomes only; no real credentials or private communications",
+    "scope": "LAN-003 through LAN-005 only; LAN-006 through LAN-008 remain pending"
+  }
+}
