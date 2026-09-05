@@ -1,0 +1,84 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "040",
+  "title": "Regulated Communications Data and Provider Boundary",
+  "status": "proposed",
+  "owner_scope": "work",
+  "affected_scopes": [
+    "work",
+    "security",
+    "backend",
+    "data",
+    "providers",
+    "messaging",
+    "voice",
+    "contacts",
+    "agents",
+    "mcp",
+    "docs",
+    "audit"
+  ],
+  "depends_on": [
+    "016",
+    "031",
+    "039"
+  ],
+  "provenance": "concrete",
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-09-05T19:30:00Z",
+    "note": "Created before classification-aware regulated communications, provider eligibility, regulated backup/export, or cross-repo policy implementation begins."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "RCD-001",
+      "text": "Define a versioned ForgeLink data/communication classification contract that can map to ForgeWire regulated-data classes and survives agent-channel requests, approvals/evidence packs, contacts, timelines, SMS/MMS, voice/call data, notifications, callbacks, drafts/outbox, backup/export, retention/deletion, and audit/replay.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "RCD-002",
+      "text": "Provider and channel policy can restrict classified data by local-only/Twilio/Telnyx/future provider, SMS/MMS/voice/notification/webhook surface, recipient, purpose, and required provider agreement such as a healthcare BAA; disallowed routes fail closed or require an explicit governed redaction/downgrade decision.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "RCD-003",
+      "text": "Extend consent and communication-firewall evaluation so recipient consent/purpose, classification, channel, external-send authority, retention, and urgency are evaluated together. Product consent records do not make unsupported universal legal-consent claims for automated SMS/voice.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "RCD-004",
+      "text": "Define regulated backup/export/restore handling including encryption or protected destination requirements, operator warnings, retention, deletion, and migration behavior; sensitive plaintext exports cannot silently satisfy a regulated deployment profile.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "RCD-005",
+      "text": "Logs, provider errors, webhook diagnostics, notifications, screenshots/support bundles, audit chains, and RepoPact evidence preserve useful operational proof while minimizing or redacting regulated payloads, secrets, phone numbers, account identifiers, and health/financial facts.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "RCD-006",
+      "text": "Define and test deletion/retention behavior across messages, attachments, call history, contacts, agent requests, outcomes, backups, and audit evidence, including an explicit distinction between deleting payload content and retaining non-payload tamper-evident control evidence where policy requires it.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "RCD-007",
+      "text": "Add representative negative tests proving PHI/health, cardholder, financial/KYC, credential, and other restricted classes cannot silently leave through a forbidden channel/provider or appear in redacted notification, log, support, export, or evidence surfaces.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "RCD-008",
+      "text": "Document framework applicability and product boundaries without claiming HIPAA, PCI DSS, SOC 2, privacy, or communications-law compliance; identify customer/operator and provider responsibilities separately from ForgeLink controls.",
+      "state": "pending",
+      "evidence": []
+    }
+  ],
+  "created": "2026-09-05",
+  "updated": "2026-09-05"
+}
