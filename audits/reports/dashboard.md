@@ -15,13 +15,13 @@
 | Audit findings | 0 |
 | Decision records | 18 |
 | Policy records | 0 |
-| Evidence runs | 109 |
+| Evidence runs | 110 |
 
 ## Work
 
 | Status | Count |
 | --- | ---: |
-| proposed | 0 |
+| proposed | 1 |
 | active | 5 |
 | blocked | 0 |
 | deferred | 3 |

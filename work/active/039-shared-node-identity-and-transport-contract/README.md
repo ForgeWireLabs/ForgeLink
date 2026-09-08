@@ -79,7 +79,7 @@ architecture boundary.
 
 ## Priority Order
 
-- [ ] **SNI-001** Record the shared-crate boundary — what it owns and what it must never import.
+- [x] **SNI-001** Record the shared-crate boundary — what it owns and what it must never import.
 - [ ] **SNI-002** Create the companion governed work item in the canonical in-tree Fabric implementation before any Fabric-side change.
 - [ ] **SNI-003** Extract the shared ed25519 node identity crate with a deterministic key and serialization contract.
 - [ ] **SNI-004** Converge ForgeLink identity onto the crate without regressing shipped LNH-001 desktop behavior.
@@ -133,3 +133,4 @@ architecture boundary.
 | Date | Criterion | Evidence | Result |
 | --- | --- | --- | --- |
 | 2026-07-31 | — | Item created from the 2026-07-31 ledger review. Rescoped from its original provider-less-peer-lane framing after the review found that lane conflicts with current sequencing; see [decision 0013](../../../decisions/0013-ghost-fabric-channel.md). ID 039 preserved. No implementation started. | Ledger entry only. |
+| 2026-08-03 | SNI-001 | [`docs/shared-node-identity-transport-boundary.md`](../../../docs/shared-node-identity-transport-boundary.md); [`20260803-sni001-shared-crate-boundary`](../../../evidence/runs/20260803-sni001-shared-crate-boundary.json) | Recorded the crate ownership allowlist, forbidden imports and assumptions, one-way dependency rule, host-owned responsibilities, security invariants, later enforcement requirements, rollback, and limitations. No crate or Fabric code was changed; SNI-002 through SNI-011 remain pending. |

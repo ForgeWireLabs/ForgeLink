@@ -28,8 +28,10 @@
     {
       "id": "SNI-001",
       "text": "Record the shared-crate boundary: what the crate owns (node identity, canonical envelope, transport contract) and what it must never import (store, rqlite, policy, cluster, failover, or any connectivity backend).",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260803-sni001-shared-crate-boundary"
+      ]
     },
     {
       "id": "SNI-002",
@@ -93,5 +95,5 @@
     }
   ],
   "created": "2026-07-31",
-  "updated": "2026-07-31"
+  "updated": "2026-08-03"
 }

@@ -21,3 +21,4 @@ Tauri/src-tauri/gen/
 *.aab
 *.jks
 *.keystore
+.env

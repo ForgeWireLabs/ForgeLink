@@ -1,0 +1,40 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260803-sni001-shared-crate-boundary",
+  "timestamp": "2026-08-04T01:49:26Z",
+  "work_item": "039",
+  "result": "passed",
+  "provenance": "concrete",
+  "criteria": ["SNI-001"],
+  "summary": "Recorded the shared node crate boundary as a product-neutral Rust primitive owning only node identity, canonical envelope, and bounded transport contracts, with explicit forbidden dependencies and assumptions covering persistence, rqlite, policy, clustering, failover, connectivity backends, platform shells, providers, and private communication data.",
+  "commands": [
+    {
+      "command": "PowerShell boundary-term assertion over docs/shared-node-identity-transport-boundary.md",
+      "exit_code": 0,
+      "summary": "Confirmed the contract contains all ten required ownership and prohibition concepts: node identity, canonical envelope, transport contract, rqlite, policy, cluster, failover, connectivity backend, private communication data, and the explicit no-connectivity-backend limitation."
+    },
+    {
+      "command": "python -m repopact_cli dashboard --root . && python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Regenerated the canonical dashboard and passed RepoPact 2.2.0 governance validation, schema-ladder invariants, and Markdown link/last_verified checks."
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "summary": "Patch whitespace validation passed with only expected Windows line-ending notices."
+    }
+  ],
+  "artifacts": [
+    "docs/shared-node-identity-transport-boundary.md",
+    "work/active/039-shared-node-identity-and-transport-contract/README.md",
+    "work/active/039-shared-node-identity-and-transport-contract/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "runtime_change": "none; documentation and governed criterion reconciliation only",
+    "fabric_change": "none; SNI-002 remains pending and no Fabric repository was modified",
+    "scope": "SNI-001 only; SNI-002 through SNI-011 remain pending"
+  }
+}
