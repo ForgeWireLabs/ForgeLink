@@ -1,0 +1,127 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "042",
+  "title": "ForgeLink Product Identity and Communications Platform Narrative",
+  "status": "proposed",
+  "owner_scope": "work",
+  "affected_scopes": [
+    "work",
+    "docs",
+    "ui",
+    "desktop",
+    "backend",
+    "agent-channel",
+    "local-runtime",
+    "messaging",
+    "providers",
+    "voice",
+    "contacts",
+    "mobile",
+    "agents",
+    "mcp",
+    "audit"
+  ],
+  "depends_on": [
+    "017"
+  ],
+  "provenance": "concrete",
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-09-10T18:30:00Z",
+    "note": "Created before repo-wide ForgeLink product-definition, public narrative, diagram, UI-copy, MCP-context, or documentation alignment begins."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "FPI-001",
+      "text": "Establish one canonical ForgeLink product-definition authority whose semantics state that ForgeLink is a local-first communications, coordination, and human-authority platform for people, agents, and applications, with direct human operation as a first-class path and governed programmatic integration as an additional path.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FPI-002",
+      "text": "Document direct human-operated ForgeLink workflows as first-class product behavior that does not require ForgeWire, Fabric, MCP, an agent runtime, or an LLM, while preserving human authority/governance as a core ForgeLink differentiator.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FPI-003",
+      "text": "Perform and preserve a repository-wide narrative inventory of product-defining language, classifying occurrences as stale product-level framing, correct subsystem framing, immutable historical context, unrelated technical-boundary language, or ambiguous material requiring explicit review; do not use mechanical global replacement.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FPI-004",
+      "text": "Reconcile the root README so its introduction, What ForgeLink Is/Is Not sections, architecture, current product surface, standalone-use language, and integration sections consistently present humans as users of ForgeLink rather than merely endpoints for agents, without claiming unshipped capabilities.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FPI-005",
+      "text": "Reconcile docs/public-narrative.md and other current public-facing product narrative so ForgeLink is not defined solely as Human-Boundary Infrastructure or as the place where a system asks and a human decides; communications, coordination, direct human operation, agent/application participation, and human authority must all remain visible.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FPI-006",
+      "text": "Update product-level architecture diagrams and captions to represent the human cockpit, communication domains/provider edges, people/contacts, policy/authority/audit, and optional agent/application API/MCP integration; narrow agent-to-human diagrams remain permitted when they explicitly document only that subsystem or use case.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FPI-007",
+      "text": "Audit and align MCP persona/resources/documentation so forgelink-human can remain accurately described as an agent-facing human bridge while no MCP text accidentally defines the entire ForgeLink product as only that bridge; do not rename the MCP package solely for narrative aesthetics.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FPI-008",
+      "text": "Audit current communications runtime, provider, messaging, voice, contacts, notifications, firewall/consent, data-safety, Tauri/mobile, and related docs for material product-identity drift, clearly distinguishing human-operated, agent/application-originated, shared, provider-specific, local-only, current, and planned behavior where relevant.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FPI-009",
+      "text": "Audit material operator-cockpit, onboarding, settings, help, and shared Tauri/mobile UI copy so ordinary communications operation remains understandable without assuming the user is supervising an agent; any functional navigation redesign discovered as necessary must be separately justified rather than hidden inside copy work.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FPI-010",
+      "text": "State explicitly in current product documentation that ForgeWire/Fabric compatibility is optional integration, not a ForgeLink runtime prerequisite; ForgeWire/Fabric must not become the assumed owner of ordinary ForgeLink communication state, provider credentials, or human-operated workflows.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FPI-011",
+      "text": "Coordinate WI041 fax documentation with the canonical ForgeLink product definition without making WI041 depend on WI042 and without describing fax as shipped until WI041 implementation and acceptance evidence prove it.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FPI-012",
+      "text": "Preserve completed work items, evidence, decision records, and historically accurate reports rather than rewriting history for modern terminology; add links or narrow clarifications only where current-reader confusion would otherwise be material.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FPI-013",
+      "text": "Establish future authoring guidance or a narrowly scoped validation/review guardrail ensuring no current product-level document defines the entire ForgeLink product solely as an agent/system/application reaching a human, while avoiding brittle checks that reject legitimate subsystem, security, ingress, or trust-boundary language.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FPI-014",
+      "text": "Preserve documentation truthfulness by distinguishing shipped/current, active implementation, proposed/planned, and conceptual/future capabilities across all updated narrative; broader product positioning must not inflate fax, Tauri/mobile, provider, or other roadmap maturity.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FPI-015",
+      "text": "Run applicable RepoPact, documentation/link/build, diagram/render, and UI-copy validation and capture durable evidence showing semantic consistency across the root README, canonical product definition, public narrative, major diagrams, and MCP persona/resources.",
+      "state": "pending",
+      "evidence": []
+    }
+  ],
+  "created": "2026-09-10",
+  "updated": "2026-09-10"
+}
