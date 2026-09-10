@@ -1,0 +1,134 @@
+{
+  "$schema": "../../../schemas/work-item.schema.json",
+  "id": "041",
+  "title": "First-Class Fax Communications and Telnyx Fax Edge",
+  "status": "proposed",
+  "owner_scope": "work",
+  "affected_scopes": [
+    "work",
+    "backend",
+    "providers",
+    "fax",
+    "data",
+    "contacts",
+    "security",
+    "ui",
+    "tauri",
+    "mobile",
+    "agents",
+    "mcp",
+    "docs",
+    "audit"
+  ],
+  "depends_on": [
+    "015",
+    "016",
+    "035"
+  ],
+  "provenance": "concrete",
+  "preflight": {
+    "created_before_work_started": true,
+    "created_at": "2026-09-10T19:19:58Z",
+    "note": "Created before implementing ForgeLink-native fax contracts, persistence, Telnyx Programmable Fax transport, fax webhooks, human UI, inbound document handling, or MCP/API fax capabilities."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "FAX-001",
+      "text": "Seal and document the ForgeLink-native product boundary: humans can use fax directly; external agents/applications may use governed API/MCP; ForgeWire/Fabric are not required or authoritative.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FAX-002",
+      "text": "Define a provider-neutral fax_edge capability family and specialized fax contracts without widening SMS/MMS message contracts into an ambiguous universal payload.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FAX-003",
+      "text": "Add durable fax transmission, document-reference, and event-ledger persistence with migrations, restart recovery, normalized lifecycle transitions, and explicit ambiguous-side-effect semantics.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FAX-004",
+      "text": "Add a separate Telnyx Programmable Fax configuration/validation surface and adapter while preserving separation from Telnyx messaging, voice, and ForgeWire inference configuration.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FAX-005",
+      "text": "Implement outbound Telnyx fax submission, provider ID/status normalization, bounded safe errors, cancellation/reconciliation where supported, and duplicate-safe retry policy.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FAX-006",
+      "text": "Add a dedicated signed Telnyx fax webhook route reusing hardened signature/freshness primitives while keeping fax event parsing/lifecycle separate from SMS/MMS; prove enqueue-before-ack, deduplication, ordering, restart drain, and unsupported-event handling.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FAX-007",
+      "text": "Implement inbound fax reception and managed local document acquisition with authenticated download, strict media/resource validation, opaque local references, quarantine/failure behavior, retention, deletion, backup/export, and recovery semantics.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FAX-008",
+      "text": "Deliver a first-class human Fax UI with New Fax, preview, Sent, Inbox, receipt/detail, readiness/settings, safe retry/cancel, document open/export/delete, accessibility, and clear error remediation without any agent dependency.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FAX-009",
+      "text": "Implement local document preparation sufficient for common PDFs/images and define the Tauri/mobile camera-scan path without creating hidden cloud/LLM egress requirements or a fax-specific shell fork.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FAX-010",
+      "text": "Extend ForgeLink communication firewall, reviewed drafts, consent/purpose hooks, and approval content identity to fax; human operator sends remain direct while agent-originated sends default to draft-don't-send.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FAX-011",
+      "text": "Expose a bounded fax API/MCP surface for status, draft creation/inspection, approval request, receipt, and inbox access with authorization/redaction; do not expose provider credentials or unrestricted direct send by default.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FAX-012",
+      "text": "Integrate fax payload, notification, provider-routing, retention, backup/export, audit, and MCP behavior with WI040 regulated-communications contracts where applicable, with no unsupported legal/compliance certification claim.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FAX-013",
+      "text": "Provide privacy-preserving retention/deletion controls that distinguish document payloads and temporary artifacts from minimal non-payload delivery/audit evidence and prove cleanup of previews, temporary renders, inbound downloads, and provider references.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FAX-014",
+      "text": "Provide truthful page count, provider readiness, delivery state, and cost visibility where provable; unknown values remain unknown; no subscription/credit system is required for operator-owned Telnyx use.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FAX-015",
+      "text": "Prove deterministic negative/error tests for invalid configuration, unsupported capability, malformed/oversized documents, invalid/stale webhook signatures, duplicate/out-of-order events, ambiguous send, cancellation races, inbound fetch failure, unauthorized agent send, sensitive-data route restrictions, and secret/content redaction.",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "FAX-016",
+      "text": "Pass an opt-in live Telnyx end-to-end acceptance gate using designated test resources and credential-safe evidence, then complete docs, rollback, migration, known-limitation, and closeout records.",
+      "state": "pending",
+      "evidence": []
+    }
+  ],
+  "created": "2026-09-10",
+  "updated": "2026-09-10"
+}
