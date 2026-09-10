@@ -809,3 +809,20 @@ WI041 is complete only when ForgeLink can truthfully demonstrate the following e
 > A person opens ForgeLink, chooses **Fax**, selects or scans a document, previews the exact pages, enters a destination, sends through a configured Telnyx fax edge, closes/reopens the application if necessary, sees the transmission progress to a truthful terminal state, and can inspect a delivery receipt. If the configured number receives a fax, ForgeLink authenticates the provider event, safely acquires the document, stores it under local policy, and presents it in the Fax inbox. None of this requires ForgeWire or an agent. When an agent does request a fax, ForgeLink remains the authority, defaults to governed draft/approval behavior, and exposes only the bounded MCP/API surface the caller is authorized to use.
 
 That is the product boundary this work item must preserve.
+
+## Progress log
+
+- **2026-09-10 — Phase 0 architecture preflight (partial).** Audited the
+  current channel registry/capability contracts, Telnyx SMS/MMS
+  adapter/settings, the `/webhooks/telnyx` signature/durable-queue boundary,
+  schema/migration ladder (current version 28), the communication firewall,
+  the `forgelink-human` MCP tool surface, and the Tauri bridge against
+  README §"Phase 0 — Architecture seal and current-surface audit". No
+  contradiction found between this README's architectural assumptions and the
+  live repository; see
+  [local-artifacts/phase0-architecture-preflight.md](local-artifacts/phase0-architecture-preflight.md)
+  for the full findings and exact insertion points. Not yet done: re-checking
+  live Telnyx Programmable Fax API/webhook documentation (deferred to the
+  start of implementation so it is fresh when frozen into code), and any
+  schema/contract/code changes (Phase 1 onward). No acceptance criteria are
+  satisfied by this preflight; all FAX-* criteria remain pending.
