@@ -1,14 +1,21 @@
-# ForgeLink: Human-Boundary Infrastructure
+# ForgeLink: Local-First Communications, Coordination, and Human Authority
 
-ForgeLink is the private boundary where trusted systems ask for human attention,
-authority, and decisions — and where a human operator reviews, approves, denies,
-defers, replays, and audits what happened.
+ForgeLink is a local-first communications, coordination, and human-authority
+platform for people, agents, and applications. See the
+[canonical product definition](product-definition.md) for the full statement.
 
-It is **not** another chat feed, a hosted notification relay, or an agent runner.
-It is the governed place where a system asks, a human decides, and the outcome is
-recorded.
+A person can open ForgeLink and communicate directly — send and receive
+messages/calls, manage people and channels, review history, configure
+providers — with no agent, ForgeWire runtime, MCP client, or LLM involved.
+Agents and applications reach the same platform through governed local
+APIs/MCP: a trusted system asks for human attention, authority, or a decision,
+and a human operator reviews, approves, denies, defers, replays, and audits what
+happened.
 
-> Agent messages are communications, not content. Telecom providers are adapters,
+ForgeLink is **not** another chat feed, a hosted notification relay, or an agent
+runner.
+
+> Agent messages are communications, not content. Telecom providers are edges,
 > not the product.
 
 ## The four operator surfaces
@@ -29,6 +36,8 @@ recorded.
 
 - **Local-first.** Private communication and decision state lives on the operator's
   machine; ForgeLink is usable with no telecom provider configured.
+- **Standalone.** ForgeLink is independently useful without ForgeWire, Fabric, or
+  any agent/LLM runtime; those are optional integrations, not prerequisites.
 - **Governed.** Every approval carries an evidence pack, a recorded decision, an
   agent-reported outcome, a tamper-evident audit chain, and a replay.
 - **Boundary, not feed.** Redaction profiles control what each surface (desktop,

@@ -152,7 +152,7 @@ test("lists ForgeLink MCP tools, resources, and prompts", async () => {
       const resources = await call("resources/list");
       assert.ok(resources.result.resources.some((resource) => resource.uri === "forgelink://persona"));
       const prompt = await call("prompts/get", { name: "forgelink_ask_human", arguments: { question: "Approve release?" } });
-      assert.match(prompt.result.messages[0].content.text, /private human boundary/);
+      assert.match(prompt.result.messages[0].content.text, /governed agent-facing bridge/);
     });
   });
 });

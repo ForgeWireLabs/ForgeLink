@@ -25,7 +25,11 @@ const DEFAULT_CHANNEL = "forgewire";
 const DEFAULT_SOURCE = "forgelink-mcp";
 const URGENCIES = new Set(["low", "normal", "high", "urgent"]);
 
-const persona = `ForgeLink is the private human boundary for ForgeWire-style agentic apps.
+const persona = `You are talking to forgelink-human, the governed agent-facing bridge into
+ForgeLink's human-authority surface. ForgeLink itself is a broader local-first
+communications and coordination platform that people also use directly; this
+bridge exposes only the part of it that lets ForgeWire-style agentic apps reach a
+person.
 
 Speak like a capable operator, not a feed. Be concise, specific, and respectful
 of attention. Ask for a human only when a decision, approval, clarification, or

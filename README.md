@@ -4,15 +4,13 @@
   <img src="assets/readme/forgelink-architecture.png" alt="ForgeLink architecture diagram" width="100%">
 </p>
 
-**ForgeLink is a local-first communications and decision runtime for humans and agents.**
+**ForgeLink is a local-first communications, coordination, and human-authority platform for people, agents, and applications.** See the [canonical product definition](docs/product-definition.md) for the full statement.
 
-It is the private boundary where trusted systems ask for human attention, authority, and decisions — and where a human operator reviews, approves, denies, defers, replays, and audits what happened.
+A person can open ForgeLink and use it directly — send and receive messages and calls, manage people and channels, review history, and configure providers — with no agent, ForgeWire runtime, MCP client, or LLM required. Agents and applications can reach the same platform through governed local APIs and MCP: they ask for human attention, authority, and decisions, and a human operator reviews, approves, denies, defers, replays, and audits what happened.
 
 ForgeLink is not another chat feed. It is not a hosted notification relay. It is not an agent runner.
 
-It is the governed place where a system asks, a human decides, and the outcome is recorded.
-
-> **Agent messages are communications, not content.**
+> **Agent messages are communications, not content. Telecom providers are edges, not the product.**
 
 ---
 
@@ -37,11 +35,13 @@ It does not answer the questions that matter:
 - What data leaves the local machine?
 - How can the decision be replayed later?
 
-ForgeLink treats those questions as product infrastructure.
+ForgeLink treats those questions as product infrastructure whenever an agent or application needs to reach a person.
+
+But that governance loop is one path into ForgeLink, not the whole product. A person can also just open ForgeLink and communicate — no agent involved at all.
 
 The center is not SMS, voice, MCP, or notifications.
 
-The center is **governed communication state**.
+The center is **governed communication state**, usable directly by humans and, where authorized, by agents and applications.
 
 ---
 
@@ -71,7 +71,10 @@ to watch the full decision lifecycle end to end run the reproducible
 
 ## What ForgeLink Is
 
-ForgeLink is currently four things working together.
+See [docs/product-definition.md](docs/product-definition.md) for the canonical
+statement. In practice, ForgeLink is currently four things working together, and
+a person can use the first one — and much of the third and fourth — directly,
+with no agent in the loop.
 
 ### 1. A local-first communications runtime
 
@@ -99,9 +102,12 @@ Channels are edges.
 
 ForgeLink itself is the local boundary that owns message state, human attention, and operator decisions.
 
-### 2. A human bridge for agentic apps
+### 2. A governed interface for agentic apps
 
-ForgeLink exposes a local authenticated bridge for tools and agents that need to reach a human without becoming another unmanaged feed.
+ForgeLink exposes a local authenticated interface — the `forgelink-human` MCP
+bridge plus its underlying agent-channel API — for tools and agents that need to
+reach a human without becoming another unmanaged feed. This is an integration
+surface into the platform, not the platform's definition.
 
 Current bridge surface:
 
@@ -192,7 +198,12 @@ ForgeLink is not a social feed.
 
 It is not a public messaging platform, engagement surface, hosted notification service, or arbitrary public API.
 
-ForgeLink is also not a ForgeWire work runner. It does not execute distributed work. It provides the human boundary for systems that do.
+ForgeLink is also not a ForgeWire work runner. It does not execute distributed work. It provides the governed human-authority surface for systems that do.
+
+ForgeWire and Fabric are optional integrations, not a runtime prerequisite.
+ForgeLink runs, and is fully usable for direct human communication, with neither
+installed. See [docs/product-definition.md](docs/product-definition.md#what-forgelink-is-not)
+for the complete list.
 
 The local API is intended to remain private and loopback-bound unless a future threat model explicitly justifies something else.
 
@@ -201,44 +212,35 @@ The local API is intended to remain private and loopback-bound unless a future t
 ## Architecture
 
 ```text
-Claude Code / Codex / VS Code / ForgeWire Fabric / Local Agents
-        |
-        v
-forgelink-human MCP bridge
-        |
-        v
-ForgeLink local authenticated API
-        |
-        +-- Agent messages
-        +-- Approval requests
-        +-- Human actions
-        +-- Operator decision records
-        +-- Agent identity and trust
-        +-- Contacts and channel credentials
-        +-- Attention policy
-        +-- Communication firewall
-        +-- Consent ledger
-        +-- Tamper-evident audit chain
-        |
-        v
-ForgeLink desktop app
-        |
-        +-- Decisions / approvals
-        +-- Agents
-        +-- Contacts
-        +-- SMS / MMS adapters
-        +-- Voice and call history
-        +-- Trusted signals
-        +-- Settings
-        +-- Backup / export / retention
-        |
-        v
-Human operator
+                              Human operator
+                                    |
+                         ForgeLink desktop app
+                                    |
+        +---------------------------+---------------------------+
+        |            |              |              |            |
+   Decisions      Contacts       Channels        Agents      Settings
+   / approvals                (SMS/MMS, voice,  (identity,  (providers,
+                                trusted signals,   trust)   backup/export,
+                                 outbox)                     retention)
+        |            |              |              |            |
+        +---------------------------+---------------------------+
+                                    |
+                    ForgeLink local authenticated API
+                                    |
+                    +---------------+---------------+
+                    |                               |
+        Direct desktop-app calls        forgelink-human MCP bridge
+     (People/Channels/Decisions UI)                  |
+                                       Claude Code / Codex / VS Code /
+                                       ForgeWire Fabric / other agents
 ```
 
-The MCP bridge does not read or write ForgeLink's SQLite database directly.
-
-It talks through ForgeLink's local API so the desktop app remains the owner of the human boundary.
+A human operates ForgeLink entirely through the desktop app and the local API's
+direct routes; no MCP client or agent is required for that path. The MCP bridge
+is a second, governed entry point for agents/applications into the same local
+API — it does not read or write ForgeLink's SQLite database directly, and it does
+not become an alternate owner of message state, human attention, or operator
+decisions. Both paths terminate in the same owner: the ForgeLink desktop app.
 
 ---
 
@@ -694,6 +696,9 @@ Other near-term areas:
 - sample workspace and synthetic demo mode
 - public screenshots and demo flow
 - additional channel adapters
+- **fax as a first-class ForgeLink communications capability** (work item 041,
+  active; proposed/in-progress, not yet shipped)
+- **ForgeLink product-identity and narrative alignment** (work item 042, active)
 - packaged installer decisions for the MCP bridge
 - live registration flows for running ForgeWire/Fabric hubs
 - continued attention-policy refinement
@@ -714,9 +719,12 @@ The ecosystem boundary is:
 ```text
 ForgeWire/Fabric runs governed work.
 RepoPact records whether the work respected the contract.
-ForgeLink owns the human decision boundary.
+ForgeLink owns communications, coordination, and the human-authority boundary.
 ```
 
-ForgeLink exists because agentic systems need a better way to reach people than chat spam, hidden prompts, unmanaged notifications, and unverifiable approval prompts.
-
-It is the local boundary where a system asks, a human decides, and the outcome is recorded without surrendering the human's attention to the machine.
+ForgeLink is independently useful without ForgeWire, Fabric, or RepoPact:
+communicating directly, and reaching a person without surrendering their
+attention to the machine, do not require any of them. When those systems are
+present, ForgeLink is also a better way for agentic systems to reach people than
+chat spam, hidden prompts, unmanaged notifications, and unverifiable approval
+prompts.

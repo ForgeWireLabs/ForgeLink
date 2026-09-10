@@ -1,6 +1,7 @@
 # ForgeLink MCP Configs
 
-Reference configs for wiring agentic apps into the ForgeLink human bridge.
+Reference configs for wiring agentic apps into `forgelink-human`, the governed
+agent-facing bridge into ForgeLink's human-authority surface.
 
 The server is `forgelink-human` and lives at:
 

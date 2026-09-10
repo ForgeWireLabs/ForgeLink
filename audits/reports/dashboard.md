@@ -15,17 +15,17 @@
 | Audit findings | 0 |
 | Decision records | 18 |
 | Policy records | 0 |
-| Evidence runs | 110 |
+| Evidence runs | 111 |
 
 ## Work
 
 | Status | Count |
 | --- | ---: |
 | proposed | 1 |
-| active | 7 |
+| active | 6 |
 | blocked | 0 |
 | deferred | 3 |
-| completed | 32 |
+| completed | 33 |
 
 ## Audit freshness
 
@@ -39,4 +39,3 @@ All audit scopes are within their review cadence.
 - 037: Telnyx Production Hardening and Expansion (active)
 - 039: Shared Node Identity and Transport Contract (active)
 - 041: First-Class Fax Communications and Telnyx Fax Edge (active)
-- 042: ForgeLink Product Identity and Communications Platform Narrative (active)

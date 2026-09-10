@@ -6,6 +6,19 @@ versions tracked in `VERSION` and `Electron/package.json`.
 
 ## [Unreleased]
 
+### Changed
+- ForgeLink product identity and communications-platform narrative alignment
+  (work item 042): established `docs/product-definition.md` as the canonical
+  product-definition authority — ForgeLink is a local-first communications,
+  coordination, and human-authority platform for people, agents, and
+  applications, with direct human operation as a first-class path alongside
+  governed agent/application integration. Reconciled the root README and
+  `docs/public-narrative.md` opening framing and architecture diagrams
+  accordingly, qualified the `forgelink-human` MCP persona and related docs so
+  they describe themselves as one governed interface into the broader platform
+  rather than the product's whole definition, and established a future-drift
+  guardrail. No runtime, schema, or API behavior changed.
+
 ### Added
 - Authenticated local webhook/LAN boundary foundation (work item 024, LAN-001 and
   LAN-002): redacted capability discovery, disabled-by-default loopback exposure,

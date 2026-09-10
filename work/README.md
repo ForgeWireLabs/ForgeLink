@@ -126,7 +126,6 @@ As of the 2026-07-22 provider-specific communications experience closeout, the a
 038-provider-neutral-communications-cockpit
 039-shared-node-identity-and-transport-contract
 041-first-class-fax-communications-and-telnyx-fax-edge
-042-product-identity-and-communications-platform-narrative
 ```
 
 `011` remains active only for the Tauri-first release/public-signing baseline in
@@ -173,6 +172,7 @@ Completed foundation relevant to the current roadmap:
 034-repopact-2-2-0-formal-release
 035-first-class-telnyx-integration
 036-provider-specific-communications-experience
+042-product-identity-and-communications-platform-narrative
 ```
 
 Work item 030 completed the Tauri shared-shell foundation and retirement-gate
@@ -207,15 +207,16 @@ Fabric, AgentRun, GraphRuntime, or an LLM; agentic/application access is governe
 through ForgeLink's existing API/MCP boundary. Coordinates with 015, 016, 032, 035,
 037, and 040.
 
-Work item 042 owns the canonical ForgeLink product-definition and narrative
-alignment: ForgeLink is a local-first communications, coordination, and
-human-authority platform for people, agents, and applications, not merely an
-agent-to-human bridge. It reconciles the root README, public narrative,
-product-level architecture diagrams, and MCP persona/docs with that definition
-through a classified narrative audit rather than mechanical search-and-replace, and
-establishes a future-drift guardrail. It does not implement fax or other channels;
-it coordinates with 041 so fax documentation is not described as shipped before
-041's acceptance evidence supports it.
+Work item 042 (completed 2026-09-10) established the canonical ForgeLink
+product-definition and narrative alignment: ForgeLink is a local-first
+communications, coordination, and human-authority platform for people, agents,
+and applications, not merely an agent-to-human bridge. It reconciled the root
+README, public narrative, product-level architecture diagrams, and MCP
+persona/docs with that definition through a classified narrative audit rather
+than mechanical search-and-replace, and established a future-drift guardrail in
+`docs/product-definition.md`. It did not implement fax or other channels; 041
+still owns fax documentation and must not describe fax as shipped before 041's
+acceptance evidence supports it.
 
 ## Lifecycle States
 
@@ -635,10 +636,16 @@ Twilio, Telnyx, Plivo, Bandwidth, WhatsApp, Discord, email, RSS, push, and futur
 ForgeLink’s product center is:
 
 ```text
-local-first human attention, authority, communication, and agent governance
+local-first communications, coordination, and human authority for people,
+agents, and applications
 ```
 
-Work items should preserve this distinction.
+Work items should preserve this distinction. The canonical product definition
+and its future-drift guardrail live in
+[`docs/product-definition.md`](../docs/product-definition.md) (established by
+work item 042); no current product-level document may define the entire
+ForgeLink product solely in terms of an agent, system, or application reaching
+a human.
 
 ## Current Strategic Arc
 

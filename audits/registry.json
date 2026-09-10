@@ -164,13 +164,13 @@
       "notes": "Active ForgeLink-native fax communications and Telnyx Programmable Fax edge arc; ForgeWire/Fabric are not fax dependencies; Phase 0 architecture preflight in progress."
     },
     {
-      "path": "work/active/042-product-identity-and-communications-platform-narrative",
+      "path": "work/completed/042-product-identity-and-communications-platform-narrative",
       "owner": "planning-agent",
-      "contract": "work/active/042-product-identity-and-communications-platform-narrative/AGENTS.md",
+      "contract": "work/completed/042-product-identity-and-communications-platform-narrative/AGENTS.md",
       "last_reviewed": "2026-09-10",
       "next_review": "2026-12-09",
       "alignment": "current",
-      "notes": "Active ForgeLink product-identity and communications-platform narrative alignment arc; establishes the canonical product definition and reconciles README/public-narrative/MCP-persona/diagram drift."
+      "notes": "Completed ForgeLink product-identity and communications-platform narrative alignment; established the canonical product definition (docs/product-definition.md) and reconciled README/public-narrative/MCP-persona/diagram drift; scoped contract retained under completed work."
     }
   ]
 }

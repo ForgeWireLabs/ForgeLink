@@ -1,7 +1,10 @@
 # Killer Demo
 
-A reproducible, ~2-minute demonstration of what ForgeLink is: the governed place
-where a system asks, a human decides, and the outcome is recorded and replayable.
+A reproducible, ~2-minute demonstration of ForgeLink's agent-governance loop: the
+governed place where a system asks, a human decides, and the outcome is recorded
+and replayable. (This demo covers the agent/MCP path specifically; ForgeLink's
+direct human-operated communications are not agent-gated — see
+[docs/product-definition.md](product-definition.md).)
 
 It runs entirely on **synthetic data** against a **local backend** and needs **no
 telecom credentials** and no network access.

@@ -1,8 +1,11 @@
 # ForgeLink Human MCP
 
 `forgelink-human` is the MCP bridge for agents that need to communicate with a
-person through ForgeLink. It is Node/TypeScript and talks only to the local
-ForgeLink API.
+person through ForgeLink. It is one governed interface into ForgeLink — a
+broader local-first communications and coordination platform that people also
+use directly, with no agent involved (see
+[docs/product-definition.md](../../docs/product-definition.md)). This bridge is
+Node/TypeScript and talks only to the local ForgeLink API.
 
 ## Environment
 
