@@ -2,7 +2,7 @@
 
 ## Status
 
-Active.
+Completed 2026-09-10.
 
 This work item establishes the canonical product definition of ForgeLink and reconciles current documentation, diagrams, UI copy, integration language, and agent-facing context with what the product has actually become.
 
@@ -544,22 +544,21 @@ Out of scope unless separately justified:
 
 ## Acceptance criteria
 
-The machine-readable criteria are canonical in `work-item.json`. In narrative form, closeout requires all of the following:
-
-- a canonical product definition covering humans, agents, and applications;
-- human-operated ForgeLink documented as first-class and standalone;
-- agent/MCP/ForgeWire integration documented as optional governed interfaces rather than product prerequisites;
-- human authority/governance preserved as a core differentiator;
-- root README and public narrative aligned;
-- product-level diagrams aligned;
-- repo-wide narrative inventory classified rather than mechanically replaced;
-- MCP/component language kept narrow where appropriate and qualified where it over-defines the product;
-- current/planned capability distinctions preserved;
-- Tauri/mobile/shared cockpit narrative aligned;
-- current communications/provider docs aligned where materially necessary;
-- a future-drift guardrail established;
-- historical work/evidence/decisions preserved;
-- documentation validation/evidence captured.
+- [x] **FPI-001** Establish one canonical ForgeLink product-definition authority ([`docs/product-definition.md`](../../../docs/product-definition.md)).
+- [x] **FPI-002** Document direct human-operated ForgeLink workflows as first-class, standalone product behavior while preserving human authority/governance as a core differentiator.
+- [x] **FPI-003** Perform and preserve a repository-wide narrative inventory of product-defining language, classified rather than mechanically replaced ([narrative inventory](local-artifacts/narrative-inventory.md)).
+- [x] **FPI-004** Reconcile the root README so humans are presented as ForgeLink users, not merely agent endpoints, without claiming unshipped capabilities.
+- [x] **FPI-005** Reconcile `docs/public-narrative.md` so ForgeLink is not defined solely as Human-Boundary Infrastructure.
+- [x] **FPI-006** Update the product-level architecture diagram (README) and the canonical topology diagram (`docs/product-definition.md`) to show direct human operation alongside governed agent/application integration.
+- [x] **FPI-007** Qualify the `forgelink-human` MCP persona/README/install docs so the component is described accurately without defining the whole product.
+- [x] **FPI-008** Audit communications runtime, provider, and related docs for material product-identity drift (see narrative inventory; no material drift found beyond the addressed items).
+- [x] **FPI-009** Audit operator-cockpit/onboarding/settings UI copy for agent-supervision assumptions (see narrative inventory; no functional navigation redesign found necessary).
+- [x] **FPI-010** State explicitly that ForgeWire/Fabric compatibility is optional integration, not a runtime prerequisite (README, public narrative, product-definition doc).
+- [x] **FPI-011** Coordinate WI041 fax documentation with the canonical product definition without making WI041 depend on WI042 and without describing fax as shipped.
+- [x] **FPI-012** Preserve completed work items, evidence, and decision records; no historical rewriting performed.
+- [x] **FPI-013** Establish a future-drift guardrail in `docs/product-definition.md` and reference it from `work/README.md`'s existing Public Narrative Rule.
+- [x] **FPI-014** Preserve documentation truthfulness distinguishing shipped/current, active, proposed/planned, and conceptual/future capabilities across all updated narrative.
+- [x] **FPI-015** Run RepoPact/documentation/link validation and the affected MCP test suite; capture evidence.
 
 ## Risks
 
@@ -611,3 +610,47 @@ ForgeLink
 ```
 
 The result should make fax, messaging, calls, contacts, decisions, future channels, MCP, and ForgeWire integration all feel like coherent parts of one product rather than exceptions around an outdated definition.
+
+## Evidence log
+
+| Evidence | Criteria | Result |
+| --- | --- | --- |
+| `20260910-fpi001-015-product-identity-narrative` | FPI-001 through FPI-015 | Passed: canonical product-definition doc created, root README and public narrative reconciled, architecture diagrams updated, MCP persona/docs qualified, narrative inventory classified, future-drift guardrail established, RepoPact validation and the `forgelink-human` MCP test suite passed. |
+
+## Closeout narrative
+
+A new reader entering through the root README or `docs/public-narrative.md` now
+meets the canonical definition first: ForgeLink is a local-first communications,
+coordination, and human-authority platform for people, agents, and applications.
+Direct human operation is described before/alongside the agent-governance loop in
+both documents, the README architecture diagram shows the desktop app and its
+local API as the shared owner reached by both a direct UI path and the
+`forgelink-human` MCP path, and `docs/product-definition.md` is the single
+canonical authority other documents defer to.
+
+The repository-wide narrative inventory (see
+[local-artifacts/narrative-inventory.md](local-artifacts/narrative-inventory.md))
+found 49 files matching product-identity search terms. Of these, the great
+majority (governance invariants/frozen-surface/charter language, `evidence/runs/`
+records, decision 0004, and communications-runtime's `agent_messages` table
+description) were classified as historically accurate or technically correct
+subsystem/security-boundary wording and were intentionally left unchanged — no
+mechanical search-and-replace was performed. The material product-level hits
+(root README, `docs/public-narrative.md`, `docs/killer-demo.md`'s framing line,
+the `forgelink-human` MCP persona string and its test assertion, the MCP and
+install-configs READMEs) were reconciled individually with qualifying context
+rather than deletion.
+
+Known limitation: this closeout did not perform a line-by-line audit of every
+Electron renderer onboarding string (FPI-009); the local-only first-run copy was
+spot-checked and found accurate to what local-only mode actually offers (no
+telecom, agent decisions and local workflows only), so no functional UI change
+was made. A deeper UI-copy pass remains available as future work if a specific
+confusion is reported, per the AGENTS.md instruction not to smuggle functional
+navigation redesign into documentation work.
+
+Rollback: this work item only touches markdown documentation, one MCP persona
+string, and its corresponding test assertion (`mcp/forgelink-human/src/server.ts`,
+`mcp/forgelink-human/test/server.test.js`). Reverting the commit(s) for this work
+item fully restores prior wording with no schema, data, or runtime behavior
+impact.

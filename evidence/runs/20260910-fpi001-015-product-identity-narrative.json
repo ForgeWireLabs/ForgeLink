@@ -1,0 +1,49 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260910-fpi001-015-product-identity-narrative",
+  "timestamp": "2026-09-10T20:30:00Z",
+  "work_item": "042",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cd mcp/forgelink-human && npm test",
+      "exit_code": 0,
+      "summary": "6/6 forgelink-human MCP tests passed after qualifying the persona string and updating the matching test assertion."
+    },
+    {
+      "command": "cd Electron && npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed unchanged (no backend source touched by this work item)."
+    },
+    {
+      "command": "cd Electron && npm run renderer:build",
+      "exit_code": 0,
+      "summary": "Renderer TypeScript typecheck and bundle passed unchanged (no renderer source touched by this work item)."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact 2.2.0 validation, LIE-003 schema-ladder invariants, and markdown link/last_verified checks all passed after the narrative edits and evidence/ledger updates."
+    }
+  ],
+  "artifacts": [
+    "docs/product-definition.md",
+    "README.md",
+    "docs/public-narrative.md",
+    "docs/killer-demo.md",
+    "mcp/forgelink-human/src/server.ts",
+    "mcp/forgelink-human/test/server.test.js",
+    "mcp/forgelink-human/README.md",
+    "install/mcp-configs/README.md",
+    "work/README.md",
+    "work/active/042-product-identity-and-communications-platform-narrative/README.md",
+    "work/active/042-product-identity-and-communications-platform-narrative/work-item.json",
+    "work/active/042-product-identity-and-communications-platform-narrative/local-artifacts/narrative-inventory.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "FPI-001 through FPI-015: established docs/product-definition.md as the canonical ForgeLink product-definition authority (local-first communications, coordination, and human-authority platform for people, agents, and applications); reconciled the root README and docs/public-narrative.md opening framing and architecture diagrams to show direct human operation alongside governed agent/application integration; qualified the forgelink-human MCP persona and related README/install docs so they no longer define the whole product; performed and recorded a repository-wide narrative inventory (49 files matching search terms) classified as product-level/stale, subsystem-correct, historical, or technical-boundary wording rather than mechanically replaced; established a future-drift guardrail in docs/product-definition.md referenced from work/README.md's Public Narrative Rule; preserved all historical evidence/runs and decision records unchanged."
+  }
+}
