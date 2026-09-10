@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { AGENT_CONTENT_PROVENANCE, CURRENT_SCHEMA_VERSION, PhoneDatabase, REDACTION_PROFILES, redactEvidencePack, redactNotification, sanitizeAgentText } from "./database";
+import { AGENT_CONTENT_PROVENANCE, CURRENT_SCHEMA_VERSION, FaxIdentityConflictError, PhoneDatabase, REDACTION_PROFILES, redactEvidencePack, redactNotification, sanitizeAgentText } from "./database";
 import { isFaxTerminalState } from "./fax";
 import { normalizeNumber } from "./phone";
 import { canonicalExternalId, containsCredentialMaterial, legacy19daExternalId, parseTrustedSignalFeed } from "./signals";
@@ -1801,31 +1801,36 @@ test("TXE-002: Telnyx webhook ledger deduplicates, orders, and clears processed 
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-// Fax domain and persistence (work item 041, Phase 1: FAX-002/FAX-003). No
-// Telnyx code and no network call is exercised anywhere in this block --
-// these tests prove ForgeLink's own durable fax state model in isolation.
+// Fax domain and persistence (work item 041, Phase 1: FAX-002/FAX-003; Phase
+// 1.1 hardening correction). No Telnyx code and no network call is exercised
+// anywhere in this block -- these tests prove ForgeLink's own durable fax
+// state model, including direction-aware initialization, provider-observation
+// reconciliation, provider-scoped identity, and idempotency-vs-conflict
+// behavior, in isolation.
 
-test("FAX-003: fresh schema includes fax tables at the current version", () => {
+test("FAX-003: fresh schema reaches v30 and includes fax tables with provider-scoped identity", () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-fresh-"));
   const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
   try {
-    assert.equal(CURRENT_SCHEMA_VERSION, 29);
-    assert.equal(database.state.schemaVersion, 29);
+    assert.equal(CURRENT_SCHEMA_VERSION, 30);
+    assert.equal(database.state.schemaVersion, 30);
     const tables = new Set((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
     assert.equal(tables.has("faxes"), true);
     assert.equal(tables.has("fax_documents"), true);
     assert.equal(tables.has("fax_events"), true);
+    const eventColumns = new Set((database.connection.prepare("PRAGMA table_info(fax_events)").all() as Array<{ name: string }>).map((c) => c.name));
+    assert.equal(eventColumns.has("provider"), true);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("FAX-003: migrates a v28 database to v29 and adds fax tables without touching existing data", () => {
+test("FAX-003: migrates a v28 database through v29 to v30, adding provider-scoped fax tables without touching existing data", () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-v28-upgrade-"));
   const path = join(directory, "phone.sqlite3");
   let database: PhoneDatabase | undefined = new PhoneDatabase(path);
   database.addMessage({ id: "SM-PRE-FAX", number: "+15551234567", direction: "inbound", body: "survives the fax migration", status: "received" });
   database.close();
 
-  // Roll the fresh (already-v29) fixture back to v28 by dropping the fax
+  // Roll the fresh (already-v30) fixture back to v28 by dropping the fax
   // tables this migration adds, mirroring the v26 device-registry upgrade
   // test's pattern of downgrading a real current-schema database rather than
   // hand-writing a full legacy fixture.
@@ -1846,8 +1851,91 @@ test("FAX-003: migrates a v28 database to v29 and adds fax tables without touchi
     assert.equal(tables.has("faxes"), true);
     assert.equal(tables.has("fax_documents"), true);
     assert.equal(tables.has("fax_events"), true);
+    const eventColumns = new Set((database.connection.prepare("PRAGMA table_info(fax_events)").all() as Array<{ name: string }>).map((c) => c.name));
+    assert.equal(eventColumns.has("provider"), true, "an older migration path (v28) must still reach v30's provider-scoped fax_events shape");
     // Unrelated pre-existing data survives the migration untouched.
     assert.equal(database.messages(database.threads()[0].id)[0].body, "survives the fax migration");
+  } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-003: migrates a v29 database to v30 preserving existing fax rows, documents, and events", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-v29-upgrade-"));
+  const path = join(directory, "phone.sqlite3");
+  let database: PhoneDatabase | undefined = new PhoneDatabase(path);
+  database.createFax({ local_fax_id: "fax-v29-survivor", direction: "outbound", to_number: "+15557654321", provider: "telnyx", provider_fax_id: "provider-fax-v29" });
+  database.createFaxDocument({ fax_id: "fax-v29-survivor", local_ref: "fax-documents/v29-survivor.pdf", content_type: "application/pdf" });
+  database.close();
+
+  // Downgrade the real (already-v30) faxes/fax_events shape back to v29's
+  // shape (bare UNIQUE provider_fax_id; fax_events with no provider column
+  // and event_id as the sole primary key), preserving the data, exactly the
+  // same real-database-downgrade technique used by the v28 test above and by
+  // the pre-existing v26 device-registry migration test.
+  const legacy = new DatabaseSync(path);
+  legacy.exec(`
+    CREATE TABLE faxes_v29 (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      local_fax_id TEXT NOT NULL UNIQUE,
+      direction TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT '',
+      provider_fax_id TEXT UNIQUE,
+      contact_id INTEGER,
+      contact_point_id INTEGER,
+      from_number TEXT,
+      to_number TEXT NOT NULL,
+      page_count INTEGER,
+      quality TEXT,
+      state TEXT NOT NULL DEFAULT 'draft',
+      provenance TEXT NOT NULL DEFAULT 'operator',
+      approval_id TEXT,
+      correlation TEXT NOT NULL DEFAULT '',
+      failure_category TEXT NOT NULL DEFAULT '',
+      redacted_error TEXT NOT NULL DEFAULT '',
+      retention_policy TEXT NOT NULL DEFAULT 'default',
+      created_at TEXT NOT NULL,
+      submitted_at TEXT, accepted_at TEXT, started_at TEXT, completed_at TEXT,
+      updated_at TEXT NOT NULL
+    );
+    INSERT INTO faxes_v29 SELECT * FROM faxes;
+    CREATE TEMP TABLE fax_documents_holdover AS SELECT * FROM fax_documents;
+    CREATE TABLE fax_events_v29 (
+      event_id TEXT PRIMARY KEY,
+      fax_id TEXT NOT NULL,
+      provider_fax_id TEXT NOT NULL DEFAULT '',
+      event_type TEXT NOT NULL DEFAULT '',
+      normalized_state TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      received_at TEXT NOT NULL,
+      attempt INTEGER NOT NULL DEFAULT 0,
+      processing_status TEXT NOT NULL DEFAULT 'pending',
+      failure_category TEXT NOT NULL DEFAULT '',
+      payload_sha256 TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+    INSERT INTO fax_events_v29(event_id, fax_id, provider_fax_id, event_type, normalized_state, occurred_at, received_at, attempt, processing_status, failure_category, payload_sha256, created_at)
+      SELECT event_id, fax_id, provider_fax_id, event_type, normalized_state, occurred_at, received_at, attempt, processing_status, failure_category, payload_sha256, created_at FROM fax_events;
+    DROP TABLE fax_events;
+    DROP TABLE fax_documents;
+    DROP TABLE faxes;
+    ALTER TABLE faxes_v29 RENAME TO faxes;
+    ALTER TABLE fax_events_v29 RENAME TO fax_events;
+    CREATE TABLE fax_documents AS SELECT * FROM fax_documents_holdover;
+    DROP TABLE fax_documents_holdover;
+    PRAGMA user_version=29;
+  `);
+  legacy.close();
+
+  database = new PhoneDatabase(path);
+  try {
+    assert.equal(database.state.schemaVersion, CURRENT_SCHEMA_VERSION);
+    assert.ok(database.state.migrationBackup && existsSync(database.state.migrationBackup));
+    const fax = database.faxByLocalId("fax-v29-survivor")!;
+    assert.ok(fax, "the fax row survives the v29 -> v30 migration");
+    assert.equal(fax.to_number, "+15557654321");
+    assert.equal(database.faxByProviderFaxId("telnyx", "provider-fax-v29")!.local_fax_id, "fax-v29-survivor", "provider-scoped lookup works after migration");
+    const docs = database.faxDocumentsByFaxId("fax-v29-survivor");
+    assert.equal(docs.length, 1, "the fax document survives the migration");
+    assert.equal(docs[0].local_ref, "fax-documents/v29-survivor.pdf");
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -1897,7 +1985,7 @@ test("FAX-003: creates, persists, and reloads a fax transmission with document r
     assert.equal(row.direction, "outbound");
     assert.equal(row.to_number, "+15557654321");
     assert.equal(row.contact_id, contactId);
-    assert.equal(row.state, "draft");
+    assert.equal(row.state, "draft", "outbound fax creation begins in draft");
 
     // Fax documents are linked by reference, not spliced into a message row.
     const docs = database.faxDocumentsByFaxId("fax-test-1");
@@ -1910,24 +1998,53 @@ test("FAX-003: creates, persists, and reloads a fax transmission with document r
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("FAX-003: inbound and outbound direction round-trip independently", () => {
-  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-direction-"));
+test("FAX-003: inbound fax creation begins in receiving and persists a full inbound lifecycle", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-inbound-"));
+  const path = join(directory, "phone.sqlite3");
+  let database: PhoneDatabase | undefined = new PhoneDatabase(path);
+  try {
+    const created = database.createFax({ local_fax_id: "fax-in-lc-1", direction: "inbound", to_number: "+15550001111", from_number: "+15557654321" });
+    assert.equal(created.created, true);
+    assert.equal(database.faxByLocalId("fax-in-lc-1")!.state, "receiving", "inbound fax creation begins in receiving");
+
+    assert.equal(database.applyFaxState("fax-in-lc-1", "processing"), true);
+    assert.equal(database.applyFaxState("fax-in-lc-1", "received"), true);
+
+    database.close();
+    database = new PhoneDatabase(path);
+    const row = database.faxByLocalId("fax-in-lc-1")!;
+    assert.equal(row.direction, "inbound");
+    assert.equal(row.state, "received");
+    assert.ok(row.completed_at, "a terminal inbound state stamps completed_at");
+  } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-003: an outbound fax cannot enter the inbound lifecycle and an inbound fax cannot enter the outbound submission lifecycle", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-direction-guard-"));
   const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
   try {
-    database.createFax({ local_fax_id: "fax-out-1", direction: "outbound", to_number: "+15557654321" });
-    database.createFax({ local_fax_id: "fax-in-1", direction: "inbound", to_number: "+15550001111", from_number: "+15557654321" });
-    assert.equal(database.faxByLocalId("fax-out-1")!.direction, "outbound");
-    assert.equal(database.faxByLocalId("fax-in-1")!.direction, "inbound");
-    assert.deepEqual(database.faxes({ direction: "outbound" }).map((f) => f.local_fax_id), ["fax-out-1"]);
-    assert.deepEqual(database.faxes({ direction: "inbound" }).map((f) => f.local_fax_id), ["fax-in-1"]);
+    database.createFax({ local_fax_id: "fax-out-guard-1", direction: "outbound", to_number: "+15557654321" });
+    database.createFax({ local_fax_id: "fax-in-guard-1", direction: "inbound", to_number: "+15550001111", from_number: "+15557654321" });
+
+    assert.equal(database.applyFaxState("fax-out-guard-1", "receiving"), false);
+    assert.equal(database.applyFaxState("fax-out-guard-1", "processing"), false);
+    assert.equal(database.faxByLocalId("fax-out-guard-1")!.state, "draft");
+
+    assert.equal(database.applyFaxState("fax-in-guard-1", "prepared"), false);
+    assert.equal(database.applyFaxState("fax-in-guard-1", "submission_pending"), false);
+    assert.equal(database.faxByLocalId("fax-in-guard-1")!.state, "receiving");
+
+    // Direction round-trip through the filtered listing still holds.
+    assert.deepEqual(database.faxes({ direction: "outbound" }).map((f) => f.local_fax_id), ["fax-out-guard-1"]);
+    assert.deepEqual(database.faxes({ direction: "inbound" }).map((f) => f.local_fax_id), ["fax-in-guard-1"]);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("FAX-003: legal outbound lifecycle transitions persist and update lifecycle timestamps", () => {
+test("FAX-003: legal outbound lifecycle command transitions persist and update lifecycle timestamps", () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-lifecycle-"));
   const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
   try {
-    database.createFax({ local_fax_id: "fax-lc-1", direction: "outbound", to_number: "+15557654321" });
+    database.createFax({ local_fax_id: "fax-lc-1", direction: "outbound", to_number: "+15557654321", provider: "telnyx" });
     assert.equal(database.applyFaxState("fax-lc-1", "prepared"), true);
     assert.equal(database.applyFaxState("fax-lc-1", "submission_pending"), true);
     assert.equal(database.applyFaxState("fax-lc-1", "submitting"), true);
@@ -1943,11 +2060,12 @@ test("FAX-003: legal outbound lifecycle transitions persist and update lifecycle
     assert.ok(row.started_at);
     assert.ok(row.completed_at);
 
-    assert.equal(database.faxByProviderFaxId("provider-fax-synthetic-1")!.local_fax_id, "fax-lc-1");
+    assert.equal(database.faxByProviderFaxId("telnyx", "provider-fax-synthetic-1")!.local_fax_id, "fax-lc-1");
+    assert.equal(database.faxByProviderFaxId("other-provider", "provider-fax-synthetic-1"), undefined, "provider-scoped lookup does not leak across providers");
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("FAX-003: illegal and regressive transitions are rejected without mutating the row", () => {
+test("FAX-003: a strict local command transition cannot arbitrarily skip stages, and regressive transitions are rejected without mutating the row", () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-illegal-"));
   const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
   try {
@@ -1960,6 +2078,10 @@ test("FAX-003: illegal and regressive transitions are rejected without mutating 
     assert.equal(database.applyFaxState("fax-illegal-1", "submission_pending"), true);
     assert.equal(database.applyFaxState("fax-illegal-1", "submitting"), true);
     assert.equal(database.applyFaxState("fax-illegal-1", "accepted"), true);
+    // A local command cannot skip straight to delivered either, even though
+    // a *provider observation* may (see the reconciliation tests below).
+    assert.equal(database.applyFaxState("fax-illegal-1", "delivered"), false);
+    assert.equal(database.faxByLocalId("fax-illegal-1")!.state, "accepted");
 
     // Regressive transition back toward draft/prepared is rejected.
     assert.equal(database.applyFaxState("fax-illegal-1", "prepared"), false);
@@ -1985,7 +2107,37 @@ test("FAX-003: terminal states accept no further transition", () => {
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("FAX-006 seam: duplicate fax events are idempotent and out-of-order events do not regress state", () => {
+test("FAX-003: the submission claim is an atomic expected-state conditional update, not a stale read-then-write", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-atomic-claim-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    database.createFax({ local_fax_id: "fax-claim-1", direction: "outbound", to_number: "+15557654321" });
+    database.applyFaxState("fax-claim-1", "prepared");
+    database.applyFaxState("fax-claim-1", "submission_pending");
+
+    // The first caller to claim submission succeeds...
+    assert.equal(database.applyFaxState("fax-claim-1", "submitting"), true);
+    // ...and a second caller attempting the same claim (its own fresh read
+    // now sees 'submitting', not the 'submission_pending' it might have
+    // cached) is correctly rejected rather than silently re-claiming.
+    assert.equal(database.applyFaxState("fax-claim-1", "submitting"), false);
+    assert.equal(database.faxByLocalId("fax-claim-1")!.state, "submitting");
+
+    // Directly prove the WHERE-clause guard applyFaxState/applyFaxObservation
+    // use (`WHERE local_fax_id=? AND state=?`), not merely "reads fresh state
+    // each call": attempt the exact same conditional-update pattern with a
+    // deliberately stale expected state (as a caller holding an outdated
+    // in-memory read would). It must affect zero rows -- the real, current
+    // state is authoritative and is not silently overwritten.
+    const staleAttempt = database.connection.prepare(
+      "UPDATE faxes SET state='submitting', updated_at=updated_at WHERE local_fax_id=? AND state=?"
+    ).run("fax-claim-1", "submission_pending");
+    assert.equal(Number(staleAttempt.changes), 0, "a stale expected-state write must affect zero rows");
+    assert.equal(database.faxByLocalId("fax-claim-1")!.state, "submitting", "the real state is untouched by the stale write attempt");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006 seam: a provider observation converges correctly even out of order, duplicated, or missing an intermediate stage", () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-events-"));
   const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
   try {
@@ -1995,6 +2147,7 @@ test("FAX-006 seam: duplicate fax events are idempotent and out-of-order events 
     database.applyFaxState("fax-evt-1", "submitting");
 
     const accepted = database.recordFaxEvent({
+      provider: "telnyx",
       event_id: "evt-accepted-1",
       fax_id: "fax-evt-1",
       provider_fax_id: "provider-fax-synthetic-2",
@@ -2008,6 +2161,7 @@ test("FAX-006 seam: duplicate fax events are idempotent and out-of-order events 
     // The same provider event delivered twice (at-least-once webhook
     // delivery) is recorded once; the duplicate is not re-applied.
     const duplicate = database.recordFaxEvent({
+      provider: "telnyx",
       event_id: "evt-accepted-1",
       fax_id: "fax-evt-1",
       provider_fax_id: "provider-fax-synthetic-2",
@@ -2017,61 +2171,100 @@ test("FAX-006 seam: duplicate fax events are idempotent and out-of-order events 
     });
     assert.deepEqual(duplicate, { recorded: false, applied: false });
 
-    // Move state forward to "sending" first...
-    database.recordFaxEvent({
-      event_id: "evt-sending-1",
+    // "delivered" observed directly (Telnyx's fax.delivered arriving before,
+    // or without, an intermediate fax.sending.started webhook) must still
+    // converge, skipping the missing "sending" stage.
+    const delivered = database.recordFaxEvent({
+      provider: "telnyx",
+      event_id: "evt-delivered-1",
       fax_id: "fax-evt-1",
-      normalized_state: "sending",
+      normalized_state: "delivered",
       occurred_at: "2026-09-11T12:00:05.000Z"
     });
-    assert.equal(database.faxByLocalId("fax-evt-1")!.state, "sending");
+    assert.deepEqual(delivered, { recorded: true, applied: true });
+    assert.equal(database.faxByLocalId("fax-evt-1")!.state, "delivered");
 
-    // ...then an out-of-order "accepted" event (an earlier stage, delivered
-    // late/out of order) must not regress the already-more-advanced state.
+    // ...then a late "accepted" observation (an earlier stage, delivered
+    // late/out of order after the terminal state) must not regress it.
     const stale = database.recordFaxEvent({
+      provider: "telnyx",
       event_id: "evt-accepted-late-1",
       fax_id: "fax-evt-1",
       normalized_state: "accepted",
       occurred_at: "2026-09-11T12:00:01.000Z"
     });
     assert.deepEqual(stale, { recorded: true, applied: false });
-    assert.equal(database.faxByLocalId("fax-evt-1")!.state, "sending", "state must not regress from an out-of-order event");
+    assert.equal(database.faxByLocalId("fax-evt-1")!.state, "delivered", "state must not regress from an out-of-order event");
 
-    // The out-of-order event was recorded (for audit/dedupe) but marked
-    // "ignored" rather than "applied", and pendingFaxEvents/completeFaxEvent
-    // are available for a future restart-drain sweep (Phase 3).
+    // The out-of-order event was still recorded (for audit/dedupe) but
+    // marked "ignored" rather than "applied", and pendingFaxEvents/
+    // completeFaxEvent are available for a future restart-drain sweep
+    // (Phase 3's not-yet-built Telnyx webhook ingress queue; this ledger is
+    // the provider-neutral normalized event ledger downstream of it).
     const events = database.pendingFaxEvents();
     assert.equal(events.length, 0, "recordFaxEvent processes synchronously in Phase 1; nothing is left pending");
-    database.completeFaxEvent("evt-accepted-late-1", "ignored", "stale_event");
+    database.completeFaxEvent("telnyx", "evt-accepted-late-1", "ignored", "stale_event");
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("FAX-003 idempotency: repeated creation and submission preparation with the same operation identity does not duplicate a fax", () => {
-  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-idempotency-"));
+test("FAX-006 seam: received arriving before processing still converges, and a late processing event does not regress it", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-inbound-events-"));
   const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
   try {
-    const first = database.createFax({ local_fax_id: "fax-idem-1", direction: "outbound", to_number: "+15557654321" });
-    assert.equal(first.created, true);
-    // A caller retrying the same logical create (same local_fax_id) after a
-    // timeout, crash, or UI double-click must not create a second row.
-    const second = database.createFax({ local_fax_id: "fax-idem-1", direction: "outbound", to_number: "+15557654321" });
-    assert.equal(second.created, false);
-    assert.equal(database.faxes({}).filter((f) => f.local_fax_id === "fax-idem-1").length, 1);
+    database.createFax({ local_fax_id: "fax-in-evt-1", direction: "inbound", to_number: "+15550001111", from_number: "+15557654321" });
+    assert.equal(database.faxByLocalId("fax-in-evt-1")!.state, "receiving");
 
-    assert.equal(database.applyFaxState("fax-idem-1", "prepared"), true);
-    assert.equal(database.applyFaxState("fax-idem-1", "submission_pending"), true);
-    // Preparing submission a second time (e.g. a retried "begin submission"
-    // call after an ambiguous local failure) is a duplicate no-op, not a
-    // second submission attempt -- this is the seam that prevents a retry
-    // from racing a second real transmission once Phase 2 wires in Telnyx.
-    assert.equal(database.applyFaxState("fax-idem-1", "submission_pending"), false);
-    assert.equal(database.faxByLocalId("fax-idem-1")!.state, "submission_pending");
+    const received = database.recordFaxEvent({
+      provider: "telnyx",
+      event_id: "evt-received-1",
+      fax_id: "fax-in-evt-1",
+      normalized_state: "received",
+      occurred_at: "2026-09-11T12:00:03.000Z"
+    });
+    assert.deepEqual(received, { recorded: true, applied: true });
+    assert.equal(database.faxByLocalId("fax-in-evt-1")!.state, "received");
+
+    const lateProcessing = database.recordFaxEvent({
+      provider: "telnyx",
+      event_id: "evt-processing-late-1",
+      fax_id: "fax-in-evt-1",
+      normalized_state: "processing",
+      occurred_at: "2026-09-11T12:00:01.000Z"
+    });
+    assert.deepEqual(lateProcessing, { recorded: true, applied: false });
+    assert.equal(database.faxByLocalId("fax-in-evt-1")!.state, "received", "a late processing observation must not regress an already-received inbound fax");
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("FAX-003: an ambiguous outbound send is representable and recoverable", () => {
-  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-ambiguous-"));
+test("FAX-006 seam: a cancel_pending race converges to an authoritative provider outcome", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-cancel-race-"));
   const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    database.createFax({ local_fax_id: "fax-cancel-1", direction: "outbound", to_number: "+15557654321" });
+    database.applyFaxState("fax-cancel-1", "prepared");
+    database.applyFaxState("fax-cancel-1", "submission_pending");
+    database.applyFaxState("fax-cancel-1", "submitting");
+    database.applyFaxState("fax-cancel-1", "accepted");
+    // Operator requests cancellation while the fax is in flight...
+    assert.equal(database.applyFaxState("fax-cancel-1", "cancel_pending"), true);
+    // ...but the provider had already committed to delivery before the
+    // cancel could take effect. The authoritative outcome wins the race.
+    const raced = database.recordFaxEvent({
+      provider: "telnyx",
+      event_id: "evt-delivered-despite-cancel-1",
+      fax_id: "fax-cancel-1",
+      normalized_state: "delivered",
+      occurred_at: "2026-09-11T12:00:09.000Z"
+    });
+    assert.deepEqual(raced, { recorded: true, applied: true });
+    assert.equal(database.faxByLocalId("fax-cancel-1")!.state, "delivered");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-003: an ambiguous outbound send is representable, survives a restart, and reconciles from a later authoritative observation without every intermediate webhook", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-ambiguous-"));
+  const path = join(directory, "phone.sqlite3");
+  let database: PhoneDatabase | undefined = new PhoneDatabase(path);
   try {
     database.createFax({ local_fax_id: "fax-ambig-1", direction: "outbound", to_number: "+15557654321" });
     database.applyFaxState("fax-ambig-1", "prepared");
@@ -2084,9 +2277,112 @@ test("FAX-003: an ambiguous outbound send is representable and recoverable", () 
     assert.equal(database.applyFaxState("fax-ambig-1", "ambiguous"), true);
     assert.equal(database.faxByLocalId("fax-ambig-1")!.state, "ambiguous");
     assert.equal(isFaxTerminalState(database.faxByLocalId("fax-ambig-1")!.state), false);
-    // A later reconciliation pass (Phase 3) resolves the ambiguity once the
-    // true outcome is known -- represented here as a successful reconciliation.
-    assert.equal(database.applyFaxState("fax-ambig-1", "accepted", { providerFaxId: "provider-fax-synthetic-3" }), true);
-    assert.equal(database.faxByLocalId("fax-ambig-1")!.state, "accepted");
+
+    // "Durable/restart" is tested across process-equivalent persistence, not
+    // merely within one PhoneDatabase instance: close and reopen before
+    // reconciling.
+    database.close();
+    database = new PhoneDatabase(path);
+    assert.equal(database.faxByLocalId("fax-ambig-1")!.state, "ambiguous", "the ambiguous state survives a restart");
+
+    // A later reconciliation observes "delivered" directly -- the true
+    // outcome -- without ForgeLink ever having seen the intermediate
+    // "accepted"/"sending" webhooks. Reconciliation (not a local command)
+    // is what allows this skip-ahead.
+    const reconciled = database.recordFaxEvent({
+      provider: "telnyx",
+      event_id: "evt-ambiguous-resolved-1",
+      fax_id: "fax-ambig-1",
+      normalized_state: "delivered",
+      occurred_at: "2026-09-11T12:10:00.000Z"
+    });
+    assert.deepEqual(reconciled, { recorded: true, applied: true });
+    assert.equal(database.faxByLocalId("fax-ambig-1")!.state, "delivered");
+
+    // The reconciled outcome itself survives a second restart.
+    database.close();
+    database = new PhoneDatabase(path);
+    assert.equal(database.faxByLocalId("fax-ambig-1")!.state, "delivered");
+  } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-003 idempotency: same local_fax_id and identical immutable identity is idempotent; a changed recipient fails closed as a conflict", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-idempotency-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const first = database.createFax({ local_fax_id: "fax-idem-1", direction: "outbound", to_number: "+15557654321" });
+    assert.equal(first.created, true);
+    // A caller retrying the same logical create (same local_fax_id, same
+    // immutable identity) after a timeout, crash, or UI double-click must
+    // not create a second row -- a true idempotent success.
+    const second = database.createFax({ local_fax_id: "fax-idem-1", direction: "outbound", to_number: "+15557654321" });
+    assert.equal(second.created, false);
+    assert.equal(database.faxes({}).filter((f) => f.local_fax_id === "fax-idem-1").length, 1);
+
+    // Reusing the same local_fax_id with a *different* recipient is an
+    // operation-key collision, not a retry: it must fail closed rather than
+    // silently accept the conflicting request or create a second fax.
+    assert.throws(() => database.createFax({ local_fax_id: "fax-idem-1", direction: "outbound", to_number: "+15559999999" }), (error: unknown) => error instanceof FaxIdentityConflictError);
+    assert.equal(database.faxes({}).filter((f) => f.local_fax_id === "fax-idem-1").length, 1, "no second fax was created by the conflicting request");
+    assert.equal(database.faxByLocalId("fax-idem-1")!.to_number, "+15557654321", "the original fax's identity is untouched by the rejected conflicting request");
+
+    // Direction is also part of immutable identity.
+    assert.throws(() => database.createFax({ local_fax_id: "fax-idem-1", direction: "inbound", to_number: "+15557654321" }), (error: unknown) => error instanceof FaxIdentityConflictError);
+
+    assert.equal(database.applyFaxState("fax-idem-1", "prepared"), true);
+    assert.equal(database.applyFaxState("fax-idem-1", "submission_pending"), true);
+    // Preparing submission a second time (e.g. a retried "begin submission"
+    // call after an ambiguous local failure) is a duplicate no-op, not a
+    // second submission attempt -- this is the seam that prevents a retry
+    // from racing a second real transmission once Phase 2 wires in Telnyx.
+    assert.equal(database.applyFaxState("fax-idem-1", "submission_pending"), false);
+    assert.equal(database.faxByLocalId("fax-idem-1")!.state, "submission_pending");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-003: provider fax identifiers and provider event identities are provider-scoped, not globally unique", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-provider-scope-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    // Two different providers issuing the identical provider_fax_id must not
+    // collide -- (provider, provider_fax_id) is the real identity.
+    database.createFax({ local_fax_id: "fax-scope-telnyx-1", direction: "outbound", to_number: "+15557654321", provider: "telnyx" });
+    database.createFax({ local_fax_id: "fax-scope-other-1", direction: "outbound", to_number: "+15557654322", provider: "other-provider" });
+    assert.equal(database.applyFaxState("fax-scope-telnyx-1", "prepared"), true);
+    assert.equal(database.applyFaxState("fax-scope-telnyx-1", "submission_pending"), true);
+    assert.equal(database.applyFaxState("fax-scope-telnyx-1", "submitting"), true);
+    assert.equal(database.applyFaxState("fax-scope-telnyx-1", "accepted", { providerFaxId: "shared-id-123" }), true);
+    assert.equal(database.applyFaxState("fax-scope-other-1", "prepared"), true);
+    assert.equal(database.applyFaxState("fax-scope-other-1", "submission_pending"), true);
+    assert.equal(database.applyFaxState("fax-scope-other-1", "submitting"), true);
+    // Assigning the identical raw provider_fax_id under a different provider
+    // must not throw a unique-constraint violation.
+    assert.equal(database.applyFaxState("fax-scope-other-1", "accepted", { providerFaxId: "shared-id-123" }), true);
+
+    assert.equal(database.faxByProviderFaxId("telnyx", "shared-id-123")!.local_fax_id, "fax-scope-telnyx-1");
+    assert.equal(database.faxByProviderFaxId("other-provider", "shared-id-123")!.local_fax_id, "fax-scope-other-1");
+
+    // Two different providers issuing the identical event_id must not
+    // collide/dedupe against each other -- (provider, event_id) is the real
+    // identity, explicitly namespaced by the provider column rather than a
+    // string-prefix convention baked into neutral domain logic.
+    const telnyxEvent = database.recordFaxEvent({
+      provider: "telnyx",
+      event_id: "evt-shared-id",
+      fax_id: "fax-scope-telnyx-1",
+      normalized_state: "sending",
+      occurred_at: "2026-09-11T12:00:05.000Z"
+    });
+    const otherEvent = database.recordFaxEvent({
+      provider: "other-provider",
+      event_id: "evt-shared-id",
+      fax_id: "fax-scope-other-1",
+      normalized_state: "sending",
+      occurred_at: "2026-09-11T12:00:05.000Z"
+    });
+    assert.deepEqual(telnyxEvent, { recorded: true, applied: true });
+    assert.deepEqual(otherEvent, { recorded: true, applied: true }, "an identical event_id under a different provider must be recorded independently, not deduped");
+    assert.equal(database.faxByLocalId("fax-scope-telnyx-1")!.state, "sending");
+    assert.equal(database.faxByLocalId("fax-scope-other-1")!.state, "sending");
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });

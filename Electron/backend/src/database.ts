@@ -3,7 +3,16 @@ import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs
 import { dirname } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { CallRecordInput, CallStatus, CallStatusUpdate } from "./channels";
-import { classifyFaxTransition, FAX_TERMINAL_STATES, FaxDirection, FaxProvenance, FaxState, isFaxTerminalState } from "./fax";
+import {
+  classifyFaxCommandTransition,
+  FAX_INITIAL_STATE,
+  FAX_TERMINAL_STATES,
+  FaxDirection,
+  FaxProvenance,
+  FaxState,
+  isFaxTerminalState,
+  reconcileFaxObservation
+} from "./fax";
 import { normalizeNumber, utcNow } from "./phone";
 import {
   assertUnauthenticatedFeedUrl,
@@ -22,15 +31,31 @@ import {
 } from "./signals";
 import { CLOUD_SUMMARY_DISABLED, SUMMARY_CONTENT_TRUST, SUMMARY_NOTICE, SUMMARY_PROVENANCE, summarizeThread, ThreadSummary } from "./summary";
 
-export const CURRENT_SCHEMA_VERSION = 29;
+export const CURRENT_SCHEMA_VERSION = 30;
 
-// --- Fax (work item 041, Phase 1: FAX-003) -----------------------------------
+// --- Fax (work item 041, Phase 1: FAX-003; Phase 1.1 hardening) -------------
 // Durable fax state is its own domain -- not a disguised SMS row. `faxes` is
 // the transmission-lifecycle authority; `fax_documents` is the managed
-// document-reference authority (never raw provider payloads/URLs); and
-// `fax_events` is the provider-neutral, durable, dedupe-by-event-id ledger
-// that later webhook ingestion (Phase 3) will enqueue into and drain, mirrored
-// on the telnyx_webhook_events pattern already proven for SMS/MMS (v28).
+// document-reference authority (never raw provider payloads/URLs).
+//
+// `fax_events` is the provider-neutral NORMALIZED EVENT LEDGER: it records
+// already-normalized fax lifecycle observations (normalized_state, a
+// FaxState) linked to a ForgeLink local fax identity, deduped by
+// (provider, event_id), for durable evidence and idempotent reconciliation
+// (see recordFaxEvent/reconcileFaxObservation below). It is intentionally
+// NOT the future Telnyx public webhook ingress queue (Phase 3, FAX-006 --
+// still pending). That queue is a different, provider-specific concern: it
+// must durably accept a *signed, not-yet-normalized* provider payload and
+// enqueue it before HTTP acknowledgement, before a local fax even necessarily
+// exists to link it to, mirroring the telnyx_webhook_events pattern proven
+// for SMS/MMS (v28) but scoped to fax events. Phase 1 (and this correction)
+// deliberately did not build that ingress queue; only the normalized ledger
+// downstream of it exists so far.
+//
+// Identifiers are provider-scoped, not globally unique (Phase 1.1 finding):
+// `(provider, provider_fax_id)` and `(provider, event_id)`, not
+// `provider_fax_id`/`event_id` alone -- a second fax provider must not be
+// able to collide with Telnyx's identifier space.
 
 export interface FaxInput {
   local_fax_id?: string;
@@ -104,6 +129,7 @@ export interface FaxDocumentRow {
 }
 
 export interface FaxEventInput {
+  provider: string;
   event_id: string;
   fax_id: string;
   provider_fax_id?: string;
@@ -116,6 +142,7 @@ export interface FaxEventInput {
 }
 
 export interface FaxEventRow {
+  provider: string;
   event_id: string;
   fax_id: string;
   provider_fax_id: string;
@@ -128,6 +155,18 @@ export interface FaxEventRow {
   failure_category: string;
   payload_sha256: string;
   created_at: string;
+}
+
+// Thrown by createFax when a caller reuses a local_fax_id already assigned to
+// a fax with different immutable identity data (direction/to_number/
+// from_number) -- an operation-key collision, not a legitimate idempotent
+// retry. A true idempotent retry (identical immutable identity) is a
+// same-id-same-data no-op instead; see createFax.
+export class FaxIdentityConflictError extends Error {
+  constructor(public readonly localFaxId: string) {
+    super(`Fax '${localFaxId}' already exists with different immutable identity (direction/to/from). This is an operation-key collision, not a retry.`);
+    this.name = "FaxIdentityConflictError";
+  }
 }
 
 export interface ThreadRow {
@@ -1756,6 +1795,108 @@ export class PhoneDatabase {
         version = 29;
         this.connection.exec("PRAGMA user_version=29");
       }
+      if (version === 29) {
+        // Fax identifier scoping correction (work item 041, Phase 1.1
+        // hardening review). v29 gave `faxes.provider_fax_id` a bare column
+        // UNIQUE constraint and `fax_events.event_id` a bare PRIMARY KEY --
+        // both assume Telnyx is the only fax provider that will ever exist.
+        // v30 rescopes both to (provider, provider_fax_id) /
+        // (provider, event_id) so a second provider cannot collide with
+        // Telnyx's identifier space. SQLite cannot ALTER a column-level
+        // UNIQUE/PRIMARY KEY constraint in place, so this copies existing
+        // rows out to temp tables, drops the child tables before the parent
+        // (fax_events and fax_documents reference faxes(local_fax_id) via
+        // FK), recreates all three with the corrected schema, and restores
+        // the data in parent-then-child order -- at no point does a child
+        // row reference a dropped parent table. The v29 migration step above
+        // is left untouched; this is an additive correction, not a rewrite
+        // of history.
+        this.connection.exec(`
+          CREATE TEMP TABLE fax_events_v29_copy AS SELECT * FROM fax_events;
+          CREATE TEMP TABLE fax_documents_v29_copy AS SELECT * FROM fax_documents;
+          CREATE TEMP TABLE faxes_v29_copy AS SELECT * FROM faxes;
+
+          DROP TABLE fax_events;
+          DROP TABLE fax_documents;
+          DROP TABLE faxes;
+
+          CREATE TABLE faxes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_fax_id TEXT NOT NULL UNIQUE,
+            direction TEXT NOT NULL,
+            provider TEXT NOT NULL DEFAULT '',
+            provider_fax_id TEXT,
+            contact_id INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
+            contact_point_id INTEGER REFERENCES contact_points(id) ON DELETE SET NULL,
+            from_number TEXT,
+            to_number TEXT NOT NULL,
+            page_count INTEGER,
+            quality TEXT,
+            state TEXT NOT NULL DEFAULT 'draft',
+            provenance TEXT NOT NULL DEFAULT 'operator',
+            approval_id TEXT,
+            correlation TEXT NOT NULL DEFAULT '',
+            failure_category TEXT NOT NULL DEFAULT '',
+            redacted_error TEXT NOT NULL DEFAULT '',
+            retention_policy TEXT NOT NULL DEFAULT 'default',
+            created_at TEXT NOT NULL,
+            submitted_at TEXT,
+            accepted_at TEXT,
+            started_at TEXT,
+            completed_at TEXT,
+            updated_at TEXT NOT NULL
+          );
+          INSERT INTO faxes SELECT * FROM faxes_v29_copy;
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_faxes_provider_identity ON faxes(provider, provider_fax_id) WHERE provider_fax_id IS NOT NULL;
+          CREATE INDEX IF NOT EXISTS idx_faxes_state ON faxes(state, updated_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_faxes_contact ON faxes(contact_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_faxes_created_at ON faxes(created_at DESC);
+
+          CREATE TABLE fax_documents (
+            id TEXT PRIMARY KEY,
+            fax_id TEXT NOT NULL REFERENCES faxes(local_fax_id) ON DELETE CASCADE,
+            role TEXT NOT NULL DEFAULT 'primary',
+            local_ref TEXT NOT NULL,
+            content_type TEXT NOT NULL DEFAULT '',
+            content_sha256 TEXT NOT NULL DEFAULT '',
+            display_name TEXT NOT NULL DEFAULT '',
+            page_count INTEGER,
+            byte_size INTEGER,
+            retention_state TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL,
+            deleted_at TEXT
+          );
+          INSERT INTO fax_documents SELECT * FROM fax_documents_v29_copy;
+          CREATE INDEX IF NOT EXISTS idx_fax_documents_fax ON fax_documents(fax_id);
+
+          CREATE TABLE fax_events (
+            provider TEXT NOT NULL DEFAULT '',
+            event_id TEXT NOT NULL,
+            fax_id TEXT NOT NULL REFERENCES faxes(local_fax_id) ON DELETE CASCADE,
+            provider_fax_id TEXT NOT NULL DEFAULT '',
+            event_type TEXT NOT NULL DEFAULT '',
+            normalized_state TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            received_at TEXT NOT NULL,
+            attempt INTEGER NOT NULL DEFAULT 0,
+            processing_status TEXT NOT NULL DEFAULT 'pending',
+            failure_category TEXT NOT NULL DEFAULT '',
+            payload_sha256 TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (provider, event_id)
+          );
+          INSERT INTO fax_events(provider, event_id, fax_id, provider_fax_id, event_type, normalized_state, occurred_at, received_at, attempt, processing_status, failure_category, payload_sha256, created_at)
+            SELECT '', event_id, fax_id, provider_fax_id, event_type, normalized_state, occurred_at, received_at, attempt, processing_status, failure_category, payload_sha256, created_at FROM fax_events_v29_copy;
+          CREATE INDEX IF NOT EXISTS idx_fax_events_fax ON fax_events(fax_id, occurred_at);
+          CREATE INDEX IF NOT EXISTS idx_fax_events_pending ON fax_events(processing_status, occurred_at, received_at);
+
+          DROP TABLE fax_events_v29_copy;
+          DROP TABLE fax_documents_v29_copy;
+          DROP TABLE faxes_v29_copy;
+        `);
+        version = 30;
+        this.connection.exec("PRAGMA user_version=30");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -2230,23 +2371,35 @@ export class PhoneDatabase {
     return true;
   }
 
-  // --- Fax (work item 041, Phase 1: FAX-003) -------------------------------
+  // --- Fax (work item 041, Phase 1: FAX-003; Phase 1.1 hardening) ---------
   // ForgeLink-owned durable fax state, independent of Telnyx (no network call
   // anywhere in this block). `local_fax_id` is the stable outbound-operation
-  // identity: creating a fax twice with the same id is an idempotent no-op
-  // (INSERT OR IGNORE), and `applyFaxState` rejects illegal/regressive/
-  // duplicate transitions via the sealed state machine in fax.ts rather than
-  // trusting caller or webhook-arrival order.
+  // identity: creating a fax twice with *identical* immutable identity data
+  // is an idempotent no-op, but reusing the id with *different* identity data
+  // (a different recipient, direction, etc.) is a conflict, not a retry --
+  // see createFax. `applyFaxState` (local commands) and `applyFaxObservation`
+  // (provider observations) both reject illegal/regressive/duplicate
+  // transitions via the sealed, direction-aware state machine in fax.ts.
+
+  private static readonly FAX_IDENTITY_FIELDS = ["direction", "to_number", "from_number"] as const;
 
   createFax(input: FaxInput): { id: string; created: boolean } {
     const id = String(input.local_fax_id || `fax-${randomUUID()}`).slice(0, 120);
+    const existing = this.faxByLocalId(id);
+    if (existing) {
+      const candidate = { direction: input.direction, to_number: String(input.to_number), from_number: input.from_number || null };
+      const conflict = PhoneDatabase.FAX_IDENTITY_FIELDS.some((field) => (existing as unknown as Record<string, unknown>)[field] !== (candidate as unknown as Record<string, unknown>)[field]);
+      if (conflict) throw new FaxIdentityConflictError(id);
+      return { id, created: false };
+    }
     const now = utcNow();
+    const initialState = FAX_INITIAL_STATE[input.direction];
     const changes = this.connection.prepare(`
       INSERT OR IGNORE INTO faxes(
         local_fax_id, direction, provider, provider_fax_id, contact_id, contact_point_id,
         from_number, to_number, page_count, quality, state, provenance, approval_id,
         correlation, retention_policy, created_at, updated_at
-      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)
+      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.direction,
@@ -2258,6 +2411,7 @@ export class PhoneDatabase {
       String(input.to_number),
       input.page_count ?? null,
       input.quality || null,
+      initialState,
       input.provenance || "operator",
       input.approval_id || null,
       String(input.correlation || ""),
@@ -2272,8 +2426,11 @@ export class PhoneDatabase {
     return this.connection.prepare("SELECT * FROM faxes WHERE local_fax_id=?").get(String(localFaxId)) as FaxRow | undefined;
   }
 
-  faxByProviderFaxId(providerFaxId: string): FaxRow | undefined {
-    return this.connection.prepare("SELECT * FROM faxes WHERE provider_fax_id=?").get(String(providerFaxId)) as FaxRow | undefined;
+  // Provider-scoped lookup (Phase 1.1): a provider fax id is only meaningful
+  // within the provider namespace that issued it -- see FaxIdentityConflictError's
+  // sibling correction for (provider, event_id) below.
+  faxByProviderFaxId(provider: string, providerFaxId: string): FaxRow | undefined {
+    return this.connection.prepare("SELECT * FROM faxes WHERE provider=? AND provider_fax_id=?").get(String(provider), String(providerFaxId)) as FaxRow | undefined;
   }
 
   faxes(filter: { direction?: FaxDirection; state?: FaxState; limit?: number } = {}): FaxRow[] {
@@ -2297,21 +2454,39 @@ export class PhoneDatabase {
     return this.connection.prepare(`SELECT * FROM faxes WHERE state NOT IN (${placeholders}) ORDER BY created_at ASC LIMIT ?`).all(...terminal, bounded) as unknown as FaxRow[];
   }
 
-  // Sealed state-machine transition (fax.ts classifyFaxTransition). Returns
-  // false -- without mutating anything -- for an illegal/regressive
-  // transition or a duplicate (already-applied) one, mirroring
-  // applyCallStatus's boolean convention. This is the seam later webhook
-  // normalization uses to apply events by state precedence instead of
-  // arrival order, and the seam that makes "prepare submission twice" safe:
-  // prepared -> submission_pending succeeds once; a second call sees
-  // submission_pending -> submission_pending, which classifyFaxTransition
-  // reports as a duplicate and applyFaxState rejects.
+  private faxLifecycleColumns(now: string, occurredAt: string | undefined, nextState: FaxState): { submitted: number; accepted: number; started: number; completed: number; at: string } {
+    return {
+      submitted: nextState === "submission_pending" || nextState === "submitting" ? 1 : 0,
+      accepted: nextState === "accepted" ? 1 : 0,
+      started: nextState === "sending" ? 1 : 0,
+      completed: isFaxTerminalState(nextState) ? 1 : 0,
+      at: occurredAt || now
+    };
+  }
+
+  // Strict, adjacency-based LOCAL COMMAND transition (fax.ts
+  // classifyFaxCommandTransition) -- draft -> prepared, the atomic
+  // submission_pending -> submitting claim, a cancel request. Returns false
+  // -- without mutating anything -- for an illegal/regressive/skip-ahead/
+  // cross-direction transition or a duplicate (already-applied) one,
+  // mirroring applyCallStatus's boolean convention.
+  //
+  // The UPDATE's WHERE clause is conditioned on the exact `state` this method
+  // just read (an expected-state compare-and-swap), not merely "whatever the
+  // read said" applied unconditionally: if the row's state has changed
+  // between the read and the write, `changes` is 0 and the caller correctly
+  // learns the transition did not apply, rather than silently overwriting a
+  // state it no longer had accurate knowledge of. This is the atomic claim
+  // seam Phase 2's sender will use for submission_pending -> submitting: only
+  // the caller whose conditional UPDATE actually matches a row may proceed to
+  // invoke the provider.
   applyFaxState(localFaxId: string, nextState: FaxState, opts: { occurredAt?: string; providerFaxId?: string; failureCategory?: string; redactedError?: string; pageCount?: number } = {}): boolean {
     const current = this.faxByLocalId(localFaxId);
     if (!current) return false;
-    if (classifyFaxTransition(current.state, nextState) !== "applied") return false;
+    if (classifyFaxCommandTransition(current.direction, current.state, nextState) !== "applied") return false;
     const now = utcNow();
-    this.connection.prepare(`
+    const ts = this.faxLifecycleColumns(now, opts.occurredAt, nextState);
+    const changes = this.connection.prepare(`
       UPDATE faxes
       SET state=?,
           provider_fax_id=COALESCE(?, provider_fax_id),
@@ -2323,21 +2498,68 @@ export class PhoneDatabase {
           started_at=CASE WHEN ? THEN COALESCE(started_at, ?) ELSE started_at END,
           completed_at=CASE WHEN ? THEN COALESCE(completed_at, ?) ELSE completed_at END,
           updated_at=?
-      WHERE local_fax_id=?
+      WHERE local_fax_id=? AND state=?
     `).run(
       nextState,
       opts.providerFaxId || null,
       opts.pageCount ?? null,
       (opts.failureCategory ?? (nextState === "failed" ? current.failure_category : "")) || "",
       (opts.redactedError ?? "").slice(0, 500) || current.redacted_error,
-      nextState === "submission_pending" || nextState === "submitting" ? 1 : 0, opts.occurredAt || now,
-      nextState === "accepted" ? 1 : 0, opts.occurredAt || now,
-      nextState === "sending" ? 1 : 0, opts.occurredAt || now,
-      isFaxTerminalState(nextState) ? 1 : 0, opts.occurredAt || now,
+      ts.submitted, ts.at,
+      ts.accepted, ts.at,
+      ts.started, ts.at,
+      ts.completed, ts.at,
       now,
-      localFaxId
-    );
-    return true;
+      localFaxId,
+      current.state
+    ).changes;
+    return Number(changes) === 1;
+  }
+
+  // Monotonic, skip-ahead-safe PROVIDER OBSERVATION reconciliation (fax.ts
+  // reconcileFaxObservation) -- for normalized webhook/status events, which
+  // may arrive out of order, duplicated, or missing intermediate stages.
+  // Unlike applyFaxState, an "advanced" outcome is allowed to jump directly
+  // to `observed` even if it is not a single-edge neighbor of the current
+  // state (e.g. accepted -> observing delivered advances straight to
+  // delivered). A "stale" or "duplicate" observation returns false without
+  // mutating the row -- the caller (recordFaxEvent) still records the event
+  // itself for evidence/dedup regardless of whether it moved the state. Uses
+  // the same expected-state conditional UPDATE as applyFaxState.
+  applyFaxObservation(localFaxId: string, observed: FaxState, opts: { occurredAt?: string; providerFaxId?: string; failureCategory?: string; redactedError?: string; pageCount?: number } = {}): boolean {
+    const current = this.faxByLocalId(localFaxId);
+    if (!current) return false;
+    if (reconcileFaxObservation(current.direction, current.state, observed) !== "advanced") return false;
+    const now = utcNow();
+    const ts = this.faxLifecycleColumns(now, opts.occurredAt, observed);
+    const changes = this.connection.prepare(`
+      UPDATE faxes
+      SET state=?,
+          provider_fax_id=COALESCE(?, provider_fax_id),
+          page_count=COALESCE(?, page_count),
+          failure_category=?,
+          redacted_error=?,
+          submitted_at=CASE WHEN ? THEN COALESCE(submitted_at, ?) ELSE submitted_at END,
+          accepted_at=CASE WHEN ? THEN COALESCE(accepted_at, ?) ELSE accepted_at END,
+          started_at=CASE WHEN ? THEN COALESCE(started_at, ?) ELSE started_at END,
+          completed_at=CASE WHEN ? THEN COALESCE(completed_at, ?) ELSE completed_at END,
+          updated_at=?
+      WHERE local_fax_id=? AND state=?
+    `).run(
+      observed,
+      opts.providerFaxId || null,
+      opts.pageCount ?? null,
+      (opts.failureCategory ?? (observed === "failed" ? current.failure_category : "")) || "",
+      (opts.redactedError ?? "").slice(0, 500) || current.redacted_error,
+      ts.submitted, ts.at,
+      ts.accepted, ts.at,
+      ts.started, ts.at,
+      ts.completed, ts.at,
+      now,
+      localFaxId,
+      current.state
+    ).changes;
+    return Number(changes) === 1;
   }
 
   createFaxDocument(input: FaxDocumentInput): { id: string; created: boolean } {
@@ -2366,18 +2588,25 @@ export class PhoneDatabase {
     return this.connection.prepare("SELECT * FROM fax_documents WHERE fax_id=? ORDER BY created_at ASC").all(String(faxId)) as unknown as FaxDocumentRow[];
   }
 
-  // Durable, provider-neutral fax event ledger (FAX-006's persistence seam).
-  // Dedupes by `event_id` exactly like telnyx_webhook_events; a duplicate
-  // insert is reported and the normalized state is not re-applied. Arrival
-  // order is never trusted: the normalized_state is only applied through
-  // applyFaxState's legality/precedence check.
+  // Durable, provider-neutral NORMALIZED fax event ledger (not the future
+  // Telnyx webhook ingress queue -- see the class-level comment above
+  // FaxInput; FAX-006 remains pending). Dedupes by `(provider, event_id)`
+  // exactly like telnyx_webhook_events dedupes by event_id within its single
+  // known provider; a duplicate insert is reported and the observation is not
+  // re-applied. Arrival order is never trusted: the normalized_state is only
+  // ever applied through applyFaxObservation's monotonic, skip-ahead-safe
+  // reconciliation, so a stale/duplicate/out-of-order event is still
+  // durably recorded for evidence/dedup even when it does not move the fax's
+  // state.
   recordFaxEvent(input: FaxEventInput): { recorded: boolean; applied: boolean } {
     if (!this.faxByLocalId(input.fax_id)) throw new Error("Fax not found.");
     const now = utcNow();
+    const provider = String(input.provider);
     const changes = this.connection.prepare(`
-      INSERT OR IGNORE INTO fax_events(event_id, fax_id, provider_fax_id, event_type, normalized_state, occurred_at, received_at, attempt, processing_status, failure_category, payload_sha256, created_at)
-      VALUES(?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?)
+      INSERT OR IGNORE INTO fax_events(provider, event_id, fax_id, provider_fax_id, event_type, normalized_state, occurred_at, received_at, attempt, processing_status, failure_category, payload_sha256, created_at)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?)
     `).run(
+      provider,
       String(input.event_id),
       String(input.fax_id),
       String(input.provider_fax_id || ""),
@@ -2390,11 +2619,11 @@ export class PhoneDatabase {
       now
     ).changes;
     if (Number(changes) !== 1) return { recorded: false, applied: false };
-    const applied = this.applyFaxState(input.fax_id, input.normalized_state, {
+    const applied = this.applyFaxObservation(input.fax_id, input.normalized_state, {
       occurredAt: input.occurred_at,
       providerFaxId: input.provider_fax_id
     });
-    this.connection.prepare("UPDATE fax_events SET processing_status=? WHERE event_id=?").run(applied ? "applied" : "ignored", String(input.event_id));
+    this.connection.prepare("UPDATE fax_events SET processing_status=? WHERE provider=? AND event_id=?").run(applied ? "applied" : "ignored", provider, String(input.event_id));
     return { recorded: true, applied };
   }
 
@@ -2403,8 +2632,8 @@ export class PhoneDatabase {
     return this.connection.prepare("SELECT * FROM fax_events WHERE processing_status='pending' ORDER BY occurred_at ASC, received_at ASC LIMIT ?").all(bounded) as unknown as FaxEventRow[];
   }
 
-  completeFaxEvent(eventId: string, status: "applied" | "ignored" | "failed", failureCategory = ""): void {
-    this.connection.prepare("UPDATE fax_events SET processing_status=?, failure_category=? WHERE event_id=?").run(status, failureCategory.slice(0, 120), String(eventId));
+  completeFaxEvent(provider: string, eventId: string, status: "applied" | "ignored" | "failed", failureCategory = ""): void {
+    this.connection.prepare("UPDATE fax_events SET processing_status=?, failure_category=? WHERE provider=? AND event_id=?").run(status, failureCategory.slice(0, 120), String(provider), String(eventId));
   }
 
   draft(threadId: number): string {

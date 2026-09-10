@@ -1,6 +1,6 @@
 # Work Item 041 — First-Class Fax Communications and Telnyx Fax Edge
 
-**Status:** Active (Phase 0 architecture preflight)  
+**Status:** Active (Phase 1 fax domain/persistence landed; Phase 1.1 hardening correction applied; Telnyx adapter not yet started)  
 **Priority:** High product expansion  
 **Created:** 2026-09-10  
 **Primary product:** ForgeLink  
@@ -887,3 +887,102 @@ That is the product boundary this work item must preserve.
     flow, and Tauri secret storage are all out of scope for this phase and
     remain unimplemented. FAX-001 and FAX-004 through FAX-016 remain pending.
   - Evidence: `evidence/runs/20260911-fax-phase1-domain-and-persistence.json`.
+
+- **2026-09-10 — Phase 1.1: hardening correction following architectural
+  review (FAX-002, FAX-003 reopened, then re-satisfied).** An architectural
+  review of the Phase 1 commit found seven issues; all seven are corrected in
+  this slice, with no Telnyx network call, credential, or provider side
+  effect at any point.
+  - **Why FAX-002/FAX-003 were reopened:** FAX-002 claims the specialized
+    contracts are provider-neutral, but `FaxRequest.clientState` leaked
+    Telnyx's `client_state` transport parameter into the neutral domain
+    (finding 4). FAX-003 claims normalized lifecycle and restart/recovery
+    semantics, but `createFax()` hardcoded `state='draft'` for every
+    direction, so an inbound fax began in an outbound-only state it could
+    never legally leave (finding 1), and out-of-order/duplicated provider
+    observations were checked against the same strict single-edge adjacency
+    used for local commands, which is correct for commands but insufficient
+    for provider observations that may skip stages (finding 2). Both
+    criteria were returned to `pending`; the original Phase 1 evidence
+    (`20260911-fax-phase1-domain-and-persistence`) is retained as historical
+    evidence of what Phase 1 actually did, not deleted.
+  - **Finding 1 (direction-aware initialization), fixed:** `FAX_INITIAL_STATE`
+    maps `outbound -> draft`, `inbound -> receiving`. The legal-transition
+    graph is now split per direction
+    (`FAX_LEGAL_TRANSITIONS_OUTBOUND`/`_INBOUND`) with a
+    `faxStateBelongsToDirection` guard, so an outbound record cannot reach an
+    inbound state (or vice versa) as a structural lookup miss, not merely
+    because nobody happened to add that edge.
+  - **Finding 2 (command vs. observation), fixed:** split
+    `classifyFaxCommandTransition` (strict, single-edge, for local
+    operator/system commands: draft → prepared, the atomic submission claim,
+    a cancel request) from a new `reconcileFaxObservation` (monotonic,
+    direction-aware, skip-ahead-safe via precomputed transitive reachability
+    over the same direction-scoped graph, for provider observations). A fax
+    `accepted` that observes `delivered` directly now correctly converges;
+    a `sending` fax that later observes a stale `accepted` does not regress;
+    `ambiguous` can reconcile straight to any later authoritative outcome
+    without requiring every missing intermediate webhook; a `cancel_pending`
+    race still converges to an authoritative `delivered`/`failed`/`cancelled`.
+    Every valid provider event is still durably recorded (for evidence/
+    dedup) even when it does not move the fax's state.
+  - **Finding 3 (ledger vs. ingress queue), clarified:** corrected comments
+    and this README's language wherever Phase 1 conflated `fax_events` (the
+    provider-neutral *normalized* event ledger, linked to a local fax id)
+    with the future Telnyx public webhook *ingress* queue (provider-specific,
+    signature-verified, enqueued before a local fax may even exist yet —
+    still FAX-006, still not built). No ingress queue was added in this
+    phase; only the distinction was corrected.
+  - **Finding 4 (Telnyx leakage), fixed:** removed `FaxRequest.clientState`.
+    `correlation`/`localFaxId` remain the neutral concepts; a future Telnyx
+    adapter derives its own `client_state` from them. Audited the rest of
+    `fax.ts` for similar leakage — none found (`quality` stays a plain
+    string; Telnyx's `normal`/`high`/`very_high`/`ultra_light`/`ultra_dark`
+    enum belongs in the Telnyx adapter/configuration layer, not here).
+  - **Finding 5 (provider-scoped identity), fixed:** schema v30 (decision
+    0011 row added) rescopes `faxes.provider_fax_id` from a bare column
+    `UNIQUE` to a partial unique index on `(provider, provider_fax_id)`, and
+    `fax_events` gains a `provider` column with primary key
+    `(provider, event_id)` instead of `event_id` alone. The migration copies
+    all three fax tables' existing rows to temp tables, drops children before
+    the parent (`fax_events`, `fax_documents`, then `faxes` — the order that
+    avoids `ON DELETE CASCADE` silently wiping `fax_documents` when the
+    referenced `faxes` table is dropped, confirmed by direct experiment
+    during this work), recreates all three, and restores the data in
+    parent-then-child order. The v29 migration step itself is untouched.
+    `faxByProviderFaxId`/`completeFaxEvent` are now provider-scoped calls.
+  - **Finding 6 (idempotency vs. conflict), fixed:** `createFax` now
+    distinguishes a true retry (identical `local_fax_id` **and** identical
+    immutable identity — direction/to/from) from an operation-key collision
+    (same id, different identity), which now throws
+    `FaxIdentityConflictError` and creates nothing rather than silently
+    succeeding. `applyFaxState`/the new `applyFaxObservation` use an explicit
+    expected-state conditional `UPDATE ... WHERE local_fax_id=? AND state=?`
+    (a compare-and-swap) rather than an unconditional write after a prior
+    read; a dedicated test attempts the identical conditional-update pattern
+    with a deliberately stale expected state and proves zero rows change.
+  - **Finding 7 (`FaxStatusUpdate.terminal`), fixed:** removed the field.
+    Terminality is fully derived from `normalizedState` via
+    `isFaxTerminalState`; ForgeLink's lifecycle, not a provider adapter,
+    remains the sole authority on what counts as terminal.
+  - **Evidence-date correction:** the Phase 1 evidence record and WI041's
+    `updated` field both incorrectly stated 2026-09-11; the actual Phase 1
+    commit (`044aa6a527475ab7567cae093126b91cf72b5aad`) was made
+    2026-09-10T21:33:37Z. Both are corrected to the accurate date; the
+    original values remain visible in git history at that commit, per
+    `evidence/runs/20260911-fax-phase1-domain-and-persistence.json`'s
+    `environment.date_correction` field.
+  - **Tests:** 20 new/rewritten tests across `fax.test.ts` and
+    `database.test.ts` (92 total in the focused fax/database/channels run,
+    up from 72), covering every case in this correction's required list,
+    including a restart (close/reopen `PhoneDatabase`) proof for the
+    ambiguous-then-reconciled path. Full suite: 281 tests, 280 passed, 1
+    skipped (opt-in live Twilio, unrelated), 0 failed, confirmed on a clean
+    re-run after one transient, unrelated vitest timeout (`LAN-006`, a
+    pre-existing renderer test this change never touches) was isolated and
+    reproduced as passing on its own.
+  - **No Telnyx provider send occurred. No Telnyx credentials were used. No
+    live provider side effect occurred.**
+  - Evidence: `evidence/runs/20260910-fax-phase1-1-hardening-correction.json`
+    (together with the retained original,
+    `evidence/runs/20260911-fax-phase1-domain-and-persistence.json`).

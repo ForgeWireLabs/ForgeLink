@@ -1,7 +1,7 @@
 {
   "$schema": "../../schemas/evidence-run.schema.json",
   "id": "20260911-fax-phase1-domain-and-persistence",
-  "timestamp": "2026-09-11T00:00:00Z",
+  "timestamp": "2026-09-10T21:33:37Z",
   "work_item": "041",
   "result": "passed",
   "commands": [
@@ -40,6 +40,7 @@
     "repository": "ForgeWireLabs/ForgeLink",
     "branch": "main",
     "platform": "Windows",
-    "process_note": "WI041 Phase 1: provider-neutral fax domain (FaxDirection/FaxProvenance/FaxState/FaxDocumentRef/FaxRequest/FaxResult/FaxStatusUpdate/InboundFax/FaxProvider in fax.ts, deliberately not a ChannelAdapter), a sealed 14-state lifecycle state machine with an explicit ambiguous outbound state and duplicate/illegal-transition rejection independent of event arrival order, and durable persistence (faxes/fax_documents/fax_events, schema v28->v29) with idempotent creation and state-guarded transitions as ForgeLink's own outbound-operation-identity seam. No Telnyx adapter, credential validation, webhook route, provider media handling, HTTP endpoint, UI, MCP tools, communication-firewall wiring, or Tauri integration were implemented in this phase; FAX-002 and FAX-003 are satisfied, FAX-001 and FAX-004 through FAX-016 remain pending. Synthetic phone numbers and synthetic document references only; no credentials, no real fax content, no network calls."
+    "process_note": "WI041 Phase 1: provider-neutral fax domain (FaxDirection/FaxProvenance/FaxState/FaxDocumentRef/FaxRequest/FaxResult/FaxStatusUpdate/InboundFax/FaxProvider in fax.ts, deliberately not a ChannelAdapter), a sealed 14-state lifecycle state machine with an explicit ambiguous outbound state and duplicate/illegal-transition rejection independent of event arrival order, and durable persistence (faxes/fax_documents/fax_events, schema v28->v29) with idempotent creation and state-guarded transitions as ForgeLink's own outbound-operation-identity seam. No Telnyx adapter, credential validation, webhook route, provider media handling, HTTP endpoint, UI, MCP tools, communication-firewall wiring, or Tauri integration were implemented in this phase; FAX-002 and FAX-003 were marked satisfied at the time of this run, then reopened to pending during the Phase 1.1 architectural review (see evidence 20260910-fax-phase1-1-hardening-correction) because the review found the inbound-initialization and out-of-order-convergence gaps this record did not yet account for. FAX-001 and FAX-004 through FAX-016 remain pending. Synthetic phone numbers and synthetic document references only; no credentials, no real fax content, no network calls.",
+    "date_correction": "This record originally stated timestamp 2026-09-11T00:00:00Z and WI041's work-item.json 'updated' field originally stated 2026-09-11, both factually inconsistent with the actual commit that produced this evidence, 044aa6a527475ab7567cae093126b91cf72b5aad, committed 2026-09-10T21:33:37Z (2026-09-10T16:33:37-05:00). Corrected during the Phase 1.1 review to the accurate timestamp above; the original (incorrect) values remain visible in git history at that commit and are not hidden by this correction."
   }
 }

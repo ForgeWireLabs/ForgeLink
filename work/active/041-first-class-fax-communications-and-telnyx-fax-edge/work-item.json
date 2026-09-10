@@ -42,7 +42,8 @@
       "text": "Define a provider-neutral fax_edge capability family and specialized fax contracts without widening SMS/MMS message contracts into an ambiguous universal payload.",
       "state": "satisfied",
       "evidence": [
-        "20260911-fax-phase1-domain-and-persistence"
+        "20260911-fax-phase1-domain-and-persistence",
+        "20260910-fax-phase1-1-hardening-correction"
       ]
     },
     {
@@ -50,7 +51,8 @@
       "text": "Add durable fax transmission, document-reference, and event-ledger persistence with migrations, restart recovery, normalized lifecycle transitions, and explicit ambiguous-side-effect semantics.",
       "state": "satisfied",
       "evidence": [
-        "20260911-fax-phase1-domain-and-persistence"
+        "20260911-fax-phase1-domain-and-persistence",
+        "20260910-fax-phase1-1-hardening-correction"
       ]
     },
     {
@@ -133,5 +135,5 @@
     }
   ],
   "created": "2026-09-10",
-  "updated": "2026-09-11"
+  "updated": "2026-09-10"
 }

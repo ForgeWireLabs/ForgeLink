@@ -85,6 +85,7 @@ the table is the single place that says who owns what.
 | v27 | 031 LNH-001 | extend `device_keys` with linked-node algorithm, fingerprint, opaque secure-key reference, generation, revocation reason, and replacement/recovery lifecycle metadata | unreleased |
 | v28 | 037 TXE-002 | `telnyx_webhook_events` (durable event identity, occurrence ordering, replay state, bounded recovery payload, and redacted delivery-target metadata) | unreleased |
 | v29 | 041 FAX-003 | `faxes`, `fax_documents`, `fax_events` (provider-neutral fax transmission/document-reference/event-ledger persistence; no Telnyx-specific fields) | unreleased |
+| v30 | 041 FAX-003 (Phase 1.1) | rescopes `faxes.provider_fax_id` and `fax_events.event_id` from globally-unique to provider-scoped identity -- `(provider, provider_fax_id)` and `(provider, event_id)` -- so a second fax provider cannot collide with Telnyx's identifier space; preserves existing fax rows/documents/events | unreleased |
 
 Future allocations are appended to this table as they land. 015's dependent
 channel-adapter items (018–024) and the governance/cockpit items (016/017) all

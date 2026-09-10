@@ -1,0 +1,45 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260910-fax-phase1-1-hardening-correction",
+  "timestamp": "2026-09-10T22:15:00Z",
+  "work_item": "041",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cd Electron && npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed with the direction-aware state machine, reconciliation function, contract corrections, and v29->v30 migration in fax.ts/database.ts."
+    },
+    {
+      "command": "cd Electron && node --test backend-dist/fax.test.js backend-dist/database.test.js backend-dist/channels.test.js",
+      "exit_code": 0,
+      "summary": "92 tests passed (72 pre-existing plus 20 new/rewritten): direction-aware initial state and cross-direction guards, strict local command transitions vs monotonic provider-observation reconciliation (skip-ahead convergence, out-of-order non-regression, cancel_pending race, ambiguous reconciliation without every intermediate webhook), the atomic expected-state conditional-update proof for the submission claim, fresh/v28/v29 migration paths all reaching v30 with data preserved, provider-scoped (provider, provider_fax_id) and (provider, event_id) identity, createFax identity-conflict rejection, and FaxRequest's absence of a clientState field."
+    },
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Full suite: 281 node:test cases, 280 passed, 1 skipped (opt-in live Twilio, unrelated), 0 failed; vitest App.test.tsx (228 cases) and npm run renderer:build passed. One transient vitest timeout (LAN-006, an unrelated pre-existing renderer test never touched by this change) was observed on one run under load and confirmed to pass both in isolation and on a clean full re-run; not a regression from this change."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact 2.2.0 validation, LIE-003 schema-ladder invariants (including the new decision 0011 v30 allocation row), and markdown link/last_verified checks all passed after the WI041 ledger corrections."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/fax.ts",
+    "Electron/backend/src/fax.test.ts",
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/database.test.ts",
+    "decisions/0011-schema-migration-coordination.md",
+    "work/active/041-first-class-fax-communications-and-telnyx-fax-edge/README.md",
+    "work/active/041-first-class-fax-communications-and-telnyx-fax-edge/work-item.json",
+    "evidence/runs/20260911-fax-phase1-domain-and-persistence.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "WI041 Phase 1.1 hardening correction, following an architectural review of the Phase 1 commit (044aa6a) that found seven issues. Fix 1 (broken inbound initialization): createFax now uses FAX_INITIAL_STATE[direction] (outbound draft, inbound receiving) instead of a hardcoded 'draft'; the legal-transition graph is now split per direction (FAX_LEGAL_TRANSITIONS_OUTBOUND/INBOUND) with a faxStateBelongsToDirection guard so cross-direction transitions are a lookup miss, not an accident of shared edges. Fix 2 (out-of-order convergence): split classifyFaxCommandTransition (strict, adjacency-based, for local operator/system commands) from a new reconcileFaxObservation (monotonic, direction-aware, skip-ahead-safe via precomputed graph reachability, for provider observations) -- delivered observed before sending, received observed before processing, and ambiguous resolving directly to any later authoritative outcome all now converge correctly without requiring every intermediate webhook, while a genuinely stale/regressive observation is left unapplied (and still durably recorded). Fix 3 (ledger vs ingress queue): corrected comments/contracts so fax_events is documented as the provider-neutral normalized event ledger, explicitly not the future Telnyx webhook enqueue-before-ack ingress queue (still FAX-006, still pending); no ingress queue was built in this phase. Fix 4: removed FaxRequest.clientState (a Telnyx-specific client_state leak; FAX-INV-4 violation) -- correlation/localFaxId remain the neutral concepts, and a future Telnyx adapter derives client_state from them itself. Fix 5 (provider-scoped identity): added schema v30 (decision 0011 row added) recreating faxes (drops the bare UNIQUE on provider_fax_id for a partial unique index on (provider, provider_fax_id)) and fax_events (adds a provider column; composite primary key (provider, event_id)) via a child-before-parent table-recreation migration that preserves existing faxes/fax_documents/fax_events rows; the v29 migration step itself was left untouched. Fix 6 (idempotency vs conflict): createFax now distinguishes a true retry (identical local_fax_id + identical direction/to_number/from_number, idempotent no-op) from an operation-key collision (same local_fax_id, different identity, throws FaxIdentityConflictError, fails closed, creates nothing); applyFaxState/applyFaxObservation's UPDATE is now an explicit expected-state conditional update (WHERE local_fax_id=? AND state=?), proven directly by a test that attempts the identical conditional-update pattern with a deliberately stale expected state and asserts zero rows change. Fix 7: removed FaxStatusUpdate.terminal (fully derivable from normalizedState via isFaxTerminalState; a provider adapter could otherwise assert a contradictory pair). FAX-002 and FAX-003, previously marked satisfied by the Phase 1 evidence run, were reopened to pending for this review and are re-satisfied by this run together with the original evidence, retained as historical Phase 1 evidence per the ledger's evidence-preservation rule. No Telnyx provider send occurred. No Telnyx credentials were used. No live provider side effect occurred at any point in this phase."
+  }
+}
