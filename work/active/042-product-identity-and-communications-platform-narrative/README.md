@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Active.
 
 This work item establishes the canonical product definition of ForgeLink and reconciles current documentation, diagrams, UI copy, integration language, and agent-facing context with what the product has actually become.
 

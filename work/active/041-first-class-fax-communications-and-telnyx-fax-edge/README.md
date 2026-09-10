@@ -1,6 +1,6 @@
 # Work Item 041 — First-Class Fax Communications and Telnyx Fax Edge
 
-**Status:** Proposed  
+**Status:** Active (Phase 0 architecture preflight)  
 **Priority:** High product expansion  
 **Created:** 2026-09-10  
 **Primary product:** ForgeLink  

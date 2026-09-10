@@ -10,8 +10,8 @@
 | --- | ---: |
 | Invariants | 6 |
 | Frozen-surface entries | 5 |
-| Scope contracts | 17 |
-| Audit registry entries | 17 |
+| Scope contracts | 19 |
+| Audit registry entries | 19 |
 | Audit findings | 0 |
 | Decision records | 18 |
 | Policy records | 0 |
@@ -21,8 +21,8 @@
 
 | Status | Count |
 | --- | ---: |
-| proposed | 3 |
-| active | 5 |
+| proposed | 1 |
+| active | 7 |
 | blocked | 0 |
 | deferred | 3 |
 | completed | 32 |
@@ -38,3 +38,5 @@ All audit scopes are within their review cadence.
 - 032: Tauri Production Parity and Electron Retirement (active)
 - 037: Telnyx Production Hardening and Expansion (active)
 - 039: Shared Node Identity and Transport Contract (active)
+- 041: First-Class Fax Communications and Telnyx Fax Edge (active)
+- 042: ForgeLink Product Identity and Communications Platform Narrative (active)

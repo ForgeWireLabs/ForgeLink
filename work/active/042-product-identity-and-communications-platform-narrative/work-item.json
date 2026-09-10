@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/work-item.schema.json",
   "id": "042",
   "title": "ForgeLink Product Identity and Communications Platform Narrative",
-  "status": "proposed",
+  "status": "active",
   "owner_scope": "work",
   "affected_scopes": [
     "work",

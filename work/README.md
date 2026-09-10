@@ -123,7 +123,10 @@ As of the 2026-07-22 provider-specific communications experience closeout, the a
 031-linked-node-metadata-transport-and-trust-hardening
 032-tauri-production-parity-and-electron-retirement
 037-telnyx-production-hardening-and-expansion
+038-provider-neutral-communications-cockpit
 039-shared-node-identity-and-transport-contract
+041-first-class-fax-communications-and-telnyx-fax-edge
+042-product-identity-and-communications-platform-narrative
 ```
 
 `011` remains active only for the Tauri-first release/public-signing baseline in
@@ -195,6 +198,24 @@ delivery/error semantics, authenticated durable MMS, ownership-safe profile muta
 resource discovery, compliance/consent, operations, advanced messaging, separate
 Voice/RCS/Verify/Lookup/WhatsApp gates, and an approval-aware ForgeLink MCP boundary
 for Fabric discovery without moving credentials or send authority into Fabric.
+
+Work item 041 owns first-class fax as a ForgeLink-native communications capability:
+provider-neutral fax contracts, durable fax/document/event persistence, a Telnyx
+Programmable Fax edge, signed fax webhooks, inbound document handling, human Fax UI,
+and a bounded fax API/MCP surface. Human-operated fax must work without ForgeWire,
+Fabric, AgentRun, GraphRuntime, or an LLM; agentic/application access is governed
+through ForgeLink's existing API/MCP boundary. Coordinates with 015, 016, 032, 035,
+037, and 040.
+
+Work item 042 owns the canonical ForgeLink product-definition and narrative
+alignment: ForgeLink is a local-first communications, coordination, and
+human-authority platform for people, agents, and applications, not merely an
+agent-to-human bridge. It reconciles the root README, public narrative,
+product-level architecture diagrams, and MCP persona/docs with that definition
+through a classified narrative audit rather than mechanical search-and-replace, and
+establishes a future-drift guardrail. It does not implement fax or other channels;
+it coordinates with 041 so fax documentation is not described as shipped before
+041's acceptance evidence supports it.
 
 ## Lifecycle States
 
