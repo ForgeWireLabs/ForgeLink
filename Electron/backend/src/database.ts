@@ -31,7 +31,7 @@ import {
 } from "./signals";
 import { CLOUD_SUMMARY_DISABLED, SUMMARY_CONTENT_TRUST, SUMMARY_NOTICE, SUMMARY_PROVENANCE, summarizeThread, ThreadSummary } from "./summary";
 
-export const CURRENT_SCHEMA_VERSION = 30;
+export const CURRENT_SCHEMA_VERSION = 31;
 
 // --- Fax (work item 041, Phase 1: FAX-003; Phase 1.1 hardening) -------------
 // Durable fax state is its own domain -- not a disguised SMS row. `faxes` is
@@ -93,6 +93,7 @@ export interface FaxRow {
   failure_category: string;
   redacted_error: string;
   retention_policy: string;
+  provider_correlation_token: string | null;
   created_at: string;
   submitted_at: string | null;
   accepted_at: string | null;
@@ -1897,6 +1898,23 @@ export class PhoneDatabase {
         version = 30;
         this.connection.exec("PRAGMA user_version=30");
       }
+      if (version === 30) {
+        // Opaque provider correlation token (work item 041, Phase 2:
+        // outbound submission orchestration). Generated locally by
+        // ForgeLink, never derived from private fax metadata (no phone
+        // numbers, filenames, contact/agent names, or document hashes), and
+        // durably associated with the local fax so a later signed provider
+        // webhook (Phase 3) carrying this token back can resolve to the
+        // correct local fax without exposing local metadata to the
+        // provider. A simple additive column -- no table recreation needed.
+        this.connection.exec(`
+          ALTER TABLE faxes ADD COLUMN provider_correlation_token TEXT;
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_faxes_provider_correlation_token
+            ON faxes(provider_correlation_token) WHERE provider_correlation_token IS NOT NULL;
+        `);
+        version = 31;
+        this.connection.exec("PRAGMA user_version=31");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -2433,6 +2451,23 @@ export class PhoneDatabase {
     return this.connection.prepare("SELECT * FROM faxes WHERE provider=? AND provider_fax_id=?").get(String(provider), String(providerFaxId)) as FaxRow | undefined;
   }
 
+  // The opaque provider correlation token (work item 041, Phase 2) is globally
+  // unique regardless of provider -- ForgeLink generates it itself, so unlike
+  // provider_fax_id/event_id there is no external namespace to scope it by.
+  faxByProviderCorrelationToken(token: string): FaxRow | undefined {
+    return this.connection.prepare("SELECT * FROM faxes WHERE provider_correlation_token=?").get(String(token)) as FaxRow | undefined;
+  }
+
+  // Set once, at submission time, before the provider is ever called (Phase 2
+  // FaxSubmissionService). Rejects overwriting an already-set token so a
+  // resubmission of the same logical operation cannot silently mint a second
+  // correlation identity for the same fax.
+  setFaxProviderCorrelationToken(localFaxId: string, token: string): boolean {
+    const changes = this.connection.prepare("UPDATE faxes SET provider_correlation_token=?, updated_at=? WHERE local_fax_id=? AND provider_correlation_token IS NULL")
+      .run(String(token), utcNow(), String(localFaxId)).changes;
+    return Number(changes) === 1;
+  }
+
   faxes(filter: { direction?: FaxDirection; state?: FaxState; limit?: number } = {}): FaxRow[] {
     const limit = Math.max(1, Math.min(Number(filter.limit) || 100, 500));
     const clauses: string[] = [];
@@ -2582,6 +2617,10 @@ export class PhoneDatabase {
       now
     ).changes;
     return { id, created: Number(changes) === 1 };
+  }
+
+  faxDocumentById(id: string): FaxDocumentRow | undefined {
+    return this.connection.prepare("SELECT * FROM fax_documents WHERE id=?").get(String(id)) as FaxDocumentRow | undefined;
   }
 
   faxDocumentsByFaxId(faxId: string): FaxDocumentRow[] {

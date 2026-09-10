@@ -9,6 +9,7 @@ const { createSettingsStore, validateTwilioCredentials, configureNumberWebhook }
 const { createEmailSettingsStore } = require("./emailSettings");
 const { createPushSettingsStore } = require("./pushSettings");
 const { createSmsProviderSettingsStore, validateTelnyxSettings, configureTelnyxWebhook } = require("./smsProviderSettings");
+const { createTelnyxFaxSettingsStore, validateTelnyxFaxSettings } = require("./telnyxFaxSettings");
 const { createTunnelManager } = require("./tunnel");
 const { findAvailablePort, createRestartPolicy } = require("./lifecycle");
 const { shouldAutoUpdate } = require("./updates");
@@ -22,6 +23,7 @@ let settingsStore = null;
 let emailSettingsStore = null;
 let pushSettingsStore = null;
 let smsProviderSettingsStore = null;
+let telnyxFaxSettingsStore = null;
 let tunnel = null;
 let tunnelPublicUrl = "";
 let effectivePort = 0;
@@ -126,6 +128,7 @@ function publicStatus() {
     last_exit_code: lastExitCode,
     recovery_message: recoveryMessage,
     sms_provider_settings: smsProviderSettingsStore ? smsProviderSettingsStore.current() : undefined,
+    telnyx_fax_settings: telnyxFaxSettingsStore ? telnyxFaxSettingsStore.current() : undefined,
     settings: {
       account_sid: settings.account_sid,
       auth_token_configured: Boolean(settings.auth_token),
@@ -175,6 +178,7 @@ async function startBackend() {
       ...(emailSettingsStore ? emailSettingsStore.backendEnv() : {}),
       ...(pushSettingsStore ? pushSettingsStore.backendEnv() : {}),
       ...(smsProviderSettingsStore ? smsProviderSettingsStore.backendEnv() : {}),
+      ...(telnyxFaxSettingsStore ? telnyxFaxSettingsStore.backendEnv() : {}),
       TWILIO_ACCOUNT_SID: settings.account_sid,
       TWILIO_AUTH_TOKEN: settings.auth_token,
       TWILIO_PHONE_NUMBER: settings.twilio_number,
@@ -546,6 +550,14 @@ app.whenReady().then(async () => {
     twilioConfigured: () => settingsState().configured
   });
   try { smsProviderSettingsStore.load(); } catch (error) { console.error(`SMS provider settings load failed: ${error}`); }
+  telnyxFaxSettingsStore = createTelnyxFaxSettingsStore({
+    fs,
+    path,
+    safeStorage,
+    env: process.env,
+    userData: app.getPath("userData")
+  });
+  try { telnyxFaxSettingsStore.load(); } catch (error) { console.error(`Telnyx Fax settings load failed: ${error}`); }
   if (!(await backendIsReady())) await startBackend();
   const ready = await waitForBackend();
   if (!ready) console.error(`Backend did not become ready at ${baseUrl()}`);

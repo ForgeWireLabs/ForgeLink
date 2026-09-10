@@ -276,3 +276,46 @@ export interface FaxProvider {
   parseFaxEvent?(payload: unknown): FaxStatusUpdate | InboundFax;
   fetchInboundDocument?(reference: string): Promise<FaxDocumentRef>;
 }
+
+// Provider-neutral outbound error taxonomy (work item 041, Phase 2). Sending
+// a fax is a high-consequence external side effect, so a FaxProvider must be
+// able to tell its caller (FaxSubmissionService) which of three distinct
+// things happened, rather than just "it threw":
+//
+//   - FaxProviderPreflightError: the provider was never called at all (bad
+//     local configuration, an unresolvable document, etc). Safe to treat as a
+//     definite local failure -- no external side effect could have occurred.
+//   - FaxProviderRejectionError: the provider was called and explicitly,
+//     definitively rejected the request (a documented 4xx-style response).
+//     Safe to treat as a definite failure.
+//   - FaxProviderAmbiguousError: the provider was called but ForgeLink cannot
+//     prove whether it accepted the request (timeout, connection reset after
+//     write, a 5xx where acceptance cannot be excluded, a malformed
+//     "successful" response, an unexpected/unrecognized response). This is
+//     never safe to automatically retry -- see FAX-INV-6/FAX-INV-7 and
+//     FaxState "ambiguous".
+//
+// `category` is a short, bounded, safe label (never a raw provider response
+// body, error detail string, or anything that could carry document/media
+// information) suitable for display and for the durable `failure_category`
+// column.
+export class FaxProviderPreflightError extends Error {
+  constructor(public readonly category: string, message: string) {
+    super(message);
+    this.name = "FaxProviderPreflightError";
+  }
+}
+
+export class FaxProviderRejectionError extends Error {
+  constructor(public readonly category: string, message: string) {
+    super(message);
+    this.name = "FaxProviderRejectionError";
+  }
+}
+
+export class FaxProviderAmbiguousError extends Error {
+  constructor(public readonly category: string, message: string) {
+    super(message);
+    this.name = "FaxProviderAmbiguousError";
+  }
+}

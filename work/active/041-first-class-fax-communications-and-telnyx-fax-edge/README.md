@@ -1,6 +1,6 @@
 # Work Item 041 — First-Class Fax Communications and Telnyx Fax Edge
 
-**Status:** Active (Phase 1 fax domain/persistence landed; Phase 1.1 hardening correction applied; Telnyx adapter not yet started)  
+**Status:** Active (Phase 1/1.1 fax domain/persistence landed; Phase 2 Telnyx outbound edge landed; inbound/webhook/UI/MCP not yet started)  
 **Priority:** High product expansion  
 **Created:** 2026-09-10  
 **Primary product:** ForgeLink  
@@ -706,11 +706,11 @@ Live evidence must contain no API keys, signing keys, private fax document conte
 
 ## Acceptance criteria
 
-- [ ] **FAX-001** Seal and document the ForgeLink-native product boundary: humans can use fax directly; external agents/applications may use governed API/MCP; ForgeWire/Fabric are not required or authoritative.
+- [x] **FAX-001** Seal and document the ForgeLink-native product boundary: humans can use fax directly; external agents/applications may use governed API/MCP; ForgeWire/Fabric are not required or authoritative.
 - [x] **FAX-002** Define a provider-neutral `fax_edge` capability family and specialized fax contracts without widening SMS/MMS message contracts into an ambiguous universal payload.
 - [x] **FAX-003** Add durable fax transmission, document-reference, and event-ledger persistence with migrations, restart recovery, normalized lifecycle transitions, and explicit ambiguous-side-effect semantics.
-- [ ] **FAX-004** Add a separate Telnyx Programmable Fax configuration/validation surface and adapter while preserving separation from Telnyx messaging, voice, and ForgeWire inference configuration.
-- [ ] **FAX-005** Implement outbound Telnyx fax submission, provider ID/status normalization, bounded safe errors, cancellation/reconciliation where supported, and duplicate-safe retry policy.
+- [x] **FAX-004** Add a separate Telnyx Programmable Fax configuration/validation surface and adapter while preserving separation from Telnyx messaging, voice, and ForgeWire inference configuration.
+- [x] **FAX-005** Implement outbound Telnyx fax submission, provider ID/status normalization, bounded safe errors, cancellation/reconciliation where supported, and duplicate-safe retry policy.
 - [ ] **FAX-006** Add a dedicated signed Telnyx fax webhook route reusing hardened signature/freshness primitives while keeping fax event parsing/lifecycle separate from SMS/MMS; prove enqueue-before-ack, deduplication, ordering, restart drain, and unsupported-event handling.
 - [ ] **FAX-007** Implement inbound fax reception and managed local document acquisition with authenticated download, strict media/resource validation, opaque local references, quarantine/failure behavior, retention, deletion, backup/export, and recovery semantics.
 - [ ] **FAX-008** Deliver a first-class human Fax UI with New Fax, preview, Sent, Inbox, receipt/detail, readiness/settings, safe retry/cancel, document open/export/delete, accessibility, and clear error remediation without any agent dependency.
@@ -986,3 +986,103 @@ That is the product boundary this work item must preserve.
   - Evidence: `evidence/runs/20260910-fax-phase1-1-hardening-correction.json`
     (together with the retained original,
     `evidence/runs/20260911-fax-phase1-domain-and-persistence.json`).
+
+- **2026-09-10 — Phase 2: Telnyx Programmable Fax outbound edge (FAX-001,
+  FAX-004, FAX-005 satisfied).** Current official Telnyx documentation was
+  rechecked against the authoritative OpenAPI spec and frozen in
+  [local-artifacts/phase2-telnyx-fax-contract.md](local-artifacts/phase2-telnyx-fax-contract.md);
+  see that document for full source URLs and the exact schemas relied on. No
+  live Telnyx network call, credential, or provider side effect occurred at
+  any point in this phase.
+  - **`command_id` resolved:** not present in either `POST /v2/faxes` request
+    schema (JSON or multipart), despite prose documentation mentioning it.
+    Not sent. ForgeLink's own `local_fax_id` and the atomic CAS claim remain
+    the sole durable idempotency authority, unchanged.
+  - **Media mode resolved:** no public URL-serving mechanism exists in
+    ForgeLink and none was built. `media_name` requires Telnyx Media Storage
+    (not integrated). The confirmed, currently-supported `multipart/
+    form-data` `contents` upload is implemented as the production resolver
+    (`createLocalFileFaxDocumentResolver`, reading the same `<dataDir>/
+    uploads/` convention already used for MMS media) — a real, tested,
+    production-capable path, not a stub. `media_url` is also implemented and
+    is what deterministic tests use by default. **Known limitation:** the
+    multipart schema has no `client_state` field, so a contents-mode send
+    cannot carry the opaque provider correlation token; see the frozen
+    contract document for the narrow consequence (an ambiguous contents-mode
+    send with no captured provider fax ID cannot resolve via webhook
+    `client_state` in Phase 3).
+  - **Configuration ownership** (`Electron/telnyxFaxSettings.js`, new):
+    OS-encrypted via `safeStorage`, a fully separate settings file and
+    `TELNYX_FAX_*` env var family from SMS/MMS's `TELNYX_*`/
+    `TELNYX_MESSAGING_PROFILE_ID`. `connection_id` (Fax Application ID) is
+    validated as a bounded printable string, not assumed to be a UUID
+    (Telnyx's own schema types it `IntId`, e.g. `"1293384261075731499"`).
+  - **Read-only readiness validation** (`validateTelnyxFaxSettings` in the
+    settings module; `validateTelnyxFaxConfig` in the backend adapter, for
+    the two separate runtime contexts, mirroring the existing SMS pattern):
+    GET-only, never mutates Telnyx. Separates `configured` /
+    `outbound_ready` (requires the Fax Application to have an Outbound Voice
+    Profile attached — a retrievable Fax Application alone does not prove
+    outbound readiness) / `inbound_webhook_ready` (bookkeeping only; the
+    actual webhook route is Phase 3).
+  - **`TelnyxFaxProvider`** (`Electron/backend/src/telnyx-fax.ts`, new,
+    entirely separate from `telnyx.ts`): implements `FaxProvider`.
+    Capabilities advertised: `fax_send`, `fax_status`, `fax_cancel` only —
+    not `fax_receive` (inbound is unimplemented) and no standalone media
+    capability. Telnyx's own status strings never leave this file; the
+    frozen mapping (`mapTelnyxFaxStatus`) collapses `queued`/
+    `media.processed` → `accepted`, `originated`/`sending` → `sending`,
+    `delivered`/`failed` unchanged, with the equivalent inbound mapping
+    defined for completeness. An unrecognized status maps to `null` (no
+    mutation, fail safe).
+  - **Error classification** (`FaxProviderPreflightError` /
+    `FaxProviderRejectionError` / `FaxProviderAmbiguousError`, added to the
+    provider-neutral `fax.ts` since the taxonomy is part of the `FaxProvider`
+    contract, not Telnyx-specific): a network/timeout failure, a 5xx, a `202`
+    with no usable fax id, and any unrecognized status all become
+    `FaxProviderAmbiguousError` — never automatically retried. Only an
+    explicit, documented Telnyx rejection response becomes
+    `FaxProviderRejectionError`. A missing document/config before any
+    network call becomes `FaxProviderPreflightError`. No raw Telnyx response
+    body, error detail string, or API key ever appears in an error message.
+  - **`FaxSubmissionService`** (`Electron/backend/src/fax-submission.ts`,
+    new): the single ForgeLink-owned orchestration boundary. `submitFax`
+    performs the atomic `submission_pending -> submitting` CAS claim (Phase
+    1.1's expected-state conditional `UPDATE`) before ever calling the
+    provider; only the winning caller invokes `sendFax`. Generates and
+    durably persists an opaque provider correlation token (locally random,
+    non-sensitive, no phone numbers/filenames/names/hashes) before the
+    network call, via a new schema column (below). A `202` accepted result
+    with no usable provider id is still treated as ambiguous, defensively,
+    even though the provider layer already guards this. `reconcileFax`
+    (`GET`) and `requestFaxCancellation` (cancel command) round out the
+    orchestration surface, both routing every provider observation through
+    Phase 1.1's `applyFaxObservation` (never the strict command path).
+  - **Cancellation — known limitation:** Telnyx's cancel command (`POST
+    /faxes/{id}/actions/cancel`) returns `202 {data:{result:"ok"}}` with no
+    fax status, and Telnyx's own fax `status` enum has no `cancelled` value.
+    A successful cancel command therefore only claims local `cancel_pending`
+    — it never fabricates a `cancelled` state Telnyx does not actually
+    provide. The true outcome (the transmission actually stopped, or it won
+    the race to `delivered`/`failed`) requires a later `GET`/observation.
+    FAX-005 is satisfied for correctly-modeled, non-overclaiming cancel
+    request construction and local state — not for a Telnyx-confirmed
+    terminal cancellation, which no Telnyx API inspected here currently
+    proves.
+  - **Schema:** v31 (decision 0011 row added) — additive
+    `faxes.provider_correlation_token TEXT` with a partial unique index; no
+    table recreation needed. The v30 migration step is untouched.
+  - **Tests:** 48 new (11 settings-store, 22 adapter, 15 orchestration) plus
+    3 new/updated migration tests and one pre-existing test's fixture
+    corrected for the new column (166 in the focused fax/database/channels/
+    telnyx run, up from 92). Full suite: 330 tests, 329 passed, 1 skipped
+    (opt-in live Twilio, unrelated), 0 failed; `npm run backend:build`,
+    `npm run renderer:build`, and vitest (228 cases) all pass.
+  - **No live fax was sent. No operator Telnyx credential was used. No live
+    Telnyx resource was mutated. FAX-016 was not attempted.**
+  - Not implemented (unchanged scope boundary): the public fax webhook
+    route/ingress queue, inbound reception, the human Fax UI, MCP fax tools,
+    the communication-firewall fax draft flow, Tauri secret-storage parity,
+    camera scanning, OCR, cover-page rendering, and the live acceptance
+    gate. FAX-006 through FAX-016 remain pending.
+  - Evidence: `evidence/runs/20260910-fax-phase2-telnyx-outbound-edge.json`.

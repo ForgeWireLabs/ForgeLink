@@ -1090,6 +1090,9 @@ test("upgrades the v26 device registry through the current schema without losing
         SELECT id, label, public_key, trust_state, created_at, rotated_at, revoked_at, last_seen_at FROM device_keys;
       DROP TABLE device_keys;
       ALTER TABLE device_keys_v26 RENAME TO device_keys;
+      DROP TABLE IF EXISTS fax_events;
+      DROP TABLE IF EXISTS fax_documents;
+      DROP TABLE IF EXISTS faxes;
       PRAGMA user_version=26;
     `);
     legacy.close();
@@ -1808,22 +1811,24 @@ test("TXE-002: Telnyx webhook ledger deduplicates, orders, and clears processed 
 // reconciliation, provider-scoped identity, and idempotency-vs-conflict
 // behavior, in isolation.
 
-test("FAX-003: fresh schema reaches v30 and includes fax tables with provider-scoped identity", () => {
+test("FAX-003/FAX-005: fresh schema reaches v31 and includes fax tables with provider-scoped identity and a correlation-token column", () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-fresh-"));
   const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
   try {
-    assert.equal(CURRENT_SCHEMA_VERSION, 30);
-    assert.equal(database.state.schemaVersion, 30);
+    assert.equal(CURRENT_SCHEMA_VERSION, 31);
+    assert.equal(database.state.schemaVersion, 31);
     const tables = new Set((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
     assert.equal(tables.has("faxes"), true);
     assert.equal(tables.has("fax_documents"), true);
     assert.equal(tables.has("fax_events"), true);
     const eventColumns = new Set((database.connection.prepare("PRAGMA table_info(fax_events)").all() as Array<{ name: string }>).map((c) => c.name));
     assert.equal(eventColumns.has("provider"), true);
+    const faxColumns = new Set((database.connection.prepare("PRAGMA table_info(faxes)").all() as Array<{ name: string }>).map((c) => c.name));
+    assert.equal(faxColumns.has("provider_correlation_token"), true);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("FAX-003: migrates a v28 database through v29 to v30, adding provider-scoped fax tables without touching existing data", () => {
+test("FAX-003: migrates a v28 database through v29/v30 to v31, adding provider-scoped fax tables without touching existing data", () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-v28-upgrade-"));
   const path = join(directory, "phone.sqlite3");
   let database: PhoneDatabase | undefined = new PhoneDatabase(path);
@@ -1858,7 +1863,7 @@ test("FAX-003: migrates a v28 database through v29 to v30, adding provider-scope
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("FAX-003: migrates a v29 database to v30 preserving existing fax rows, documents, and events", () => {
+test("FAX-003: migrates a v29 database through v30 to v31 preserving existing fax rows, documents, and events", () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-v29-upgrade-"));
   const path = join(directory, "phone.sqlite3");
   let database: PhoneDatabase | undefined = new PhoneDatabase(path);
@@ -1896,7 +1901,18 @@ test("FAX-003: migrates a v29 database to v30 preserving existing fax rows, docu
       submitted_at TEXT, accepted_at TEXT, started_at TEXT, completed_at TEXT,
       updated_at TEXT NOT NULL
     );
-    INSERT INTO faxes_v29 SELECT * FROM faxes;
+    INSERT INTO faxes_v29(
+      id, local_fax_id, direction, provider, provider_fax_id, contact_id, contact_point_id,
+      from_number, to_number, page_count, quality, state, provenance, approval_id,
+      correlation, failure_category, redacted_error, retention_policy, created_at,
+      submitted_at, accepted_at, started_at, completed_at, updated_at
+    )
+    SELECT
+      id, local_fax_id, direction, provider, provider_fax_id, contact_id, contact_point_id,
+      from_number, to_number, page_count, quality, state, provenance, approval_id,
+      correlation, failure_category, redacted_error, retention_policy, created_at,
+      submitted_at, accepted_at, started_at, completed_at, updated_at
+    FROM faxes;
     CREATE TEMP TABLE fax_documents_holdover AS SELECT * FROM fax_documents;
     CREATE TABLE fax_events_v29 (
       event_id TEXT PRIMARY KEY,
@@ -1936,6 +1952,72 @@ test("FAX-003: migrates a v29 database to v30 preserving existing fax rows, docu
     const docs = database.faxDocumentsByFaxId("fax-v29-survivor");
     assert.equal(docs.length, 1, "the fax document survives the migration");
     assert.equal(docs[0].local_ref, "fax-documents/v29-survivor.pdf");
+  } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-005: migrates a v30 database to v31, adding the provider correlation token column without losing the existing fax row", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-v30-upgrade-"));
+  const path = join(directory, "phone.sqlite3");
+  let database: PhoneDatabase | undefined = new PhoneDatabase(path);
+  database.createFax({ local_fax_id: "fax-v30-survivor", direction: "outbound", to_number: "+15557654321", provider: "telnyx", provider_fax_id: "provider-fax-v30" });
+  database.close();
+
+  // v30 -> v31 is a pure additive ALTER TABLE ADD COLUMN, so downgrading only
+  // needs to drop the one new column, unlike the v29 -> v30 table
+  // recreation above.
+  const legacy = new DatabaseSync(path);
+  legacy.exec(`
+    CREATE TABLE faxes_v30 (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      local_fax_id TEXT NOT NULL UNIQUE,
+      direction TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT '',
+      provider_fax_id TEXT,
+      contact_id INTEGER,
+      contact_point_id INTEGER,
+      from_number TEXT,
+      to_number TEXT NOT NULL,
+      page_count INTEGER,
+      quality TEXT,
+      state TEXT NOT NULL DEFAULT 'draft',
+      provenance TEXT NOT NULL DEFAULT 'operator',
+      approval_id TEXT,
+      correlation TEXT NOT NULL DEFAULT '',
+      failure_category TEXT NOT NULL DEFAULT '',
+      redacted_error TEXT NOT NULL DEFAULT '',
+      retention_policy TEXT NOT NULL DEFAULT 'default',
+      created_at TEXT NOT NULL,
+      submitted_at TEXT, accepted_at TEXT, started_at TEXT, completed_at TEXT,
+      updated_at TEXT NOT NULL
+    );
+    INSERT INTO faxes_v30(
+      id, local_fax_id, direction, provider, provider_fax_id, contact_id, contact_point_id,
+      from_number, to_number, page_count, quality, state, provenance, approval_id,
+      correlation, failure_category, redacted_error, retention_policy, created_at,
+      submitted_at, accepted_at, started_at, completed_at, updated_at
+    )
+    SELECT
+      id, local_fax_id, direction, provider, provider_fax_id, contact_id, contact_point_id,
+      from_number, to_number, page_count, quality, state, provenance, approval_id,
+      correlation, failure_category, redacted_error, retention_policy, created_at,
+      submitted_at, accepted_at, started_at, completed_at, updated_at
+    FROM faxes;
+    DROP TABLE faxes;
+    ALTER TABLE faxes_v30 RENAME TO faxes;
+    PRAGMA user_version=30;
+  `);
+  legacy.close();
+
+  database = new PhoneDatabase(path);
+  try {
+    assert.equal(database.state.schemaVersion, CURRENT_SCHEMA_VERSION);
+    assert.ok(database.state.migrationBackup && existsSync(database.state.migrationBackup));
+    const faxColumns = new Set((database.connection.prepare("PRAGMA table_info(faxes)").all() as Array<{ name: string }>).map((c) => c.name));
+    assert.equal(faxColumns.has("provider_correlation_token"), true);
+    const fax = database.faxByLocalId("fax-v30-survivor")!;
+    assert.ok(fax, "the fax row survives the v30 -> v31 migration");
+    assert.equal(fax.provider_correlation_token, null);
+    assert.equal(database.faxByProviderFaxId("telnyx", "provider-fax-v30")!.local_fax_id, "fax-v30-survivor");
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 

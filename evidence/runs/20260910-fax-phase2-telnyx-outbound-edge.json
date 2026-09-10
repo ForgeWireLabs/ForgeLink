@@ -1,0 +1,58 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260910-fax-phase2-telnyx-outbound-edge",
+  "timestamp": "2026-09-10T23:00:00Z",
+  "work_item": "041",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cd Electron && npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed with telnyx-fax.ts, fax-submission.ts, the FaxProvider error taxonomy addition to fax.ts, and the v31 migration/schema additions to database.ts."
+    },
+    {
+      "command": "cd Electron && node --test telnyxFaxSettings.test.js",
+      "exit_code": 0,
+      "summary": "11 tests passed: settings persistence/redaction, separation from SMS/MMS Telnyx config (including that generic TELNYX_API_KEY does not configure fax), non-UUID connection_id acceptance, and read-only Fax Application/phone-number validation (missing app, mismatched number, missing Outbound Voice Profile, inactive number, no secret/body leakage)."
+    },
+    {
+      "command": "cd Electron && node --test backend-dist/fax.test.js backend-dist/database.test.js backend-dist/channels.test.js backend-dist/telnyx.test.js backend-dist/telnyx-fax.test.js backend-dist/fax-submission.test.js",
+      "exit_code": 0,
+      "summary": "155 tests passed: 22 new TelnyxFaxProvider adapter tests (capability truthfulness, exact request construction in both media_url and multipart-contents modes, quality normalization, opaque client_state, accepted/rejected/ambiguous/malformed/unexpected-status classification, no automatic retry, status-mapping table, GET reconciliation, cancel semantics, no live network path); 15 new FaxSubmissionService tests (CAS-winner-sends-once, second-caller-refused, restart-with-ambiguous-does-not-resend, preflight failure, correlation-token generation/opacity/persistence-before-send, reconciliation advance/stale/no-provider-id, cancellation claim/race); plus 3 new/updated schema-migration tests (fresh->v31, v29->v31 with data preservation, v30->v31) and the pre-existing v26 device-registry migration test's fixture corrected for the new fax column, with all pre-existing fax/database/channels/telnyx tests unchanged and passing."
+    },
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Full suite: 330 node:test cases, 329 passed, 1 skipped (opt-in live Twilio, unrelated), 0 failed; vitest App.test.tsx (228 cases) and npm run renderer:build both passed cleanly (no flake this run). No Telnyx network call occurred anywhere in this phase."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact 2.2.0 validation, LIE-003 schema-ladder invariants (including the new decision 0011 v31 allocation row), and markdown link/last_verified checks all passed after the WI041 ledger updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/telnyxFaxSettings.js",
+    "Electron/telnyxFaxSettings.test.js",
+    "Electron/backend/src/telnyx-fax.ts",
+    "Electron/backend/src/telnyx-fax.test.ts",
+    "Electron/backend/src/fax-submission.ts",
+    "Electron/backend/src/fax-submission.test.ts",
+    "Electron/backend/src/fax.ts",
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/main.js",
+    "Electron/package.json",
+    "decisions/0011-schema-migration-coordination.md",
+    "docs/telnyx-fax.md",
+    "work/active/041-first-class-fax-communications-and-telnyx-fax-edge/README.md",
+    "work/active/041-first-class-fax-communications-and-telnyx-fax-edge/work-item.json",
+    "work/active/041-first-class-fax-communications-and-telnyx-fax-edge/local-artifacts/phase2-telnyx-fax-contract.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "WI041 Phase 2: separate Telnyx Fax configuration (Electron/telnyxFaxSettings.js) with OS-encrypted secrets and TELNYX_FAX_* env vars distinct from SMS/MMS; read-only Fax Application/phone-number readiness validation separating configured/outbound_ready/inbound_webhook_ready; TelnyxFaxProvider (backend/src/telnyx-fax.ts) implementing FaxProvider with truthful fax_send/fax_status/fax_cancel-only capabilities, a media resolver seam (media_url and a production local-file multipart 'contents' resolver reading the existing uploads/ convention), frozen Telnyx status normalization, and a three-way error taxonomy (preflight/rejection/ambiguous) added to fax.ts; FaxSubmissionService (backend/src/fax-submission.ts) as the sole outbound orchestration boundary with an atomic CAS submission claim, opaque locally-generated provider correlation token, and GET-reconciliation/cancel-request orchestration routed through Phase 1.1's applyFaxObservation. Schema v31 (decision 0011) adds faxes.provider_correlation_token additively; the v30 step is untouched. command_id is confirmed absent from the current Telnyx send-fax API schema and is not sent; ForgeLink's own CAS claim remains the sole durable idempotency authority. Telnyx's cancel command cannot prove terminal cancellation (no 'cancelled' status exists in Telnyx's own enum) and this is recorded as a known limitation rather than fabricated. FAX-001, FAX-004, and FAX-005 are satisfied; FAX-006 through FAX-016 remain pending -- no webhook ingress, inbound reception, UI, MCP tools, firewall wiring, Tauri integration, or live acceptance gate work was performed. No live fax was sent, no operator Telnyx credential was used, and no live Telnyx resource was mutated at any point."
+  }
+}

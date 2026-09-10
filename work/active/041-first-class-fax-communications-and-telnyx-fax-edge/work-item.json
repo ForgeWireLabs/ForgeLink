@@ -34,8 +34,10 @@
     {
       "id": "FAX-001",
       "text": "Seal and document the ForgeLink-native product boundary: humans can use fax directly; external agents/applications may use governed API/MCP; ForgeWire/Fabric are not required or authoritative.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260910-fax-phase2-telnyx-outbound-edge"
+      ]
     },
     {
       "id": "FAX-002",
@@ -58,14 +60,18 @@
     {
       "id": "FAX-004",
       "text": "Add a separate Telnyx Programmable Fax configuration/validation surface and adapter while preserving separation from Telnyx messaging, voice, and ForgeWire inference configuration.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260910-fax-phase2-telnyx-outbound-edge"
+      ]
     },
     {
       "id": "FAX-005",
       "text": "Implement outbound Telnyx fax submission, provider ID/status normalization, bounded safe errors, cancellation/reconciliation where supported, and duplicate-safe retry policy.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260910-fax-phase2-telnyx-outbound-edge"
+      ]
     },
     {
       "id": "FAX-006",
