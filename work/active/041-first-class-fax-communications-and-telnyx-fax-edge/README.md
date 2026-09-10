@@ -707,8 +707,8 @@ Live evidence must contain no API keys, signing keys, private fax document conte
 ## Acceptance criteria
 
 - [ ] **FAX-001** Seal and document the ForgeLink-native product boundary: humans can use fax directly; external agents/applications may use governed API/MCP; ForgeWire/Fabric are not required or authoritative.
-- [ ] **FAX-002** Define a provider-neutral `fax_edge` capability family and specialized fax contracts without widening SMS/MMS message contracts into an ambiguous universal payload.
-- [ ] **FAX-003** Add durable fax transmission, document-reference, and event-ledger persistence with migrations, restart recovery, normalized lifecycle transitions, and explicit ambiguous-side-effect semantics.
+- [x] **FAX-002** Define a provider-neutral `fax_edge` capability family and specialized fax contracts without widening SMS/MMS message contracts into an ambiguous universal payload.
+- [x] **FAX-003** Add durable fax transmission, document-reference, and event-ledger persistence with migrations, restart recovery, normalized lifecycle transitions, and explicit ambiguous-side-effect semantics.
 - [ ] **FAX-004** Add a separate Telnyx Programmable Fax configuration/validation surface and adapter while preserving separation from Telnyx messaging, voice, and ForgeWire inference configuration.
 - [ ] **FAX-005** Implement outbound Telnyx fax submission, provider ID/status normalization, bounded safe errors, cancellation/reconciliation where supported, and duplicate-safe retry policy.
 - [ ] **FAX-006** Add a dedicated signed Telnyx fax webhook route reusing hardened signature/freshness primitives while keeping fax event parsing/lifecycle separate from SMS/MMS; prove enqueue-before-ack, deduplication, ordering, restart drain, and unsupported-event handling.
@@ -826,3 +826,64 @@ That is the product boundary this work item must preserve.
   start of implementation so it is fresh when frozen into code), and any
   schema/contract/code changes (Phase 1 onward). No acceptance criteria are
   satisfied by this preflight; all FAX-* criteria remain pending.
+
+- **2026-09-11 — Phase 1: provider-neutral fax domain and durable persistence
+  (FAX-002, FAX-003 satisfied).** Implemented, with no Telnyx network calls
+  anywhere in this slice:
+  - **Provider-neutral contracts** (`Electron/backend/src/fax.ts`, new):
+    `FaxDirection`, `FaxProvenance`, `FaxState`, `FaxDocumentRef`,
+    `FaxRequest`, `FaxResult`, `FaxStatusUpdate`, `InboundFax`, and a
+    `FaxProvider` interface that is deliberately *not* a `ChannelAdapter` (it
+    does not implement `send(OutboundMessage)`, and no `ChannelAdapter` was
+    made to implement fax methods), so the SMS/MMS/voice contract stays
+    uncontaminated. `channels.ts` gained the `fax_edge` `ChannelKind` and the
+    `fax_send` / `fax_receive` / `fax_status` / `fax_cancel` / `fax_media`
+    capabilities for discovery/UI parity only; `OutboundMessage` was not
+    widened.
+  - **Sealed lifecycle state machine** (`fax.ts`): 14 states covering both
+    directions (`draft` → `prepared` → `submission_pending` → `submitting` →
+    `accepted` → `sending` → `delivered`, with `ambiguous` as the durable
+    "provider outcome unknown after a network failure" state reachable only
+    from `submitting`, and `cancel_pending` → `cancelled` as a distinct
+    branch that can still race to `delivered`/`failed`; inbound:
+    `receiving` → `processing` → `received`). `classifyFaxTransition` is a
+    pure function returning `applied` / `duplicate` / `illegal`, so later
+    webhook normalization (Phase 3) can apply events by state precedence
+    rather than trusting arrival order.
+  - **Durable persistence** (`database.ts`, schema v28 → v29): `faxes`
+    (transmission-lifecycle authority), `fax_documents` (managed local
+    document references — never provider URLs/bytes, never message rows),
+    and `fax_events` (provider-neutral event ledger, dedup-by-`event_id`,
+    mirroring the `telnyx_webhook_events` pattern proven at v28). New
+    `PhoneDatabase` methods: `createFax` (idempotent on `local_fax_id`),
+    `faxByLocalId`, `faxByProviderFaxId`, `faxes`, `pendingFaxes`,
+    `applyFaxState` (the state-machine-guarded transition — the idempotency
+    seam: a duplicate `submission_pending` request is rejected, not
+    reapplied), `createFaxDocument`, `faxDocumentsByFaxId`, `recordFaxEvent`
+    (dedupes by event id, then applies through `applyFaxState`),
+    `pendingFaxEvents`, `completeFaxEvent`.
+  - **Idempotency model:** ForgeLink's own `local_fax_id` is the durable
+    outbound-operation identity (not Telnyx's `command_id`, which Phase 2 may
+    use only as an *additional* bounded protection). Creating a fax twice
+    with the same `local_fax_id` is a no-op; re-entering `submission_pending`
+    on an already-`submission_pending` fax is rejected as a duplicate
+    transition — the seam that prevents a retried "begin submission" call
+    from racing a second real Telnyx transmission once Phase 2 lands.
+  - **Tests:** `fax.test.ts` (8 tests, pure state-machine legality/precedence)
+    and 11 new tests in `database.test.ts` covering fresh schema, v28→v29
+    migration with pre-existing data preserved, forward-version rejection,
+    create/reload, document linkage, direction round-trip, legal/illegal/
+    terminal transitions, event dedup and out-of-order-event non-regression,
+    creation/submission idempotency, and the ambiguous-state round-trip. Full
+    suite: `cd Electron && npm test` — 261 tests, 260 passed, 1 skipped
+    (opt-in live Twilio test, unaffected), 0 failed; `npm run backend:build`
+    and `npm run renderer:build` both pass. **No Telnyx network call occurred
+    at any point in this phase.**
+  - **Limitations / explicitly not done:** the Telnyx Programmable Fax
+    adapter, credential validation, Fax Application/`connection_id`
+    provisioning, the `/webhooks/telnyx/fax` route, provider media
+    upload/download, any public HTTP endpoint for fax, UI, camera scan, OCR,
+    cover-page rendering, MCP fax tools, communication-firewall fax draft
+    flow, and Tauri secret storage are all out of scope for this phase and
+    remain unimplemented. FAX-001 and FAX-004 through FAX-016 remain pending.
+  - Evidence: `evidence/runs/20260911-fax-phase1-domain-and-persistence.json`.

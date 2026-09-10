@@ -1,0 +1,45 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260911-fax-phase1-domain-and-persistence",
+  "timestamp": "2026-09-11T00:00:00Z",
+  "work_item": "041",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cd Electron && npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed with the new fax.ts module and the fax types/methods/migration added to database.ts and channels.ts."
+    },
+    {
+      "command": "cd Electron && node --test backend-dist/fax.test.js backend-dist/database.test.js backend-dist/channels.test.js",
+      "exit_code": 0,
+      "summary": "72 tests passed: 8 new pure state-machine tests (fax.test.js), 11 new fax persistence tests (database.test.js: fresh schema, v28->v29 migration with data preservation, forward-version rejection, create/reload, document linkage, direction round-trip, legal/illegal/terminal transitions, event dedup and out-of-order non-regression, creation/submission idempotency, ambiguous-state recovery), plus all pre-existing database/channels tests unchanged."
+    },
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Full suite: 261 node:test cases, 260 passed, 1 skipped (opt-in live Twilio test, unrelated), 0 failed; vitest App.test.tsx (228 cases) and npm run renderer:build also passed as part of the same script. No Telnyx network call occurred anywhere in this phase."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact 2.2.0 validation, LIE-003 schema-ladder invariants, and markdown link/last_verified checks all passed after the WI041 ledger updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/fax.ts",
+    "Electron/backend/src/fax.test.ts",
+    "Electron/backend/src/channels.ts",
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/package.json",
+    "work/active/041-first-class-fax-communications-and-telnyx-fax-edge/README.md",
+    "work/active/041-first-class-fax-communications-and-telnyx-fax-edge/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "WI041 Phase 1: provider-neutral fax domain (FaxDirection/FaxProvenance/FaxState/FaxDocumentRef/FaxRequest/FaxResult/FaxStatusUpdate/InboundFax/FaxProvider in fax.ts, deliberately not a ChannelAdapter), a sealed 14-state lifecycle state machine with an explicit ambiguous outbound state and duplicate/illegal-transition rejection independent of event arrival order, and durable persistence (faxes/fax_documents/fax_events, schema v28->v29) with idempotent creation and state-guarded transitions as ForgeLink's own outbound-operation-identity seam. No Telnyx adapter, credential validation, webhook route, provider media handling, HTTP endpoint, UI, MCP tools, communication-firewall wiring, or Tauri integration were implemented in this phase; FAX-002 and FAX-003 are satisfied, FAX-001 and FAX-004 through FAX-016 remain pending. Synthetic phone numbers and synthetic document references only; no credentials, no real fax content, no network calls."
+  }
+}

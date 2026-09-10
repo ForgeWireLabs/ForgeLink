@@ -8,7 +8,10 @@
 // capabilities cleanly. Existing Twilio behaviour is moved behind this boundary
 // in a later slice (CLV-003); nothing here changes current messaging behaviour.
 
-export type ChannelKind = "native" | "internet" | "sms_mms_edge" | "voice_edge";
+// fax_edge (work item 041) is a distinct kind from sms_mms_edge: fax is a
+// document-transmission domain (see fax.ts), not an SMS/MMS provider family,
+// even where one provider account (e.g. Telnyx) can offer both.
+export type ChannelKind = "native" | "internet" | "sms_mms_edge" | "voice_edge" | "fax_edge";
 
 export type Capability =
   | "local_delivery"
@@ -24,7 +27,16 @@ export type Capability =
   | "media"
   | "email_send"
   | "inbound_email"
-  | "push_send";
+  | "push_send"
+  // fax_edge capability family (work item 041). Fax providers are not
+  // ChannelAdapters and do not implement send(OutboundMessage) -- see
+  // FaxProvider in fax.ts. These capability names exist for discovery/UI
+  // parity with the other channel-kind capabilities.
+  | "fax_send"
+  | "fax_receive"
+  | "fax_status"
+  | "fax_cancel"
+  | "fax_media";
 
 export interface ChannelCapabilities {
   kind: ChannelKind;
