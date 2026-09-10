@@ -17,12 +17,13 @@ WI041 owns ForgeLink-native fax architecture and implementation: provider-neutra
 - Reuse shared Telnyx cryptographic/error primitives only when the contract is genuinely shared. Fax lifecycle parsing stays fax-specific.
 - Agent-originated fax defaults to draft-don't-send and passes ForgeLink communication authority. Human operator sends remain a direct authenticated ForgeLink action.
 - WI040 owns regulated-data classification/provider eligibility/retention policy. WI041 consumes those contracts and must not invent a competing compliance model.
+- WI042 owns ForgeLink-wide product identity and narrative alignment. WI041 does not depend on WI042 for fax architecture or implementation, but fax documentation and product copy must align with WI042's canonical rule that humans are first-class ForgeLink users and agents/applications are optional governed participants. Do not claim fax as shipped before WI041 acceptance evidence supports it.
 - Do not claim HIPAA, PCI DSS, SOC 2, TCPA, privacy-law, or other compliance/certification from technical controls alone.
 
 ## Before implementation
 
 1. Confirm the item has been explicitly activated; while it remains under `work/proposed/`, architecture may be refined but implementation is not authorized.
-2. Re-read WI015, WI016, WI032, WI035, WI037, and WI040.
+2. Re-read WI015, WI016, WI032, WI035, WI037, WI040, and WI042.
 3. Audit the current channel registry, Telnyx settings/storage, webhook queue, communications database, media handling, drafts/approvals, firewall, Tauri bridge, notifications, backup/export, and MCP server before selecting insertion points.
 4. Re-check current official Telnyx Programmable Fax API, webhook, connection/application, number, media, cancellation, and status semantics before freezing provider-specific contracts.
 5. Preserve the provider-neutral and local-first boundaries recorded in the README.
