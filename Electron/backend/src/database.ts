@@ -8,6 +8,7 @@ import {
   FAX_INITIAL_STATE,
   FAX_TERMINAL_STATES,
   FaxDirection,
+  FaxObservationOutcome,
   FaxProvenance,
   FaxState,
   isFaxTerminalState,
@@ -31,7 +32,7 @@ import {
 } from "./signals";
 import { CLOUD_SUMMARY_DISABLED, SUMMARY_CONTENT_TRUST, SUMMARY_NOTICE, SUMMARY_PROVENANCE, summarizeThread, ThreadSummary } from "./summary";
 
-export const CURRENT_SCHEMA_VERSION = 31;
+export const CURRENT_SCHEMA_VERSION = 32;
 
 // --- Fax (work item 041, Phase 1: FAX-003; Phase 1.1 hardening) -------------
 // Durable fax state is its own domain -- not a disguised SMS row. `faxes` is
@@ -169,6 +170,52 @@ export class FaxIdentityConflictError extends Error {
     this.name = "FaxIdentityConflictError";
   }
 }
+
+// Telnyx Fax webhook ingress queue (work item 041, Phase 3: FAX-006).
+// Provider-specific and distinct from the provider-neutral `fax_events`
+// ledger (see the class-level comment above `FaxInput`): a row may exist
+// before any local fax can be resolved, and stores only bounded extracted
+// fields, never a raw payload. `processing_status` values:
+//   pending          -- newly enqueued, not yet attempted
+//   unresolved       -- authentic outbound event, but no local fax could be
+//                       resolved yet (provider identity not bound); eligible
+//                       for reprocessing without a restart once binding
+//                       occurs, and swept on startup -- never part of the
+//                       "keep draining immediately" trigger, so this can
+//                       never become a hot loop
+//   deferred_inbound -- authentic inbound event, intentionally not processed
+//                       further in Phase 3 (inbound reception is Phase 4)
+//   unsupported      -- authentic event whose type is not in the allow-list
+//   resolved         -- applied to a local fax via the normalized ledger
+//   failed           -- processing itself failed (e.g. direction mismatch)
+export type TelnyxFaxWebhookEventStatus = "pending" | "unresolved" | "deferred_inbound" | "unsupported" | "resolved" | "failed";
+
+export interface TelnyxFaxWebhookEventInput {
+  event_id: string;
+  event_type: string;
+  occurred_at: string;
+  received_at: string;
+  signed_at: string;
+  attempt: number;
+  provider_fax_id: string;
+  direction: string;
+  client_state: string;
+  page_count: number | null;
+  failure_category: string;
+  transient_media_url: string;
+  delivery_target_hash: string;
+  payload_sha256: string;
+}
+
+export interface TelnyxFaxWebhookEventRow extends TelnyxFaxWebhookEventInput {
+  local_fax_id: string | null;
+  processing_status: TelnyxFaxWebhookEventStatus;
+  bounded_error: string;
+  processed_at: string | null;
+  created_at: string;
+}
+
+export type FaxProviderBindingOutcome = "bound" | "already_bound" | "conflict" | "not_found";
 
 export interface ThreadRow {
   id: number;
@@ -1915,6 +1962,44 @@ export class PhoneDatabase {
         version = 31;
         this.connection.exec("PRAGMA user_version=31");
       }
+      if (version === 31) {
+        // Telnyx Fax webhook ingress queue (work item 041, Phase 3: FAX-006).
+        // Provider-specific, signature-verified, enqueue-before-ack -- distinct
+        // from the provider-neutral fax_events ledger (v29): this table may
+        // hold a row before any local fax can be resolved, stores only the
+        // bounded fields needed to process/recover the event (no raw payload;
+        // see the Phase 3 contract for the full field-omission list), and
+        // dedupes by Telnyx's own event id.
+        this.connection.exec(`
+          CREATE TABLE IF NOT EXISTS telnyx_fax_webhook_events (
+            event_id TEXT PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            received_at TEXT NOT NULL,
+            signed_at TEXT NOT NULL,
+            attempt INTEGER NOT NULL DEFAULT 0,
+            provider_fax_id TEXT NOT NULL DEFAULT '',
+            direction TEXT NOT NULL DEFAULT '',
+            client_state TEXT NOT NULL DEFAULT '',
+            page_count INTEGER,
+            failure_category TEXT NOT NULL DEFAULT '',
+            transient_media_url TEXT NOT NULL DEFAULT '',
+            delivery_target_hash TEXT NOT NULL DEFAULT '',
+            payload_sha256 TEXT NOT NULL DEFAULT '',
+            local_fax_id TEXT,
+            processing_status TEXT NOT NULL DEFAULT 'pending',
+            bounded_error TEXT NOT NULL DEFAULT '',
+            processed_at TEXT,
+            created_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_telnyx_fax_webhook_events_pending
+            ON telnyx_fax_webhook_events(processing_status, occurred_at, received_at);
+          CREATE INDEX IF NOT EXISTS idx_telnyx_fax_webhook_events_provider_fax_id
+            ON telnyx_fax_webhook_events(provider_fax_id);
+        `);
+        version = 32;
+        this.connection.exec("PRAGMA user_version=32");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -2557,44 +2642,71 @@ export class PhoneDatabase {
   // Unlike applyFaxState, an "advanced" outcome is allowed to jump directly
   // to `observed` even if it is not a single-edge neighbor of the current
   // state (e.g. accepted -> observing delivered advances straight to
-  // delivered). A "stale" or "duplicate" observation returns false without
-  // mutating the row -- the caller (recordFaxEvent) still records the event
-  // itself for evidence/dedup regardless of whether it moved the state. Uses
-  // the same expected-state conditional UPDATE as applyFaxState.
-  applyFaxObservation(localFaxId: string, observed: FaxState, opts: { occurredAt?: string; providerFaxId?: string; failureCategory?: string; redactedError?: string; pageCount?: number } = {}): boolean {
-    const current = this.faxByLocalId(localFaxId);
-    if (!current) return false;
-    if (reconcileFaxObservation(current.direction, current.state, observed) !== "advanced") return false;
-    const now = utcNow();
-    const ts = this.faxLifecycleColumns(now, opts.occurredAt, observed);
-    const changes = this.connection.prepare(`
-      UPDATE faxes
-      SET state=?,
-          provider_fax_id=COALESCE(?, provider_fax_id),
-          page_count=COALESCE(?, page_count),
-          failure_category=?,
-          redacted_error=?,
-          submitted_at=CASE WHEN ? THEN COALESCE(submitted_at, ?) ELSE submitted_at END,
-          accepted_at=CASE WHEN ? THEN COALESCE(accepted_at, ?) ELSE accepted_at END,
-          started_at=CASE WHEN ? THEN COALESCE(started_at, ?) ELSE started_at END,
-          completed_at=CASE WHEN ? THEN COALESCE(completed_at, ?) ELSE completed_at END,
-          updated_at=?
-      WHERE local_fax_id=? AND state=?
-    `).run(
-      observed,
-      opts.providerFaxId || null,
-      opts.pageCount ?? null,
-      (opts.failureCategory ?? (observed === "failed" ? current.failure_category : "")) || "",
-      (opts.redactedError ?? "").slice(0, 500) || current.redacted_error,
-      ts.submitted, ts.at,
-      ts.accepted, ts.at,
-      ts.started, ts.at,
-      ts.completed, ts.at,
-      now,
-      localFaxId,
-      current.state
-    ).changes;
-    return Number(changes) === 1;
+  // delivered).
+  //
+  // Phase 3 hardening: returns the richer FaxObservationOutcome
+  // ("advanced" | "duplicate" | "stale" | "illegal") rather than a plain
+  // boolean, and re-reads/reclassifies (bounded to 3 attempts) if the
+  // expected-state conditional UPDATE affects zero rows despite the
+  // classification saying "advanced" -- i.e. something else changed the row
+  // between this method's read and its write. In this codebase's single-
+  // threaded synchronous-SQLite architecture that specific window cannot
+  // actually be entered mid-call, but the retry loop is cheap, harmless, and
+  // future-proofs the contract: a concurrent forward observation (worker A
+  // advances accepted->sending while worker B was about to apply
+  // accepted->delivered) must never silently vanish as an undifferentiated
+  // "false" once B's own fresh re-read sees sending -- delivered is still
+  // reachable from sending, so B's retried attempt still applies. The loop
+  // itself is bounded (never an unbounded retry) and never weakens monotonic
+  // lifecycle rules: each retry re-runs the same reconcileFaxObservation
+  // check against a freshly-read row before attempting another write.
+  applyFaxObservation(localFaxId: string, observed: FaxState, opts: { occurredAt?: string; providerFaxId?: string; failureCategory?: string; redactedError?: string; pageCount?: number } = {}): FaxObservationOutcome {
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const current = this.faxByLocalId(localFaxId);
+      if (!current) return "illegal";
+      const classification = reconcileFaxObservation(current.direction, current.state, observed);
+      if (classification !== "advanced") return classification;
+      const now = utcNow();
+      const ts = this.faxLifecycleColumns(now, opts.occurredAt, observed);
+      const changes = this.connection.prepare(`
+        UPDATE faxes
+        SET state=?,
+            provider_fax_id=COALESCE(?, provider_fax_id),
+            page_count=COALESCE(?, page_count),
+            failure_category=?,
+            redacted_error=?,
+            submitted_at=CASE WHEN ? THEN COALESCE(submitted_at, ?) ELSE submitted_at END,
+            accepted_at=CASE WHEN ? THEN COALESCE(accepted_at, ?) ELSE accepted_at END,
+            started_at=CASE WHEN ? THEN COALESCE(started_at, ?) ELSE started_at END,
+            completed_at=CASE WHEN ? THEN COALESCE(completed_at, ?) ELSE completed_at END,
+            updated_at=?
+        WHERE local_fax_id=? AND state=?
+      `).run(
+        observed,
+        opts.providerFaxId || null,
+        opts.pageCount ?? null,
+        (opts.failureCategory ?? (observed === "failed" ? current.failure_category : "")) || "",
+        (opts.redactedError ?? "").slice(0, 500) || current.redacted_error,
+        ts.submitted, ts.at,
+        ts.accepted, ts.at,
+        ts.started, ts.at,
+        ts.completed, ts.at,
+        now,
+        localFaxId,
+        current.state
+      ).changes;
+      if (Number(changes) === 1) return "advanced";
+      // The row changed between our read and our write -- re-read and
+      // reclassify against the fresh state rather than reporting a bare
+      // failure. Falls through to the next loop iteration.
+    }
+    // Unreachable in this codebase's synchronous-SQLite architecture (each
+    // attempt's read and write happen in the same call with no yield point,
+    // so a same-process CAS miss cannot actually occur here) -- but never
+    // claim a write that did not happen. Conservative, safe fallback: report
+    // "stale" rather than re-asserting "advanced" without a successful write.
+    return "stale";
   }
 
   // Dedicated cancellation-claim rollback (work item 041, Phase 2.1 finding
@@ -2610,6 +2722,115 @@ export class PhoneDatabase {
     const changes = this.connection.prepare("UPDATE faxes SET state=?, updated_at=? WHERE local_fax_id=? AND state='cancel_pending'")
       .run(priorState, utcNow(), String(localFaxId)).changes;
     return Number(changes) === 1;
+  }
+
+  // --- Provider identity binding (work item 041, Phase 3 prerequisite) ----
+  // createFax() permits an empty provider; a fax must be bound to exactly one
+  // provider before that provider is ever invoked, and the provider fax id
+  // returned by a successful send must be bound independently of lifecycle
+  // state (never lost merely because a webhook advanced the state first --
+  // see FaxSubmissionService.submitFax). Both methods are atomic
+  // expected-state conditional updates and reject (rather than silently
+  // overwrite) a genuine conflict; the (provider, provider_fax_id) unique
+  // index remains the final authority, so a collision with a *different*
+  // fax row surfaces as a caught constraint violation, also reported as
+  // "conflict".
+
+  bindFaxProvider(localFaxId: string, provider: string): FaxProviderBindingOutcome {
+    const current = this.faxByLocalId(localFaxId);
+    if (!current) return "not_found";
+    if (current.provider === provider) return "already_bound";
+    if (current.provider) return "conflict";
+    const changes = this.connection.prepare("UPDATE faxes SET provider=?, updated_at=? WHERE local_fax_id=? AND provider=''")
+      .run(String(provider), utcNow(), localFaxId).changes;
+    if (Number(changes) === 1) return "bound";
+    const recheck = this.faxByLocalId(localFaxId);
+    return recheck?.provider === provider ? "already_bound" : "conflict";
+  }
+
+  bindFaxProviderIdentity(localFaxId: string, provider: string, providerFaxId: string): FaxProviderBindingOutcome {
+    const current = this.faxByLocalId(localFaxId);
+    if (!current) return "not_found";
+    if (current.provider !== provider) return "conflict";
+    if (current.provider_fax_id === providerFaxId) return "already_bound";
+    if (current.provider_fax_id) return "conflict";
+    try {
+      const changes = this.connection.prepare("UPDATE faxes SET provider_fax_id=?, updated_at=? WHERE local_fax_id=? AND provider=? AND provider_fax_id IS NULL")
+        .run(String(providerFaxId), utcNow(), localFaxId, provider).changes;
+      if (Number(changes) === 1) return "bound";
+      const recheck = this.faxByLocalId(localFaxId);
+      return recheck?.provider_fax_id === providerFaxId ? "already_bound" : "conflict";
+    } catch {
+      // UNIQUE(provider, provider_fax_id) violation: this provider fax id is
+      // already bound to a *different* local fax. Never guess which is
+      // correct -- fail closed.
+      return "conflict";
+    }
+  }
+
+  // --- Telnyx Fax webhook ingress queue (work item 041, Phase 3: FAX-006) --
+  // Provider-specific, durable, enqueue-before-ack. Distinct from the
+  // provider-neutral fax_events ledger -- see the class-level comment above
+  // FaxInput. Dedupes by Telnyx's own event id; stores only bounded
+  // extracted fields, never a raw payload.
+
+  enqueueTelnyxFaxWebhookEvent(input: TelnyxFaxWebhookEventInput): boolean {
+    const now = utcNow();
+    const changes = this.connection.prepare(`
+      INSERT OR IGNORE INTO telnyx_fax_webhook_events(
+        event_id, event_type, occurred_at, received_at, signed_at, attempt,
+        provider_fax_id, direction, client_state, page_count, failure_category,
+        transient_media_url, delivery_target_hash, payload_sha256,
+        processing_status, created_at
+      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+    `).run(
+      String(input.event_id),
+      String(input.event_type),
+      String(input.occurred_at),
+      String(input.received_at || now),
+      String(input.signed_at),
+      Number(input.attempt || 0),
+      String(input.provider_fax_id || ""),
+      String(input.direction || ""),
+      String(input.client_state || ""),
+      input.page_count ?? null,
+      String(input.failure_category || ""),
+      String(input.transient_media_url || ""),
+      String(input.delivery_target_hash || ""),
+      String(input.payload_sha256 || ""),
+      now
+    ).changes;
+    return Number(changes) === 1;
+  }
+
+  // Freshly-enqueued rows only. "unresolved"/"deferred_inbound" rows are
+  // deliberately excluded so the ordinary drain loop can never spin forever
+  // on intentionally deferred work -- see unresolvedTelnyxFaxWebhookEvents.
+  pendingTelnyxFaxWebhookEvents(limit = 100): TelnyxFaxWebhookEventRow[] {
+    const bounded = Math.max(1, Math.min(Number(limit) || 100, 500));
+    return this.connection.prepare("SELECT * FROM telnyx_fax_webhook_events WHERE processing_status='pending' ORDER BY occurred_at ASC, received_at ASC LIMIT ?").all(bounded) as unknown as TelnyxFaxWebhookEventRow[];
+  }
+
+  // Outbound events that could not yet be resolved to a local fax (provider
+  // identity not bound at the time). Used only by startup recovery drain and
+  // by the explicit post-binding re-trigger -- never by the immediate
+  // "keep draining" loop, so an unresolved event never causes a hot loop.
+  unresolvedTelnyxFaxWebhookEvents(limit = 100): TelnyxFaxWebhookEventRow[] {
+    const bounded = Math.max(1, Math.min(Number(limit) || 100, 500));
+    return this.connection.prepare("SELECT * FROM telnyx_fax_webhook_events WHERE processing_status='unresolved' ORDER BY occurred_at ASC, received_at ASC LIMIT ?").all(bounded) as unknown as TelnyxFaxWebhookEventRow[];
+  }
+
+  // Targeted lookup for the explicit re-trigger immediately after a
+  // provider fax id is bound (FaxSubmissionService.submitFax) -- lets an
+  // outbound webhook that arrived before the POST response resolve without
+  // waiting for a restart.
+  unresolvedTelnyxFaxWebhookEventsByProviderFaxId(providerFaxId: string): TelnyxFaxWebhookEventRow[] {
+    return this.connection.prepare("SELECT * FROM telnyx_fax_webhook_events WHERE processing_status='unresolved' AND provider_fax_id=? ORDER BY occurred_at ASC").all(String(providerFaxId)) as unknown as TelnyxFaxWebhookEventRow[];
+  }
+
+  completeTelnyxFaxWebhookEvent(eventId: string, status: TelnyxFaxWebhookEventStatus, localFaxId?: string, boundedError = ""): void {
+    this.connection.prepare("UPDATE telnyx_fax_webhook_events SET processing_status=?, local_fax_id=COALESCE(?, local_fax_id), bounded_error=?, processed_at=? WHERE event_id=?")
+      .run(status, localFaxId || null, boundedError.slice(0, 120), utcNow(), String(eventId));
   }
 
   createFaxDocument(input: FaxDocumentInput): { id: string; created: boolean } {
@@ -2673,10 +2894,11 @@ export class PhoneDatabase {
       now
     ).changes;
     if (Number(changes) !== 1) return { recorded: false, applied: false };
-    const applied = this.applyFaxObservation(input.fax_id, input.normalized_state, {
+    const outcome = this.applyFaxObservation(input.fax_id, input.normalized_state, {
       occurredAt: input.occurred_at,
       providerFaxId: input.provider_fax_id
     });
+    const applied = outcome === "advanced";
     this.connection.prepare("UPDATE fax_events SET processing_status=? WHERE provider=? AND event_id=?").run(applied ? "applied" : "ignored", provider, String(input.event_id));
     return { recorded: true, applied };
   }

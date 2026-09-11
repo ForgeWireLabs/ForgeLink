@@ -6,6 +6,7 @@ import test from "node:test";
 import { PhoneDatabase } from "./database";
 import { FaxProvider, FaxProviderAmbiguousError, FaxProviderRejectionError } from "./fax";
 import { generateProviderCorrelationToken, reconcileFax, requestFaxCancellation, submitFax } from "./fax-submission";
+import { processTelnyxFaxWebhookEvent } from "./telnyx-fax-webhook";
 
 function fakeProvider(overrides: Partial<FaxProvider> = {}): FaxProvider {
   return {
@@ -32,7 +33,7 @@ test("FAX-005: the CAS winner sends exactly once; a second submission caller doe
     const provider = fakeProvider({ sendFax: async () => { sendCount += 1; return { providerFaxId: "provider-fax-1", normalizedState: "accepted" }; } });
 
     const first = await submitFax("fax-1", { database, provider });
-    assert.deepEqual(first, { outcome: "accepted", providerFaxId: "provider-fax-1" });
+    assert.deepEqual(first, { outcome: "accepted", providerFaxId: "provider-fax-1", state: "accepted" });
     assert.equal(sendCount, 1);
     assert.equal(database.faxByLocalId("fax-1")!.state, "accepted");
     assert.equal(database.faxByLocalId("fax-1")!.provider_fax_id, "provider-fax-1");
@@ -458,4 +459,168 @@ test("FAX-005 (2.1): a correlation token persistence failure prevents the provid
     assert.equal(sendCalled, false, "the provider must never be invoked when the correlation token cannot be durably established");
     assert.equal(database.faxByLocalId("fax-1")!.state, "failed");
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// --- Phase 3 prerequisite: provider ownership binding before any provider call ---
+
+test("FAX-006: submitFax binds the fax to the provider before ever invoking it, and fails closed with no provider call on a mismatch", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-submission-provider-mismatch-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpFax(database, "fax-mismatch");
+    // A fax already bound to a different provider (e.g. a future second fax edge).
+    database.bindFaxProvider("fax-mismatch", "some-other-fax-provider");
+    let sendCalled = false;
+    const provider = fakeProvider({ sendFax: async () => { sendCalled = true; return { providerFaxId: "provider-fax-1", normalizedState: "accepted" }; } });
+    const outcome = await submitFax("fax-mismatch", { database, provider });
+    assert.deepEqual(outcome, { outcome: "failed", category: "provider_mismatch" });
+    assert.equal(sendCalled, false, "the provider must never be invoked once a binding mismatch is detected");
+    assert.equal(database.faxByLocalId("fax-mismatch")!.state, "failed");
+    assert.equal(database.faxByLocalId("fax-mismatch")!.provider, "some-other-fax-provider", "the existing binding must not be overwritten");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006: submitFax binds an unbound fax to the invoked provider before calling it", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-submission-provider-bind-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpFax(database, "fax-1");
+    assert.equal(database.faxByLocalId("fax-1")!.provider, "");
+    let providerAtSendTime: string | undefined;
+    const provider = fakeProvider({
+      sendFax: async () => {
+        providerAtSendTime = database.faxByLocalId("fax-1")!.provider;
+        return { providerFaxId: "provider-fax-1", normalizedState: "accepted" };
+      }
+    });
+    await submitFax("fax-1", { database, provider });
+    assert.equal(providerAtSendTime, "telnyx", "the provider binding must already be durable before the provider is invoked");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006: a provider identity conflict after send resolves to ambiguous rather than silently overwriting the existing binding", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-submission-identity-conflict-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpFax(database, "fax-1");
+    // Another fax already owns this exact provider fax id under the same provider
+    // (a pathological/duplicate provider response).
+    database.createFax({ local_fax_id: "fax-already-owns-it", direction: "outbound", to_number: "+15557654322" });
+    database.bindFaxProvider("fax-already-owns-it", "telnyx");
+    database.bindFaxProviderIdentity("fax-already-owns-it", "telnyx", "provider-fax-1");
+
+    const provider = fakeProvider({ sendFax: async () => ({ providerFaxId: "provider-fax-1", normalizedState: "accepted" }) });
+    const outcome = await submitFax("fax-1", { database, provider });
+    assert.deepEqual(outcome, { outcome: "ambiguous", category: "provider_identity_conflict" });
+    assert.equal(database.faxByLocalId("fax-1")!.state, "ambiguous");
+    assert.equal(database.faxByLocalId("fax-1")!.provider_fax_id, null, "the conflicting id must never be attached to this fax");
+    assert.equal(database.faxByLocalId("fax-already-owns-it")!.provider_fax_id, "provider-fax-1", "the original binding must be untouched");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006: onProviderFaxIdBound fires exactly once, after the identity is durably bound, with the correct provider and id", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-submission-bound-hook-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpFax(database, "fax-1");
+    const calls: Array<{ provider: string; providerFaxId: string; boundAtCallTime: string | null }> = [];
+    const provider = fakeProvider({ sendFax: async () => ({ providerFaxId: "provider-fax-1", normalizedState: "accepted" }) });
+    await submitFax("fax-1", {
+      database, provider,
+      onProviderFaxIdBound: (p, id) => calls.push({ provider: p, providerFaxId: id, boundAtCallTime: database.faxByLocalId("fax-1")!.provider_fax_id })
+    });
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0], { provider: "telnyx", providerFaxId: "provider-fax-1", boundAtCallTime: "provider-fax-1" });
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// --- Phase 3: POST-response vs. webhook race convergence (FAX-006) ---------
+//
+// Both directions of the race described in the mission: a valid webhook may
+// authentically arrive either before or after submitFax's own POST response
+// has bound the provider fax id, and either ordering must converge to the
+// truthful state without waiting for a restart.
+
+function ingressEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    event_id: "evt-race-1", event_type: "fax.delivered", occurred_at: "2026-09-11T12:05:00.000Z",
+    received_at: "2026-09-11T12:05:01.000Z", signed_at: "2026-09-11T12:05:00.000Z", attempt: 1,
+    provider_fax_id: "provider-fax-1", direction: "outbound", client_state: "", page_count: null,
+    failure_category: "", transient_media_url: "", delivery_target_hash: "", payload_sha256: "hash-race",
+    local_fax_id: null, processing_status: "pending" as const, bounded_error: "", processed_at: null,
+    created_at: "2026-09-11T12:05:01.000Z", ...overrides
+  };
+}
+
+test("FAX-006 race: a webhook that arrives before the POST response resolves immediately once onProviderFaxIdBound fires, without a restart", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-race-webhook-first-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpFax(database, "fax-1");
+    // The webhook (fax.delivered) arrives first, before the provider fax id
+    // is known locally -- it can only resolve to "unresolved".
+    database.enqueueTelnyxFaxWebhookEvent(ingressEvent());
+    processTelnyxFaxWebhookEvent(database.pendingTelnyxFaxWebhookEvents()[0], database);
+    const unresolvedStatus = (database.connection.prepare("SELECT processing_status FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-race-1") as { processing_status: string } | undefined)?.processing_status;
+    assert.equal(unresolvedStatus, "unresolved");
+
+    // The POST response now binds the provider fax id; the hook reprocesses
+    // any events that had been waiting on exactly this provider fax id.
+    const provider = fakeProvider({ sendFax: async () => ({ providerFaxId: "provider-fax-1", normalizedState: "accepted" }) });
+    const outcome = await submitFax("fax-1", {
+      database, provider,
+      onProviderFaxIdBound: (_p, providerFaxId) => {
+        for (const row of database.unresolvedTelnyxFaxWebhookEventsByProviderFaxId(providerFaxId)) processTelnyxFaxWebhookEvent(row, database);
+      }
+    });
+    assert.equal(outcome.outcome, "accepted");
+    // The webhook's fax.delivered observation must win over submitFax's own
+    // "accepted" observation (Phase 1.1 monotonic reconciliation) -- this is
+    // exactly the truthful-current-state contract submitFax promises.
+    assert.equal(database.faxByLocalId("fax-1")!.state, "delivered");
+    const finalStatus = (database.connection.prepare("SELECT processing_status FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-race-1") as { processing_status: string }).processing_status;
+    assert.equal(finalStatus, "resolved");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006 race: a webhook that arrives after the POST response has already bound the provider fax id resolves immediately on its own", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-race-post-first-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpFax(database, "fax-1");
+    const provider = fakeProvider({ sendFax: async () => ({ providerFaxId: "provider-fax-1", normalizedState: "accepted" }) });
+    const outcome = await submitFax("fax-1", { database, provider });
+    assert.equal(outcome.outcome, "accepted");
+    assert.equal(database.faxByLocalId("fax-1")!.provider_fax_id, "provider-fax-1");
+
+    // Now the webhook arrives; the provider fax id is already bound, so
+    // direct resolution succeeds without any special-cased handling.
+    database.enqueueTelnyxFaxWebhookEvent(ingressEvent());
+    processTelnyxFaxWebhookEvent(database.pendingTelnyxFaxWebhookEvents()[0], database);
+    assert.equal(database.faxByLocalId("fax-1")!.state, "delivered");
+    const status = (database.connection.prepare("SELECT processing_status FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-race-1") as { processing_status: string }).processing_status;
+    assert.equal(status, "resolved");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006 race: restart drain resolves an event that was left unresolved even without the onProviderFaxIdBound hook firing", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-race-restart-drain-"));
+  const path = join(directory, "phone.sqlite3");
+  let database: PhoneDatabase | undefined = new PhoneDatabase(path);
+  try {
+    setUpFax(database, "fax-1");
+    database.enqueueTelnyxFaxWebhookEvent(ingressEvent());
+    processTelnyxFaxWebhookEvent(database.pendingTelnyxFaxWebhookEvents()[0], database);
+    const provider = fakeProvider({ sendFax: async () => ({ providerFaxId: "provider-fax-1", normalizedState: "accepted" }) });
+    // No onProviderFaxIdBound hook this time -- simulates a restart between
+    // the webhook arriving and the provider fax id becoming known.
+    await submitFax("fax-1", { database, provider });
+    assert.equal(database.faxByLocalId("fax-1")!.state, "accepted", "without the hook or a restart sweep, the event correctly remains unresolved for now");
+
+    database.close();
+    database = new PhoneDatabase(path);
+    // Startup recovery sweep (mirrors server.ts's drainUnresolvedTelnyxFaxWebhookEvents).
+    for (const row of database.unresolvedTelnyxFaxWebhookEvents()) processTelnyxFaxWebhookEvent(row, database);
+    assert.equal(database.faxByLocalId("fax-1")!.state, "delivered");
+  } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });

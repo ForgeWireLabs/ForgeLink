@@ -1,4 +1,6 @@
-// Outbound fax submission orchestration (work item 041, Phase 2: FAX-005).
+// Outbound fax submission orchestration (work item 041, Phase 2/2.1: FAX-005;
+// Phase 3 prerequisite hardening: provider identity binding and POST-response
+// vs. webhook convergence).
 //
 // This is the single ForgeLink-owned boundary between a locally-prepared
 // fax and an external provider side effect. Callers never invoke
@@ -12,6 +14,11 @@
 //       |      (Phase 1.1); only the caller whose UPDATE actually matches a
 //       |      row wins, so a second concurrent caller's own claim attempt
 //       |      correctly fails rather than racing a second send.
+//       |
+//       | bind fax.provider to this provider's name BEFORE ever calling it
+//       |   (Phase 3 prerequisite): an unbound fax binds now; an
+//       |   already-bound fax must match, or submission fails closed with
+//       |   no provider call at all.
 //       v
 //   submitting (exactly one winner reaches this point)
 //       |
@@ -19,7 +26,20 @@
 //       v
 //   FaxProviderRejectionError / FaxProviderPreflightError -> failed (definite, provider not called or explicitly rejected)
 //   FaxProviderAmbiguousError                             -> ambiguous (network/timeout/5xx/malformed -- never auto-retried)
-//   explicit accepted response with a usable provider id   -> accepted (provider id persisted first)
+//   explicit accepted response with a usable provider id:
+//       1. bindFaxProviderIdentity(provider, providerFaxId) -- independent of
+//          lifecycle state, so a webhook that already advanced the state
+//          first (e.g. a fax.queued webhook racing the HTTP response) can
+//          never cause the provider fax id itself to be lost;
+//       2. reprocess any ingress events that arrived "unresolved" for this
+//          provider fax id before it was bound (the webhook-before-response
+//          race), so they converge without waiting for a restart;
+//       3. apply the provider's own response observation via
+//          applyFaxObservation (never applyFaxState) -- if a webhook has
+//          already moved the fax further (sending/delivered/failed), this
+//          is correctly refused as "stale" rather than regressing it back
+//          to "accepted";
+//       4. return the fax's truthful *current* state, not an assumed one.
 
 import { randomBytes } from "node:crypto";
 import {
@@ -33,19 +53,33 @@ import { FaxRow, PhoneDatabase } from "./database";
 
 export type FaxSubmissionOutcome =
   | { outcome: "not_claimed" }
-  | { outcome: "accepted"; providerFaxId: string }
+  | { outcome: "accepted"; providerFaxId: string; state: FaxState }
   | { outcome: "failed"; category: string }
   | { outcome: "ambiguous"; category: string };
 
 export type FaxSubmissionDatabase = Pick<
   PhoneDatabase,
-  "faxByLocalId" | "applyFaxState" | "applyFaxObservation" | "faxDocumentsByFaxId" | "setFaxProviderCorrelationToken" | "restoreCancelClaim"
+  | "faxByLocalId"
+  | "applyFaxState"
+  | "applyFaxObservation"
+  | "faxDocumentsByFaxId"
+  | "setFaxProviderCorrelationToken"
+  | "restoreCancelClaim"
+  | "bindFaxProvider"
+  | "bindFaxProviderIdentity"
 >;
 
 export interface FaxSubmissionDeps {
   database: FaxSubmissionDatabase;
   provider: FaxProvider;
   generateCorrelationToken?: () => string;
+  // Called once a provider fax id is durably bound to this local fax, so a
+  // caller (server.ts) can reprocess any webhook events that arrived
+  // "unresolved" for that provider fax id before the binding existed --
+  // without this hook, such an event would otherwise only resolve on the
+  // next restart-recovery drain. Provider-agnostic on purpose: this module
+  // has no Telnyx-specific import.
+  onProviderFaxIdBound?: (provider: string, providerFaxId: string) => void;
 }
 
 // Opaque, locally-generated, non-sensitive: no phone numbers, filenames,
@@ -64,6 +98,18 @@ export async function submitFax(localFaxId: string, deps: FaxSubmissionDeps): Pr
 
   const fax: FaxRow | undefined = deps.database.faxByLocalId(localFaxId);
   if (!fax) return { outcome: "not_claimed" };
+
+  const providerName = deps.provider.capabilities().provider;
+
+  // Provider ownership must be settled before the provider is ever invoked
+  // (Phase 3 prerequisite): an unbound fax binds to this provider now; a fax
+  // already bound to a *different* provider must never be submitted through
+  // this one.
+  const providerBinding = deps.database.bindFaxProvider(localFaxId, providerName);
+  if (providerBinding === "conflict" || providerBinding === "not_found") {
+    deps.database.applyFaxState(localFaxId, "failed", { failureCategory: "provider_mismatch" });
+    return { outcome: "failed", category: "provider_mismatch" };
+  }
 
   try {
     const documents = deps.database.faxDocumentsByFaxId(localFaxId);
@@ -97,8 +143,36 @@ export async function submitFax(localFaxId: string, deps: FaxSubmissionDeps): Pr
       return { outcome: "ambiguous", category: "missing_provider_id" };
     }
 
-    deps.database.applyFaxState(localFaxId, "accepted", { providerFaxId: result.providerFaxId });
-    return { outcome: "accepted", providerFaxId: result.providerFaxId };
+    // Bind the provider fax id independently of lifecycle state (the
+    // critical race this phase fixes): a webhook may already have moved the
+    // fax's state forward by the time we get here, but the provider fax id
+    // itself must never be lost or overwritten.
+    const identityBinding = deps.database.bindFaxProviderIdentity(localFaxId, providerName, result.providerFaxId);
+    if (identityBinding === "conflict" || identityBinding === "not_found") {
+      // Do not guess which id is correct; preserve evidence via the
+      // ambiguous state rather than silently overwriting or discarding it.
+      deps.database.applyFaxState(localFaxId, "ambiguous", { failureCategory: "provider_identity_conflict" });
+      return { outcome: "ambiguous", category: "provider_identity_conflict" };
+    }
+
+    // A webhook that arrived before this binding existed could not resolve
+    // to a local fax; let it resolve now instead of waiting for a restart.
+    deps.onProviderFaxIdBound?.(providerName, result.providerFaxId);
+
+    // Apply the provider's own response observation through the monotonic
+    // reconciliation path, never the strict local-command path: if a
+    // webhook already advanced the fax further, this is correctly refused
+    // (stale) rather than regressing the state back to "accepted".
+    deps.database.applyFaxObservation(localFaxId, result.normalizedState, {
+      occurredAt: result.providerAcceptedAt,
+      providerFaxId: result.providerFaxId
+    });
+
+    // Return the fax's truthful current state, whatever it actually
+    // resolved to (normally "accepted", but possibly further along if a
+    // webhook raced ahead of this response).
+    const finalFax = deps.database.faxByLocalId(localFaxId)!;
+    return { outcome: "accepted", providerFaxId: result.providerFaxId, state: finalFax.state };
   } catch (error) {
     if (error instanceof FaxProviderRejectionError || error instanceof FaxProviderPreflightError) {
       deps.database.applyFaxState(localFaxId, "failed", { failureCategory: error.category, redactedError: error.message.slice(0, 300) });
@@ -146,8 +220,8 @@ export async function reconcileFax(localFaxId: string, deps: FaxSubmissionDeps):
   try {
     const update = await deps.provider.getFax(fax.provider_fax_id);
     if (update.direction !== fax.direction) return { outcome: "direction_mismatch" };
-    const applied = deps.database.applyFaxObservation(localFaxId, update.normalizedState, { occurredAt: update.occurredAt, providerFaxId: fax.provider_fax_id });
-    return applied ? { outcome: "advanced", state: update.normalizedState } : { outcome: "unchanged" };
+    const outcome = deps.database.applyFaxObservation(localFaxId, update.normalizedState, { occurredAt: update.occurredAt, providerFaxId: fax.provider_fax_id });
+    return outcome === "advanced" ? { outcome: "advanced", state: update.normalizedState } : { outcome: "unchanged" };
   } catch (error) {
     if (error instanceof FaxProviderRejectionError) return { outcome: "error", category: error.category };
     // Ambiguous/unknown reconciliation failures never mutate state -- try again later.
@@ -209,3 +283,4 @@ export async function requestFaxCancellation(localFaxId: string, deps: FaxSubmis
     return { outcome: "ambiguous" };
   }
 }
+

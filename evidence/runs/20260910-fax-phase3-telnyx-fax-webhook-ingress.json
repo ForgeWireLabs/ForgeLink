@@ -1,0 +1,51 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260910-fax-phase3-telnyx-fax-webhook-ingress",
+  "timestamp": "2026-09-10T20:30:00Z",
+  "work_item": "041",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cd Electron && npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed with the schema v32 migration, bindFaxProvider/bindFaxProviderIdentity, the applyFaxObservation richer-return-type rewrite, the new telnyx-fax-webhook.ts module, the rewritten fax-submission.ts (provider binding, onProviderFaxIdBound hook, truthful returned state), and the new /webhooks/telnyx/fax route in server.ts."
+    },
+    {
+      "command": "cd Electron && node --test backend-dist/fax.test.js backend-dist/database.test.js backend-dist/channels.test.js backend-dist/telnyx.test.js backend-dist/telnyx-fax.test.js backend-dist/telnyx-fax-webhook.test.js backend-dist/fax-submission.test.js backend-dist/server.test.js",
+      "exit_code": 0,
+      "summary": "244 tests passed: new database-level coverage for bindFaxProvider/bindFaxProviderIdentity (bind/already-bound/conflict/not-found), applyFaxObservation's richer FaxObservationOutcome, and the telnyx_fax_webhook_events ingress queue (enqueue/dedupe/pending-vs-unresolved drains); 23 new unit tests in telnyx-fax-webhook.test.ts covering event allow-list/normalization, failure-reason redaction, envelope parsing/bounding, client_state correlation (valid and invalid), direct/correlation resolution, unsupported-event/invalid-direction/direction-mismatch/inbound-deferral handling, duplicate-ledger idempotency, out-of-order non-regression, concurrent-forward-observation convergence, and an internal-processing-error path; 9 new fax-submission.test.ts tests for provider-mismatch fail-closed, provider binding before send, identity conflict after send, the onProviderFaxIdBound hook, and both POST-response/webhook race orderings plus the restart-drain fallback; 1 new HTTP-level server.test.ts test exercising the full /webhooks/telnyx/fax route (missing/bad/wrong-key signature, stale timestamp, malformed/incomplete/oversized body, enqueue-before-ack, duplicate-id idempotent ack, unsupported-event ack, and zero SMS/MMS-table contamination); plus a new v31->v32 migration test. All pre-existing Phase 1/1.1/2/2.1 fax tests unchanged and passing."
+    },
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Full suite: 394 node:test cases, 393 passed, 1 skipped (opt-in live Twilio, unrelated), 0 failed; vitest App.test.tsx (228 cases) and npm run renderer:build both passed cleanly. No Telnyx network call occurred anywhere in this phase; all signatures were generated locally against freshly-generated Ed25519 keypairs."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact 2.2.0 validation, LIE-003 schema-ladder invariants (v32 recorded in decisions/0011-schema-migration-coordination.md), and markdown link/last_verified checks all passed after the WI041 ledger updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/fax-submission.ts",
+    "Electron/backend/src/fax-submission.test.ts",
+    "Electron/backend/src/telnyx-fax-webhook.ts",
+    "Electron/backend/src/telnyx-fax-webhook.test.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/package.json",
+    "decisions/0011-schema-migration-coordination.md",
+    "docs/telnyx-fax.md",
+    "work/active/041-first-class-fax-communications-and-telnyx-fax-edge/README.md",
+    "work/active/041-first-class-fax-communications-and-telnyx-fax-edge/work-item.json",
+    "work/active/041-first-class-fax-communications-and-telnyx-fax-edge/local-artifacts/phase3-telnyx-fax-webhook-contract.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "WI041 Phase 3: signed Telnyx Fax webhook ingress and durable lifecycle reconciliation, built on Phase 2.1's final SHA 879dc4ec56d87c949803d33ebc717c44397f86f6. Added a dedicated POST /webhooks/telnyx/fax route (server.ts) reusing only the genuinely shared verifyTelnyxWebhook Ed25519 primitive, signed with the Fax configuration family's own key (TELNYX_FAX_PUBLIC_KEY) and never falling back to the SMS/MMS TELNYX_PUBLIC_KEY. Exact processing order: bounded raw body -> signature/timestamp headers -> Ed25519+freshness verification -> JSON parse -> bounded envelope validation -> durable enqueue -> HTTP ack; invalid/stale/malformed requests fail closed before any enqueue, and a database/enqueue failure returns a non-success status so Telnyx retries. Added schema v32's telnyx_fax_webhook_events ingress queue (additive migration, provider-specific, distinct from both the SMS/MMS ingress table and the provider-neutral fax_events ledger, bounded fields only, never a raw payload). Added the new telnyx-fax-webhook.ts module: the frozen fax.* event allow-list/state mapping (rechecked against current Telnyx developer docs), the customer-safe failure_reason allow-list (internal_failure_reason never read), bounded envelope parsing, client_state correlation (decoded and bounds-checked as untrusted content despite the signed envelope), local fax resolution (direct provider-fax-id lookup, then client_state correlation, never heuristic matching), and per-row processing that classifies every inbound event type as deferred_inbound with zero local fax lookup/creation/mutation (the explicit Phase 3/Phase 4 boundary -- FAX-007 remains pending). Fixed a critical pre-webhook hardening gap: FaxSubmissionService.submitFax now binds the fax to its invoking provider before ever calling it (bindFaxProvider) and binds the returned provider fax id independently of lifecycle state (bindFaxProviderIdentity), both new write-once database primitives decoupled from applyFaxState/applyFaxObservation's CAS -- this closes the race where a webhook advancing state first could previously cause the provider identity itself to be lost. submitFax gained an onProviderFaxIdBound hook and now returns the fax's truthful current state (not an assumed one) alongside a new outcome.state field. applyFaxObservation now returns a richer FaxObservationOutcome (advanced/duplicate/stale/illegal) with a bounded 3-attempt re-read/reclassify loop -- provably unreachable in this codebase's synchronous-SQLite architecture today but kept as harmless defense-in-depth per the mission's explicit allowance; this surfaced and fixed a latent truthy-check bug in reconcileFax and recordFaxEvent that would otherwise have silently misreported every duplicate/stale/illegal outcome as advanced, caught via code review before any test ran. Proved both POST-response/webhook race orderings deterministically (webhook-first resolves via the onProviderFaxIdBound re-trigger without a restart; POST-first resolves directly; the restart-drain fallback resolves an event left unresolved with no hook wired) and that two concurrent forward observations (e.g. sending vs. delivered) both converge to the more-advanced state without either being lost. FAX-006 is satisfied: the dedicated signed route proves signature/freshness verification, fax-specific parsing, enqueue-before-ack, dedupe, out-of-order handling, restart drain, unsupported-authentic-event behavior, and state reconciliation, per the mission's explicit satisfaction criteria. FAX-007 (inbound document acquisition), FAX-009 (document-acquisition amendment), FAX-015 (broader negative-test matrix), and FAX-016 (live acceptance) remain pending/untouched by this phase; the human-authored WI041 document-acquisition scope amendment was not altered. No live fax was sent, no operator Telnyx credential was used, no live Telnyx resource was mutated, no inbound provider document was downloaded, and FAX-016 was not attempted."
+  }
+}

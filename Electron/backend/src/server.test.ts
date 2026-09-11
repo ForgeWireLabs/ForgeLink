@@ -1088,6 +1088,117 @@ test("TXE-002: Telnyx webhook durably queues, dedupes, rejects stale signatures,
   }
 });
 
+test("FAX-006: the dedicated Telnyx Fax webhook route verifies, enqueues before ack, dedupes, and never touches the SMS/MMS webhook path", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-telnyx-fax-webhook-"));
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const der = publicKey.export({ format: "der", type: "spki" }) as Buffer;
+  const previousFaxKey = process.env.TELNYX_FAX_PUBLIC_KEY;
+  const previousSmsKey = process.env.TELNYX_PUBLIC_KEY;
+  process.env.TELNYX_FAX_PUBLIC_KEY = der.subarray(der.length - 32).toString("base64");
+  // Deliberately different from the fax key -- a fax event signed with the fax
+  // key must never validate against the SMS/MMS key, and vice versa.
+  const { publicKey: smsPublicKey } = generateKeyPairSync("ed25519");
+  const smsDer = smsPublicKey.export({ format: "der", type: "spki" }) as Buffer;
+  process.env.TELNYX_PUBLIC_KEY = smsDer.subarray(smsDer.length - 32).toString("base64");
+  const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const post = (body: string, sig?: string, ts = String(Math.floor(Date.now() / 1000))) =>
+    fetch(`http://127.0.0.1:${port}/webhooks/telnyx/fax`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "telnyx-timestamp": ts, "telnyx-signature-ed25519": sig ?? sign(null, Buffer.from(`${ts}|${body}`, "utf8"), privateKey).toString("base64") },
+      body
+    });
+  const faxEvent = (overrides: Record<string, unknown> = {}) => JSON.stringify({
+    data: { id: "evt-fax-http-1", event_type: "fax.queued", occurred_at: new Date().toISOString(), payload: { fax_id: "provider-fax-http-1", direction: "outbound" } },
+    meta: { attempt: 1, delivered_to: "https://private.invalid/webhooks/telnyx/fax?token=secret" },
+    ...overrides
+  });
+  try {
+    database.createFax({ local_fax_id: "fax-http-1", direction: "outbound", to_number: "+15557654321" });
+    database.bindFaxProvider("fax-http-1", "telnyx");
+    database.bindFaxProviderIdentity("fax-http-1", "telnyx", "provider-fax-http-1");
+
+    // Missing signature header entirely -> rejected, no enqueue.
+    const missing = await fetch(`http://127.0.0.1:${port}/webhooks/telnyx/fax`, { method: "POST", headers: { "Content-Type": "application/json", "telnyx-timestamp": String(Math.floor(Date.now() / 1000)) }, body: faxEvent() });
+    assert.equal(missing.status, 403);
+
+    // Bad signature -> rejected, no enqueue.
+    assert.equal((await post(faxEvent(), "AAAAnotarealsignature")).status, 403);
+
+    // A fax event signed with a different key (e.g. the SMS/MMS key) must be
+    // rejected -- the fax route never falls back to TELNYX_PUBLIC_KEY.
+    const ts0 = String(Math.floor(Date.now() / 1000));
+    const otherKeyPair = generateKeyPairSync("ed25519");
+    const signedWithWrongKey = sign(null, Buffer.from(`${ts0}|${faxEvent()}`, "utf8"), otherKeyPair.privateKey).toString("base64");
+    assert.equal((await post(faxEvent(), signedWithWrongKey, ts0)).status, 403);
+
+    // Stale timestamp -> rejected, no enqueue.
+    const staleTs = String(Math.floor(Date.now() / 1000) - 301);
+    const staleBody = faxEvent({ data: { id: "evt-fax-stale", event_type: "fax.queued", occurred_at: new Date().toISOString(), payload: { fax_id: "provider-fax-http-1", direction: "outbound" } } });
+    assert.equal((await post(staleBody, sign(null, Buffer.from(`${staleTs}|${staleBody}`, "utf8"), privateKey).toString("base64"), staleTs)).status, 403);
+    assert.equal(database.pendingTelnyxFaxWebhookEvents().length, 0);
+
+    // Malformed authentic body (valid signature, invalid JSON) -> rejected, no mutation.
+    const garbage = "not json at all";
+    const garbageTs = String(Math.floor(Date.now() / 1000));
+    assert.equal((await post(garbage, sign(null, Buffer.from(`${garbageTs}|${garbage}`, "utf8"), privateKey).toString("base64"), garbageTs)).status, 400);
+
+    // A JSON body missing required fields (valid signature, but no usable envelope) -> rejected.
+    const incomplete = JSON.stringify({ data: { id: "evt-incomplete" } });
+    const incompleteTs = String(Math.floor(Date.now() / 1000));
+    assert.equal((await post(incomplete, sign(null, Buffer.from(`${incompleteTs}|${incomplete}`, "utf8"), privateKey).toString("base64"), incompleteTs)).status, 400);
+
+    // Oversized body -> rejected before any enqueue attempt.
+    const oversized = JSON.stringify({ data: { id: "evt-oversized", event_type: "fax.queued", occurred_at: new Date().toISOString(), payload: { fax_id: "provider-fax-http-1", direction: "outbound", client_state: "x".repeat(80 * 1024) } } });
+    const oversizedTs = String(Math.floor(Date.now() / 1000));
+    const oversizedResponse = await post(oversized, sign(null, Buffer.from(`${oversizedTs}|${oversized}`, "utf8"), privateKey).toString("base64"), oversizedTs);
+    assert.notEqual(oversizedResponse.status, 200);
+
+    // Valid signed event: durably enqueued before ack, then acked.
+    const first = await post(faxEvent());
+    assert.equal(first.status, 200);
+    const firstBody = await first.json() as { ok: boolean; queued: boolean; duplicate: boolean };
+    assert.equal(firstBody.ok, true);
+    assert.equal(firstBody.queued, true);
+    assert.equal(firstBody.duplicate, false);
+    // Wait for the async drain to resolve the event into the fax lifecycle.
+    for (let i = 0; i < 100 && database.faxByLocalId("fax-http-1")!.state !== "accepted"; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(database.faxByLocalId("fax-http-1")!.state, "accepted");
+
+    // Duplicate event id: acknowledged idempotently, no duplicate row.
+    const duplicate = await post(faxEvent());
+    assert.equal(duplicate.status, 200);
+    const duplicateBody = await duplicate.json() as { ok: boolean; duplicate: boolean };
+    assert.equal(duplicateBody.ok, true);
+    assert.equal(duplicateBody.duplicate, true);
+    const rowCount = (database.connection.prepare("SELECT COUNT(*) AS n FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-fax-http-1") as { n: number }).n;
+    assert.equal(rowCount, 1);
+
+    // Authentic unsupported event type -> acknowledged, durably classified unsupported.
+    const unsupportedBody = faxEvent({ data: { id: "evt-fax-unsupported", event_type: "fax.some.unknown.event", occurred_at: new Date().toISOString(), payload: { fax_id: "provider-fax-http-1", direction: "outbound" } } });
+    const unsupported = await post(unsupportedBody);
+    assert.equal(unsupported.status, 200);
+    for (let i = 0; i < 100; i += 1) {
+      const row = database.connection.prepare("SELECT processing_status FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-fax-unsupported") as { processing_status: string } | undefined;
+      if (row?.processing_status === "unsupported") break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const unsupportedRow = database.connection.prepare("SELECT processing_status FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-fax-unsupported") as { processing_status: string };
+    assert.equal(unsupportedRow.processing_status, "unsupported");
+
+    // The fax route must never create SMS/MMS threads/messages or touch telnyx_webhook_events.
+    assert.equal(database.threads().length, 0);
+    const smsEventCount = (database.connection.prepare("SELECT COUNT(*) AS n FROM telnyx_webhook_events").get() as { n: number }).n;
+    assert.equal(smsEventCount, 0);
+  } finally {
+    if (previousFaxKey === undefined) delete process.env.TELNYX_FAX_PUBLIC_KEY; else process.env.TELNYX_FAX_PUBLIC_KEY = previousFaxKey;
+    if (previousSmsKey === undefined) delete process.env.TELNYX_PUBLIC_KEY; else process.env.TELNYX_PUBLIC_KEY = previousSmsKey;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("TEL-005: routes outbound messages through the explicitly selected Telnyx edge", async () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-telnyx-selected-"));
   const previous = process.env.FORGELINK_SMS_PROVIDER;

@@ -2,22 +2,29 @@
 audience: operators, integrating agents, and maintainers
 status: current
 last_verified: 2026-09-10
-source_of_truth: this document; work/active/041-first-class-fax-communications-and-telnyx-fax-edge/local-artifacts/phase2-telnyx-fax-contract.md
+source_of_truth: this document; work/active/041-first-class-fax-communications-and-telnyx-fax-edge/local-artifacts/phase2-telnyx-fax-contract.md; work/active/041-first-class-fax-communications-and-telnyx-fax-edge/local-artifacts/phase3-telnyx-fax-webhook-contract.md
 ---
 
-# Telnyx Programmable Fax (work item 041, Phase 2)
+# Telnyx Programmable Fax (work item 041, Phases 2–3)
 
 Telnyx Programmable Fax is ForgeLink's first fax provider edge, implemented
 as a distinct capability family from Telnyx SMS/MMS (`docs/telnyx.md`) —
 even though the same Telnyx account may hold both. **This document covers
-the outbound provider edge only.** Inbound fax reception, the public fax
-webhook route, the human Fax UI, MCP fax tools, and the communication
-firewall's fax draft flow are later WI041 phases and are not implemented
-yet — do not treat anything below as a shipped human-facing feature.
+the outbound provider edge (Phase 2) and the signed webhook ingress route
+(Phase 3).** Inbound fax document reception/acquisition, the human Fax UI,
+MCP fax tools, and the communication firewall's fax draft flow are later
+WI041 phases and are not implemented yet — do not treat anything below as a
+shipped human-facing feature, and do not read the webhook ingress work
+below as proof that ForgeLink can receive and display an inbound fax: it
+authenticates and durably queues inbound events only, with zero document
+download or local fax creation for them (see "Inbound events" below).
 
 Current official Telnyx documentation was rechecked 2026-09-10; see
-`local-artifacts/phase2-telnyx-fax-contract.md` for the full frozen contract
-this integration implements, with source URLs.
+`local-artifacts/phase2-telnyx-fax-contract.md` (outbound send contract) and
+`local-artifacts/phase3-telnyx-fax-webhook-contract.md` (webhook event
+allow-list, payload fields, ingress queue schema, and correlation contract)
+for the full frozen contracts this integration implements, with source
+URLs.
 
 ## Fax Application vs. Messaging Profile
 
@@ -250,17 +257,82 @@ RepoPact evidence. The backend receives decrypted values only through the
 existing utility-process environment hand-off at launch, exactly like every
 other ForgeLink provider credential.
 
+## Webhook ingress (Phase 3)
+
+`POST /webhooks/telnyx/fax` is a dedicated route, separate from the
+existing SMS/MMS `/webhooks/telnyx` route: different signing key
+(`TELNYX_FAX_PUBLIC_KEY`, never a fallback to the SMS/MMS
+`TELNYX_PUBLIC_KEY`), different parsing/event-mapping module
+(`telnyx-fax-webhook.ts`), and a different durable ingress table
+(`telnyx_fax_webhook_events`, schema v32) distinct from both the SMS/MMS
+ingress table and the provider-neutral `fax_events` ledger. It reuses only
+the genuinely shared cryptographic primitive, `verifyTelnyxWebhook`
+(Ed25519 over `${timestamp}|${rawBody}`, the existing five-minute
+freshness window).
+
+Processing order is fixed: bounded raw body → signature/timestamp headers
+→ Ed25519 + freshness verification → JSON parse → bounded envelope
+validation → durable enqueue → HTTP acknowledgement. An invalid signature,
+a stale timestamp, or a malformed-but-authentic body are all rejected
+before anything is enqueued; a database/enqueue failure returns a
+non-success status so Telnyx retries. Only a successful durable enqueue —
+new or an idempotent duplicate — is acknowledged; acknowledgement never
+waits for the event to actually be applied to a fax.
+
+**Outbound events** (`fax.queued`, `fax.media.processed`,
+`fax.sending.started`, `fax.delivered`, `fax.failed`) resolve to a local
+fax by direct `(provider, provider_fax_id)` lookup, or by decoding a valid
+`client_state` correlation token and binding the now-known provider fax id
+in the same step. An event that cannot yet be resolved (e.g. it arrives
+before `submitFax`'s own POST response has bound the provider fax id)
+stays durably `"unresolved"` — eligible for reprocessing without a restart
+once the binding occurs, and swept on startup, but never part of the
+immediate drain loop, so an unresolved event can never spin. Every
+resolved observation is applied through Phase 1.1's monotonic,
+direction-aware `applyFaxObservation`, so out-of-order or duplicate
+delivery never regresses or double-applies state. `client_state` is
+treated as untrusted content even though the envelope is signed: it must
+be canonical base64 and decode to ForgeLink's own opaque correlation-token
+shape, or it is rejected without ever being logged.
+
+**Inbound events** (`fax.receiving.started`, `fax.media.processing.started`,
+`fax.received`) are authenticated and durably enqueued, then immediately
+classified `"deferred_inbound"` with **no local fax lookup, creation, or
+mutation of any kind**. This is a hard Phase 3/Phase 4 boundary, not an
+oversight — inbound fax reception and document acquisition (FAX-007) remain
+future work. Per Telnyx's own documentation, an inbound `fax.received`
+event's `media_url` is a signed link valid for only about ten minutes; it
+is held only as a bounded transient field on the ingress row and never
+becomes a durable `FaxDocumentRef` in this phase.
+
+An authentic event whose `event_type` is outside the allow-list above is
+durably classified `"unsupported"` and acknowledged — never guessed into
+lifecycle state. See
+`local-artifacts/phase3-telnyx-fax-webhook-contract.md` for the full event
+table, payload fields, ingress queue schema, and the deterministic race
+tests proving both webhook-before-POST-response and
+POST-response-before-webhook convergence.
+
 ## Current vs. future capability truth
 
 Implemented in Phase 2: separate Telnyx Fax configuration and secure
 storage, read-only readiness validation, the `TelnyxFaxProvider` adapter
 (send/status-mapping/cancel/reconcile), and `FaxSubmissionService`'s
-CAS-guarded outbound orchestration — all exercised only through deterministic
-mocked transport in this repository's test suite.
+CAS-guarded outbound orchestration.
 
-Not implemented yet: the public fax webhook route and inbound reception
-(Phase 3), the human Fax UI (Phase 5), MCP fax tools (Phase 6), the
-communication-firewall fax draft/approval flow (Phase 6), Tauri/mobile
-parity (Phase 7), and the live Telnyx acceptance gate (FAX-016). No fax has
-been sent through a live Telnyx account by any ForgeLink code as of this
-document.
+Implemented in Phase 3: the signed `/webhooks/telnyx/fax` ingress route,
+durable event queueing with enqueue-before-ack semantics, outbound event
+normalization and correlation, out-of-order/duplicate/restart-safe
+reconciliation, and authenticated-but-deferred handling of inbound events.
+
+All of the above is exercised only through deterministic mocked
+transport/signed-locally-generated-keypair fixtures in this repository's
+test suite — no live Telnyx account has been contacted.
+
+Not implemented yet: inbound fax document acquisition and local fax
+creation for received faxes (Phase 4, FAX-007), the human Fax UI
+(FAX-008), MCP fax tools (FAX-011), the communication-firewall fax
+draft/approval flow (FAX-010), Tauri/mobile parity, and the live Telnyx
+acceptance gate (FAX-016). No fax has been sent through a live Telnyx
+account by any ForgeLink code as of this document, and no inbound fax
+document has ever been downloaded from Telnyx.

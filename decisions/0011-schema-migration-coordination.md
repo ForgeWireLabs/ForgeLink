@@ -87,6 +87,7 @@ the table is the single place that says who owns what.
 | v29 | 041 FAX-003 | `faxes`, `fax_documents`, `fax_events` (provider-neutral fax transmission/document-reference/event-ledger persistence; no Telnyx-specific fields) | unreleased |
 | v30 | 041 FAX-003 (Phase 1.1) | rescopes `faxes.provider_fax_id` and `fax_events.event_id` from globally-unique to provider-scoped identity -- `(provider, provider_fax_id)` and `(provider, event_id)` -- so a second fax provider cannot collide with Telnyx's identifier space; preserves existing fax rows/documents/events | unreleased |
 | v31 | 041 FAX-005 (Phase 2) | `faxes.provider_correlation_token` (opaque, locally generated, globally unique) so a later signed provider webhook (Phase 3) can resolve `client_state` back to a local fax without exposing private local metadata | unreleased |
+| v32 | 041 FAX-006 (Phase 3) | `telnyx_fax_webhook_events` (provider-specific, signature-verified, durable webhook ingress queue -- distinct from the provider-neutral `fax_events` ledger; bounded extracted fields only, no raw payload retention) | unreleased |
 
 Future allocations are appended to this table as they land. 015's dependent
 channel-adapter items (018–024) and the governance/cockpit items (016/017) all

@@ -5,12 +5,14 @@ import { createServer, IncomingMessage, Server, ServerResponse } from "node:http
 import { promisify } from "node:util";
 import { extname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
-import { AGENT_CONTENT_PROVENANCE, AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, DecisionRecordRow, EvidencePack, FirewallBlockedError, isAuthorityScope, OutboundDraftRow, PhoneDatabase, redactEvidencePack, redactNotification, redactionProfile, REDACTION_PROFILES, TelnyxWebhookEventRow } from "./database";
+import { AGENT_CONTENT_PROVENANCE, AgentAction, AgentChannelRecord, AgentUrgency, AUTHORITY_SCOPES, DecisionRecordRow, EvidencePack, FirewallBlockedError, isAuthorityScope, OutboundDraftRow, PhoneDatabase, redactEvidencePack, redactNotification, redactionProfile, REDACTION_PROFILES, TelnyxFaxWebhookEventRow, TelnyxWebhookEventRow } from "./database";
 import { utcNow } from "./phone";
 import { fetchTrustedSignalFeed, sanitizeSignalError } from "./signals";
 import { createTwilioAdapter, createTwilioVoiceAdapter, endTwilioCall, loadTwilioConfig, sendTwilioMessage, startTwilioCall, validateTwilioSignature } from "./twilio";
 import { createChannelRegistry, PLANNED_PROVIDERS } from "./channels";
 import { createTelnyxAdapter, parseTelnyxWebhookEnvelope, sendTelnyxMessage, verifyTelnyxWebhook } from "./telnyx";
+import { loadTelnyxFaxConfig } from "./telnyx-fax";
+import { processTelnyxFaxWebhookEvent, parseTelnyxFaxWebhookEnvelope } from "./telnyx-fax-webhook";
 import { createEmailAdapter, EmailTransport, emailConfigured, emailInboundConfigured, emailQuickActionConfigured, validateEmailWebhookSignature, verifyQuickActionToken } from "./email";
 import { createPushAdapter, loadPushConfig, PushTransport, pushConfigured } from "./push";
 import { LocalIntegrationBoundary, LocalIntegrationConfig, LocalIntegrationRegistry, LocalIntegrationScope, LOCAL_INTEGRATION_SCOPES, loadLocalIntegrationConfig, LOCAL_INTEGRATION_MAX_BODY_BYTES } from "./localIntegrations";
@@ -437,6 +439,37 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         } catch { /* database may be closing */ }
       }
     });
+  };
+  // Telnyx Fax webhook ingress drain (work item 041, Phase 3: FAX-006).
+  // Deliberately separate from the SMS/MMS drain above: a different queue
+  // table, a different processor, and different completion states
+  // (including "unresolved"/"deferred_inbound", which are intentionally
+  // excluded from pendingTelnyxFaxWebhookEvents so this loop can never spin
+  // on work that is not supposed to resolve immediately).
+  let telnyxFaxDrainScheduled = false;
+  const scheduleTelnyxFaxWebhookDrain = (): void => {
+    if (backendClosing || telnyxFaxDrainScheduled) return;
+    telnyxFaxDrainScheduled = true;
+    setImmediate(() => {
+      try {
+        for (const row of database.pendingTelnyxFaxWebhookEvents(100)) processTelnyxFaxWebhookEvent(row, database);
+      } catch { /* a later startup can recover remaining pending events */ }
+      finally {
+        telnyxFaxDrainScheduled = false;
+        try {
+          if (!backendClosing && database.pendingTelnyxFaxWebhookEvents(1).length) scheduleTelnyxFaxWebhookDrain();
+        } catch { /* database may be closing */ }
+      }
+    });
+  };
+  // Restart recovery sweep: "unresolved" events (an outbound webhook that
+  // arrived before its provider fax id was ever bound) are not part of the
+  // immediate drain trigger above, so they are swept once here on backend
+  // startup in case the binding has since become available by any means.
+  const drainUnresolvedTelnyxFaxWebhookEvents = (): void => {
+    try {
+      for (const row of database.unresolvedTelnyxFaxWebhookEvents(100)) processTelnyxFaxWebhookEvent(row, database);
+    } catch { /* a later startup can recover remaining unresolved events */ }
   };
   // Email internet channel (work item 018, EMAIL-003): registered only when SMTP is
   // configured. Provider-neutral; a fallback/long-form channel, never the default
@@ -1775,6 +1808,52 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         scheduleTelnyxWebhookDrain();
         return sendJson(response, { ok: true, queued, duplicate: !queued });
       }
+      if (request.method === "POST" && url.pathname === "/webhooks/telnyx/fax") {
+        // Dedicated Telnyx Fax webhook route (work item 041, Phase 3:
+        // FAX-006) -- never routed through the SMS/MMS parser above, and
+        // signed with the Fax configuration family's own public key
+        // (TELNYX_FAX_PUBLIC_KEY), never a silent fallback to the SMS/MMS
+        // TELNYX_PUBLIC_KEY even though the underlying Telnyx account may
+        // use the same actual key. Exact order: bounded raw body -> headers
+        // -> Ed25519 + freshness verification -> JSON parse -> bounded
+        // envelope validation -> durable enqueue -> acknowledgement. An
+        // invalid signature, a stale timestamp, or a malformed authentic
+        // body all fail closed before any enqueue; a database/enqueue
+        // failure returns non-success so Telnyx retries; only a successful
+        // durable enqueue (new or idempotent-duplicate) is acknowledged.
+        const raw = (await readBody(request, 64 * 1024)).toString("utf8");
+        const timestamp = String(request.headers["telnyx-timestamp"] || "");
+        const signature = String(request.headers["telnyx-signature-ed25519"] || "");
+        const verification = verifyTelnyxWebhook(raw, timestamp, signature, loadTelnyxFaxConfig().publicKey);
+        if (!verification.ok) return sendJson(response, { error: "Invalid Telnyx signature" }, 403);
+        let event: unknown;
+        try { event = JSON.parse(raw); } catch { return sendJson(response, { error: "Invalid payload" }, 400); }
+        const envelope = parseTelnyxFaxWebhookEnvelope(event);
+        if (!envelope) return sendJson(response, { error: "Invalid Telnyx fax event envelope" }, 400);
+        try {
+          const queued = database.enqueueTelnyxFaxWebhookEvent({
+            event_id: envelope.eventId,
+            event_type: envelope.eventType,
+            occurred_at: envelope.occurredAt,
+            received_at: utcNow(),
+            signed_at: verification.signedAt,
+            attempt: envelope.attempt,
+            provider_fax_id: envelope.providerFaxId,
+            direction: envelope.direction || "",
+            client_state: envelope.clientState,
+            page_count: envelope.pageCount,
+            failure_category: envelope.failureCategory,
+            transient_media_url: envelope.transientMediaUrl,
+            delivery_target_hash: envelope.deliveredTo ? sha256(envelope.deliveredTo) : "",
+            payload_sha256: sha256(raw)
+          });
+          scheduleTelnyxFaxWebhookDrain();
+          return sendJson(response, { ok: true, queued, duplicate: !queued });
+        } catch {
+          // Durable enqueue failed -- do not acknowledge; Telnyx should retry.
+          return sendJson(response, { error: "Could not durably queue the event" }, 503);
+        }
+      }
       // Inbound email via a signed provider webhook (work item 018, EMAIL-004).
       // Disabled unless an inbound secret is configured; HMAC-signed over the raw
       // body. Normalizes, dedups by provider message id, and resolves the contact.
@@ -1821,6 +1900,8 @@ export function createBackend(options: BackendOptions): { server: Server; databa
     }
   });
   scheduleTelnyxWebhookDrain();
+  scheduleTelnyxFaxWebhookDrain();
+  drainUnresolvedTelnyxFaxWebhookEvents();
   server.on("close", () => {
     backendClosing = true;
     database.close();
