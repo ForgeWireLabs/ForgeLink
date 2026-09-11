@@ -32,7 +32,7 @@ import {
 } from "./signals";
 import { CLOUD_SUMMARY_DISABLED, SUMMARY_CONTENT_TRUST, SUMMARY_NOTICE, SUMMARY_PROVENANCE, summarizeThread, ThreadSummary } from "./summary";
 
-export const CURRENT_SCHEMA_VERSION = 33;
+export const CURRENT_SCHEMA_VERSION = 34;
 
 // --- Fax (work item 041, Phase 1: FAX-003; Phase 1.1 hardening) -------------
 // Durable fax state is its own domain -- not a disguised SMS row. `faxes` is
@@ -75,6 +75,19 @@ export interface FaxInput {
   retention_policy?: string;
 }
 
+// Document acquisition state (work item 041, Phase 4: FAX-007) -- answers
+// "do we have a safe durable local copy of the document", deliberately
+// separate from FaxState (`state`), which answers "what happened to the
+// transmission". A received fax whose document could not be safely
+// downloaded/validated is never retroactively reported as a failed
+// transmission; document acquisition success never fabricates a transport
+// observation the provider did not report. 'not_required' is correct for
+// every outbound fax and for an inbound fax that needs no document (e.g.
+// a failed inbound transmission). See fax-inbound-acquisition.ts for the
+// full state machine (pending -> acquiring -> available/retryable/
+// quarantined/unavailable).
+export type FaxDocumentAcquisitionState = "not_required" | "pending" | "acquiring" | "available" | "retryable" | "quarantined" | "unavailable" | "deleted";
+
 export interface FaxRow {
   id: number;
   local_fax_id: string;
@@ -95,6 +108,7 @@ export interface FaxRow {
   redacted_error: string;
   retention_policy: string;
   provider_correlation_token: string | null;
+  document_acquisition_state: FaxDocumentAcquisitionState;
   created_at: string;
   submitted_at: string | null;
   accepted_at: string | null;
@@ -191,12 +205,23 @@ export class FaxIdentityConflictError extends Error {
 //                       occurs, and swept on startup -- never part of the
 //                       "keep draining immediately" trigger, so this can
 //                       never become a hot loop
-//   deferred_inbound -- authentic inbound event, intentionally not processed
-//                       further in Phase 3 (inbound reception is Phase 4)
+//   deferred_inbound -- authentic inbound event, durably queued for the
+//                       dedicated inbound processor (Phase 4); never
+//                       touched by the ordinary immediate drain, so
+//                       draining pending events can never trigger a
+//                       network download
+//   inbound_applied  -- (Phase 4) a deferred_inbound event has been
+//                       synchronized into a local inbound fax (identity
+//                       ensured, transport observation applied, document
+//                       acquisition claimed/updated as applicable); terminal
+//   foreign_connection -- (Phase 4) authentic event, but its connection_id
+//                       does not match the configured Fax Application --
+//                       outside ForgeLink's configured resource boundary;
+//                       never creates/mutates a local fax; terminal
 //   unsupported      -- authentic event whose type is not in the allow-list
 //   resolved         -- applied to a local fax via the normalized ledger
 //   failed           -- processing itself failed (e.g. direction mismatch)
-export type TelnyxFaxWebhookEventStatus = "pending" | "unresolved" | "deferred_inbound" | "unsupported" | "resolved" | "failed";
+export type TelnyxFaxWebhookEventStatus = "pending" | "unresolved" | "deferred_inbound" | "inbound_applied" | "foreign_connection" | "unsupported" | "resolved" | "failed";
 
 export interface TelnyxFaxWebhookEventInput {
   event_id: string;
@@ -217,6 +242,17 @@ export interface TelnyxFaxWebhookEventInput {
   transient_media_expires_at: string;
   delivery_target_hash: string;
   payload_sha256: string;
+  // Phase 4 (FAX-007): the bounded provider metadata inbound reception
+  // actually needs -- Phase 3 deliberately minimized this shape. '' when
+  // absent; existing pre-Phase-4 rows have these blank after migration.
+  connection_id: string;
+  from_number: string;
+  to_number: string;
+  // Telnyx's own documented semantics for `partial_content` were not
+  // frozen by this phase (see the Phase 4 contract artifact) -- preserved
+  // as an informational/provider condition only, never translated into a
+  // completeness/corruption judgment. null when absent/unrecognized.
+  partial_content: number | null;
 }
 
 export interface TelnyxFaxWebhookEventRow extends TelnyxFaxWebhookEventInput {
@@ -237,6 +273,46 @@ export interface TelnyxFaxWebhookEventPageRow extends TelnyxFaxWebhookEventRow {
 }
 
 export type FaxProviderBindingOutcome = "bound" | "already_bound" | "conflict" | "not_found";
+
+// Durable inbound document acquisition authority (work item 041, Phase 4:
+// FAX-007). One row per (provider, provider_fax_id) -- the primary key is
+// the concurrency guard ensuring at most one active acquisition authority
+// exists per inbound provider fax, so a duplicate fax.received webhook can
+// never start a second, concurrent download. Restart-safe: state and
+// attempt bookkeeping live here, not in memory.
+//   pending     -- claimed identity exists, download not yet attempted
+//   acquiring   -- claimed by a worker; a stale claim (updated_at too old)
+//                  is recoverable by the restart sweep
+//   available   -- committed to the managed store; managed_document_id and
+//                  content_sha256/byte_size/content_type are set; terminal
+//   retryable   -- a recoverable failure (network/expired URL/HTTP 5xx or
+//                  429/temporary provider GET failure); next_retry_at set
+//   quarantined -- downloaded bytes failed content validation (not PDF,
+//                  oversized, content-type contradiction); terminal for
+//                  this artifact, never treated as a transport failure
+//   unavailable -- retryable attempts exhausted; terminal, not an error
+export type FaxInboundAcquisitionState = "pending" | "acquiring" | "available" | "retryable" | "quarantined" | "unavailable";
+
+export interface FaxInboundAcquisitionRow {
+  provider: string;
+  provider_fax_id: string;
+  local_fax_id: string;
+  source_event_id: string;
+  state: FaxInboundAcquisitionState;
+  attempt_count: number;
+  next_retry_at: string | null;
+  last_safe_error: string;
+  source_kind: string;
+  source_reference: string;
+  source_reference_expiry: string;
+  managed_document_id: string | null;
+  content_sha256: string;
+  byte_size: number | null;
+  content_type: string;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
 
 export interface ThreadRow {
   id: number;
@@ -2036,6 +2112,71 @@ export class PhoneDatabase {
         version = 33;
         this.connection.exec("PRAGMA user_version=33");
       }
+      if (version === 33) {
+        // Inbound fax reception (work item 041, Phase 4: FAX-007).
+        //
+        // 1. Extends the ingress row with the bounded provider metadata
+        //    actually required to create a durable local inbound fax
+        //    identity and to validate Fax Application ownership --
+        //    Phase 3 deliberately minimized this shape.
+        //    Existing deferred_inbound rows from Phase 3/3.1 will have
+        //    these new columns blank after this migration; Phase 4's
+        //    inbound processor treats that honestly (see fax-inbound.ts)
+        //    rather than fabricating values.
+        // 2. Adds faxes.document_acquisition_state: a column deliberately
+        //    SEPARATE from `state` (FaxState/transport lifecycle). `state`
+        //    answers "what happened to the transmission"; this column
+        //    answers "do we have a safe durable local copy of the
+        //    document" -- a received fax whose PDF could not be
+        //    downloaded/validated must never be reported as a failed
+        //    transmission, and a successful download must never fabricate
+        //    a transport observation. 'not_required' is the default for
+        //    every existing row (correct for all outbound faxes, and for
+        //    any inbound fax that never needs a document, e.g. a failed
+        //    inbound transmission).
+        // 3. Adds fax_inbound_acquisitions: the durable, restart-safe
+        //    acquisition/job authority for inbound document fetch, keyed
+        //    by (provider, provider_fax_id) so at most one active
+        //    acquisition authority exists per inbound provider fax and a
+        //    duplicate fax.received webhook can never start a second,
+        //    concurrent download. Deliberately not reusing fax_documents
+        //    for job/attempt tracking -- fax_documents remains the
+        //    Fax-domain *association* record for a completed artifact.
+        this.connection.exec(`
+          ALTER TABLE telnyx_fax_webhook_events ADD COLUMN connection_id TEXT NOT NULL DEFAULT '';
+          ALTER TABLE telnyx_fax_webhook_events ADD COLUMN from_number TEXT NOT NULL DEFAULT '';
+          ALTER TABLE telnyx_fax_webhook_events ADD COLUMN to_number TEXT NOT NULL DEFAULT '';
+          ALTER TABLE telnyx_fax_webhook_events ADD COLUMN partial_content INTEGER;
+          ALTER TABLE faxes ADD COLUMN document_acquisition_state TEXT NOT NULL DEFAULT 'not_required';
+          CREATE TABLE IF NOT EXISTS fax_inbound_acquisitions (
+            provider TEXT NOT NULL,
+            provider_fax_id TEXT NOT NULL,
+            local_fax_id TEXT NOT NULL REFERENCES faxes(local_fax_id) ON DELETE CASCADE,
+            source_event_id TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'pending',
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            next_retry_at TEXT,
+            last_safe_error TEXT NOT NULL DEFAULT '',
+            source_kind TEXT NOT NULL DEFAULT '',
+            source_reference TEXT NOT NULL DEFAULT '',
+            source_reference_expiry TEXT NOT NULL DEFAULT '',
+            managed_document_id TEXT,
+            content_sha256 TEXT NOT NULL DEFAULT '',
+            byte_size INTEGER,
+            content_type TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            PRIMARY KEY (provider, provider_fax_id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_fax_inbound_acquisitions_state
+            ON fax_inbound_acquisitions(state, next_retry_at);
+          CREATE INDEX IF NOT EXISTS idx_fax_inbound_acquisitions_local_fax
+            ON fax_inbound_acquisitions(local_fax_id);
+        `);
+        version = 34;
+        this.connection.exec("PRAGMA user_version=34");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -2817,8 +2958,9 @@ export class PhoneDatabase {
         event_id, event_type, occurred_at, received_at, signed_at, attempt,
         provider_fax_id, direction, client_state, page_count, failure_category,
         transient_media_url, transient_media_expires_at, delivery_target_hash, payload_sha256,
+        connection_id, from_number, to_number, partial_content,
         processing_status, created_at
-      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
     `).run(
       String(input.event_id),
       String(input.event_type),
@@ -2835,9 +2977,24 @@ export class PhoneDatabase {
       String(input.transient_media_expires_at || ""),
       String(input.delivery_target_hash || ""),
       String(input.payload_sha256 || ""),
+      String(input.connection_id || ""),
+      String(input.from_number || ""),
+      String(input.to_number || ""),
+      input.partial_content ?? null,
       now
     ).changes;
     return Number(changes) === 1;
+  }
+
+  // Clears the transient media URL/expiry on exactly one ingress row --
+  // used once Phase 4 has successfully committed the corresponding local
+  // managed document (work item 041, Phase 4: FAX-007), so a fully
+  // acquired row does not wait for the bulk expiry sweep
+  // (clearExpiredTelnyxFaxTransientMedia) to stop carrying a now-unneeded
+  // signed URL. Leaves every other field on the row untouched.
+  clearTelnyxFaxWebhookEventTransientMedia(eventId: string): void {
+    this.connection.prepare("UPDATE telnyx_fax_webhook_events SET transient_media_url='', transient_media_expires_at='' WHERE event_id=?")
+      .run(String(eventId));
   }
 
   // Freshly-enqueued rows only. "unresolved"/"deferred_inbound" rows are
@@ -2915,6 +3072,178 @@ export class PhoneDatabase {
     return Number(changes) || 0;
   }
 
+  // --- Inbound fax reception (work item 041, Phase 4: FAX-007) -----------
+  // Cursor-paginated sweep of deferred_inbound rows, mirroring
+  // unresolvedTelnyxFaxWebhookEventsPage's rowid-cursor design: the
+  // dedicated inbound processor (fax-inbound.ts, driven by server.ts)
+  // walks the entire deferred_inbound backlog in bounded pages rather than
+  // repeatedly re-querying the same first page. This sweep only ever does
+  // DB-only identity/observation work -- see fax-inbound.ts -- never a
+  // network download; the separate fax_inbound_acquisitions worker owns
+  // that.
+  deferredInboundTelnyxFaxWebhookEventsPage(afterRowId: number, limit = 100): TelnyxFaxWebhookEventPageRow[] {
+    const bounded = Math.max(1, Math.min(Number(limit) || 100, 500));
+    return this.connection.prepare("SELECT rowid AS rowid, * FROM telnyx_fax_webhook_events WHERE processing_status='deferred_inbound' AND rowid > ? ORDER BY rowid ASC LIMIT ?")
+      .all(Number(afterRowId) || 0, bounded) as unknown as TelnyxFaxWebhookEventPageRow[];
+  }
+
+  setFaxDocumentAcquisitionState(localFaxId: string, state: FaxDocumentAcquisitionState): void {
+    this.connection.prepare("UPDATE faxes SET document_acquisition_state=?, updated_at=? WHERE local_fax_id=?")
+      .run(state, utcNow(), String(localFaxId));
+  }
+
+  // Atomic, idempotent local inbound fax identity (work item 041, Phase 4:
+  // FAX-007). (provider, provider_fax_id) is the sole identity authority --
+  // never phone number/timestamp heuristics. Returns the existing local
+  // fax id if one already exists for this provider identity (an inbound
+  // fax, never mutating its own already-known communication metadata away
+  // from a real value -- only filling in a currently-blank from/to from a
+  // later, more complete event); returns null on a genuine identity
+  // conflict (the same provider_fax_id already bound to a fax of the
+  // *other* direction) rather than guessing. A fresh local_fax_id is
+  // always randomly generated here, so the only way createFax can throw is
+  // a genuine (provider, provider_fax_id) race with another writer, which
+  // is recovered by re-reading rather than propagating the error.
+  ensureInboundFax(input: { provider: string; providerFaxId: string; fromNumber: string; toNumber: string }): string | null {
+    const provider = String(input.provider);
+    const providerFaxId = String(input.providerFaxId);
+    if (!providerFaxId) return null;
+    const existing = this.faxByProviderFaxId(provider, providerFaxId);
+    if (existing) {
+      if (existing.direction !== "inbound") return null;
+      const sets: string[] = [];
+      const params: Array<string> = [];
+      if (!existing.from_number && input.fromNumber) { sets.push("from_number=?"); params.push(input.fromNumber); }
+      if (!existing.to_number && input.toNumber) { sets.push("to_number=?"); params.push(input.toNumber); }
+      if (sets.length) {
+        sets.push("updated_at=?"); params.push(utcNow());
+        this.connection.prepare(`UPDATE faxes SET ${sets.join(", ")} WHERE local_fax_id=?`).run(...params, existing.local_fax_id);
+      }
+      return existing.local_fax_id;
+    }
+    const localFaxId = `fax-${randomUUID()}`;
+    try {
+      this.createFax({
+        local_fax_id: localFaxId,
+        direction: "inbound",
+        provider,
+        provider_fax_id: providerFaxId,
+        from_number: input.fromNumber || null,
+        to_number: input.toNumber || ""
+      });
+      return localFaxId;
+    } catch {
+      const recheck = this.faxByProviderFaxId(provider, providerFaxId);
+      return recheck && recheck.direction === "inbound" ? recheck.local_fax_id : null;
+    }
+  }
+
+  // Claims/creates the durable acquisition authority for exactly one
+  // inbound provider fax (work item 041, Phase 4: FAX-007). Idempotent by
+  // design: a duplicate fax.received webhook for the same provider fax
+  // calls this again harmlessly -- INSERT OR IGNORE means only the first
+  // call ever creates the row (and only the first call sets
+  // faxes.document_acquisition_state to 'pending'); a second call is a
+  // pure no-op regardless of the acquisition's current state, so it can
+  // never reset an in-flight or completed acquisition back to pending.
+  claimInboundFaxAcquisition(input: { provider: string; providerFaxId: string; localFaxId: string; sourceEventId: string; transientMediaUrl: string; transientMediaExpiresAt: string }): void {
+    const now = utcNow();
+    const changes = this.connection.prepare(`
+      INSERT OR IGNORE INTO fax_inbound_acquisitions(
+        provider, provider_fax_id, local_fax_id, source_event_id, state, attempt_count,
+        last_safe_error, source_kind, source_reference, source_reference_expiry,
+        managed_document_id, content_sha256, byte_size, content_type,
+        created_at, updated_at
+      ) VALUES(?, ?, ?, ?, 'pending', 0, '', '', ?, ?, NULL, '', NULL, '', ?, ?)
+    `).run(
+      String(input.provider), String(input.providerFaxId), String(input.localFaxId), String(input.sourceEventId),
+      String(input.transientMediaUrl || ""), String(input.transientMediaExpiresAt || ""), now, now
+    ).changes;
+    if (Number(changes) === 1) this.setFaxDocumentAcquisitionState(input.localFaxId, "pending");
+  }
+
+  faxInboundAcquisitionByProviderFaxId(provider: string, providerFaxId: string): FaxInboundAcquisitionRow | undefined {
+    return this.connection.prepare("SELECT * FROM fax_inbound_acquisitions WHERE provider=? AND provider_fax_id=?").get(String(provider), String(providerFaxId)) as FaxInboundAcquisitionRow | undefined;
+  }
+
+  // Bounded, restart-safe claim of exactly one due acquisition (pending, or
+  // retryable whose next_retry_at has passed). A CAS-style conditional
+  // UPDATE (WHERE state=<observed prior state>) is the concurrency guard;
+  // this codebase's single-threaded synchronous SQLite means a same-process
+  // race cannot actually occur, but the guard costs nothing and protects
+  // against a second app instance sharing the same database file.
+  claimNextInboundFaxAcquisition(now: string): FaxInboundAcquisitionRow | undefined {
+    const candidate = this.connection.prepare(`
+      SELECT * FROM fax_inbound_acquisitions
+      WHERE state='pending' OR (state='retryable' AND (next_retry_at IS NULL OR next_retry_at='' OR next_retry_at <= ?))
+      ORDER BY created_at ASC LIMIT 1
+    `).get(String(now)) as FaxInboundAcquisitionRow | undefined;
+    if (!candidate) return undefined;
+    const changes = this.connection.prepare("UPDATE fax_inbound_acquisitions SET state='acquiring', updated_at=? WHERE provider=? AND provider_fax_id=? AND state=?")
+      .run(String(now), candidate.provider, candidate.provider_fax_id, candidate.state).changes;
+    if (Number(changes) !== 1) return undefined;
+    if (candidate.local_fax_id) this.setFaxDocumentAcquisitionState(candidate.local_fax_id, "acquiring");
+    return { ...candidate, state: "acquiring" };
+  }
+
+  completeInboundFaxAcquisition(input: {
+    provider: string; providerFaxId: string;
+    state: FaxInboundAcquisitionState;
+    sourceKind?: string; sourceReference?: string; sourceReferenceExpiry?: string;
+    managedDocumentId?: string; contentSha256?: string; byteSize?: number; contentType?: string;
+    lastSafeError?: string; nextRetryAt?: string | null; incrementAttempt?: boolean;
+  }): void {
+    const now = utcNow();
+    const row = this.faxInboundAcquisitionByProviderFaxId(input.provider, input.providerFaxId);
+    if (!row) return;
+    this.connection.prepare(`
+      UPDATE fax_inbound_acquisitions SET
+        state=?,
+        attempt_count=attempt_count + ?,
+        next_retry_at=?,
+        last_safe_error=?,
+        source_kind=COALESCE(?, source_kind),
+        source_reference=COALESCE(?, source_reference),
+        source_reference_expiry=COALESCE(?, source_reference_expiry),
+        managed_document_id=COALESCE(?, managed_document_id),
+        content_sha256=COALESCE(?, content_sha256),
+        byte_size=COALESCE(?, byte_size),
+        content_type=COALESCE(?, content_type),
+        updated_at=?,
+        completed_at=CASE WHEN ? THEN ? ELSE completed_at END
+      WHERE provider=? AND provider_fax_id=?
+    `).run(
+      input.state,
+      input.incrementAttempt ? 1 : 0,
+      input.nextRetryAt ?? null,
+      (input.lastSafeError ?? "").slice(0, 200),
+      input.sourceKind ?? null,
+      input.sourceReference ?? null,
+      input.sourceReferenceExpiry ?? null,
+      input.managedDocumentId ?? null,
+      input.contentSha256 ?? null,
+      input.byteSize ?? null,
+      input.contentType ?? null,
+      now,
+      input.state === "available" || input.state === "quarantined" || input.state === "unavailable" ? 1 : 0, now,
+      input.provider, input.providerFaxId
+    );
+    if (row.local_fax_id) this.setFaxDocumentAcquisitionState(row.local_fax_id, input.state);
+  }
+
+  // Restart recovery: an acquisition claimed 'acquiring' but never
+  // completed (the worker crashed mid-download) is recoverable -- reset to
+  // 'retryable' so the ordinary claim loop picks it up again. Bounded by a
+  // staleness threshold (updated_at older than `staleBeforeIso`) so an
+  // acquisition genuinely in progress right now is never stolen.
+  recoverStaleInboundFaxAcquisitions(staleBeforeIso: string): number {
+    const changes = this.connection.prepare(`
+      UPDATE fax_inbound_acquisitions SET state='retryable', next_retry_at=NULL, updated_at=?
+      WHERE state='acquiring' AND updated_at < ?
+    `).run(utcNow(), String(staleBeforeIso)).changes;
+    return Number(changes) || 0;
+  }
+
   createFaxDocument(input: FaxDocumentInput): { id: string; created: boolean } {
     if (!this.faxByLocalId(input.fax_id)) throw new Error("Fax not found.");
     const id = String(input.id || `fax-doc-${randomUUID()}`).slice(0, 120);
@@ -2943,6 +3272,22 @@ export class PhoneDatabase {
 
   faxDocumentsByFaxId(faxId: string): FaxDocumentRow[] {
     return this.connection.prepare("SELECT * FROM fax_documents WHERE fax_id=? ORDER BY created_at ASC").all(String(faxId)) as unknown as FaxDocumentRow[];
+  }
+
+  // Explicit deletion primitive (work item 041, Phase 4: FAX-007). Marks
+  // the association row deleted (retention_state/deleted_at) -- a durable
+  // record that a document once existed is preserved as minimal delivery
+  // evidence, matching fax_documents' existing soft-delete convention.
+  // Returns the row's local_ref so the caller (the managed document store)
+  // can remove the underlying bytes; returns undefined if already deleted
+  // or not found, so a caller never attempts to delete a shared/already-
+  // gone artifact twice. This method never touches unrelated documents and
+  // never mutates the parent fax's own transport state.
+  deleteFaxDocument(id: string): { local_ref: string } | undefined {
+    const row = this.faxDocumentById(id);
+    if (!row || row.retention_state === "deleted") return undefined;
+    this.connection.prepare("UPDATE fax_documents SET retention_state='deleted', deleted_at=? WHERE id=?").run(utcNow(), String(id));
+    return { local_ref: row.local_ref };
   }
 
   // Durable, provider-neutral NORMALIZED fax event ledger (not the future

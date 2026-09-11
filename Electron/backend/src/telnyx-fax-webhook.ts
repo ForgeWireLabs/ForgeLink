@@ -150,6 +150,16 @@ export interface TelnyxFaxWebhookEnvelope {
   transientMediaExpiresAt: string;
   attempt: number;
   deliveredTo: string;
+  // Phase 4 (FAX-007): bounded provider metadata inbound reception
+  // actually needs -- see the Phase 4 contract for why only these four.
+  // '' / null when absent.
+  connectionId: string;
+  fromNumber: string;
+  toNumber: string;
+  // Telnyx's current documented semantics for `partial_content` were not
+  // frozen by this phase; preserved only as an informational/provider
+  // condition. null when absent or not a recognizable boolean-ish value.
+  partialContent: number | null;
 }
 
 interface TelnyxFaxWebhookBody {
@@ -165,6 +175,10 @@ interface TelnyxFaxWebhookBody {
       page_count?: number | string;
       failure_reason?: string;
       media_url?: string;
+      connection_id?: string;
+      from?: string;
+      to?: string;
+      partial_content?: boolean | number | string;
     };
   };
   meta?: { attempt?: number | string; delivered_to?: string };
@@ -208,10 +222,23 @@ export function parseTelnyxFaxWebhookEnvelope(event: unknown): TelnyxFaxWebhookE
   const attempt = Number.isInteger(rawAttempt) && rawAttempt >= 0 && rawAttempt <= 100 ? rawAttempt : 0;
   const deliveredTo = typeof value.meta?.delivered_to === "string" ? value.meta.delivered_to.trim().slice(0, 2048) : "";
 
+  const connectionId = typeof payload.connection_id === "string" ? payload.connection_id.trim().slice(0, 120) : "";
+  const fromNumber = typeof payload.from === "string" ? payload.from.trim().slice(0, 32) : "";
+  const toNumber = typeof payload.to === "string" ? payload.to.trim().slice(0, 32) : "";
+  const rawPartialContent = payload.partial_content;
+  const partialContent = typeof rawPartialContent === "boolean" ? (rawPartialContent ? 1 : 0)
+    : rawPartialContent === "true" ? 1 : rawPartialContent === "false" ? 0
+    : rawPartialContent === 1 || rawPartialContent === 0 ? rawPartialContent
+    : null;
+
   return {
     eventId,
     eventType,
     occurredAt,
+    connectionId,
+    fromNumber,
+    toNumber,
+    partialContent,
     providerFaxId,
     direction,
     clientState,

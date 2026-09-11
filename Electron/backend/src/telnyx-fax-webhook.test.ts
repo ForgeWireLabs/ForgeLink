@@ -162,7 +162,7 @@ function ingressRow(overrides: Partial<TelnyxFaxWebhookEventRow> = {}): TelnyxFa
     event_id: "evt-1", event_type: "fax.queued", occurred_at: "2026-09-11T12:00:00.000Z",
     received_at: "2026-09-11T12:00:01.000Z", signed_at: "2026-09-11T12:00:00.000Z", attempt: 1,
     provider_fax_id: "provider-fax-1", direction: "outbound", client_state: "", page_count: null,
-    failure_category: "", transient_media_url: "", transient_media_expires_at: "", delivery_target_hash: "", payload_sha256: "hash-1",
+    failure_category: "", connection_id: "", from_number: "", to_number: "", partial_content: null, transient_media_url: "", transient_media_expires_at: "", delivery_target_hash: "", payload_sha256: "hash-1",
     local_fax_id: null, processing_status: "pending", bounded_error: "", processed_at: null,
     created_at: "2026-09-11T12:00:01.000Z", ...overrides
   };

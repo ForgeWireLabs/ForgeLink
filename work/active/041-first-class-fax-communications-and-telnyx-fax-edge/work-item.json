@@ -86,8 +86,10 @@
     {
       "id": "FAX-007",
       "text": "Implement inbound fax reception and managed local document acquisition with authenticated download, strict media/resource validation, opaque local references, quarantine/failure behavior, retention, deletion, backup/export, and recovery semantics.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": [
+        "20260910-fax-phase4-inbound-acquisition"
+      ]
     },
     {
       "id": "FAX-008",

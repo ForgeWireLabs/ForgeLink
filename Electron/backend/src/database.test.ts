@@ -1812,23 +1812,29 @@ test("TXE-002: Telnyx webhook ledger deduplicates, orders, and clears processed 
 // reconciliation, provider-scoped identity, and idempotency-vs-conflict
 // behavior, in isolation.
 
-test("FAX-003/FAX-005/FAX-006: fresh schema reaches v33 and includes fax tables plus the Telnyx Fax webhook ingress queue with its transient-media expiry column", () => {
+test("FAX-003/FAX-005/FAX-006/FAX-007: fresh schema reaches v34 and includes fax tables plus the Telnyx Fax webhook ingress queue, transient-media expiry column, and inbound acquisition table", () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-fresh-"));
   const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
   try {
-    assert.equal(CURRENT_SCHEMA_VERSION, 33);
-    assert.equal(database.state.schemaVersion, 33);
+    assert.equal(CURRENT_SCHEMA_VERSION, 34);
+    assert.equal(database.state.schemaVersion, 34);
     const tables = new Set((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
     assert.equal(tables.has("faxes"), true);
     assert.equal(tables.has("fax_documents"), true);
     assert.equal(tables.has("fax_events"), true);
     assert.equal(tables.has("telnyx_fax_webhook_events"), true);
+    assert.equal(tables.has("fax_inbound_acquisitions"), true);
     const eventColumns = new Set((database.connection.prepare("PRAGMA table_info(fax_events)").all() as Array<{ name: string }>).map((c) => c.name));
     assert.equal(eventColumns.has("provider"), true);
     const faxColumns = new Set((database.connection.prepare("PRAGMA table_info(faxes)").all() as Array<{ name: string }>).map((c) => c.name));
     assert.equal(faxColumns.has("provider_correlation_token"), true);
+    assert.equal(faxColumns.has("document_acquisition_state"), true);
     const webhookEventColumns = new Set((database.connection.prepare("PRAGMA table_info(telnyx_fax_webhook_events)").all() as Array<{ name: string }>).map((c) => c.name));
     assert.equal(webhookEventColumns.has("transient_media_expires_at"), true);
+    assert.equal(webhookEventColumns.has("connection_id"), true);
+    assert.equal(webhookEventColumns.has("from_number"), true);
+    assert.equal(webhookEventColumns.has("to_number"), true);
+    assert.equal(webhookEventColumns.has("partial_content"), true);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -2040,6 +2046,8 @@ test("FAX-006: migrates a v31 database to v32, adding the Telnyx Fax webhook ing
   const legacy = new DatabaseSync(path);
   legacy.exec(`
     DROP TABLE IF EXISTS telnyx_fax_webhook_events;
+    DROP TABLE IF EXISTS fax_inbound_acquisitions;
+    ALTER TABLE faxes DROP COLUMN document_acquisition_state;
     PRAGMA user_version=31;
   `);
   legacy.close();
@@ -2064,7 +2072,7 @@ test("FAX-006: migrates a v32 database to v33, adding the transient-media expiry
     event_id: "evt-v32-survivor", event_type: "fax.queued", occurred_at: "2026-09-10T12:00:00.000Z",
     received_at: "2026-09-10T12:00:01.000Z", signed_at: "2026-09-10T12:00:00.000Z", attempt: 1,
     provider_fax_id: "provider-fax-v32", direction: "outbound", client_state: "", page_count: null,
-    failure_category: "", transient_media_url: "", transient_media_expires_at: "", delivery_target_hash: "", payload_sha256: "hash-v32"
+    failure_category: "", connection_id: "", from_number: "", to_number: "", partial_content: null, transient_media_url: "", transient_media_expires_at: "", delivery_target_hash: "", payload_sha256: "hash-v32"
   });
   database.close();
 
@@ -2108,6 +2116,8 @@ test("FAX-006: migrates a v32 database to v33, adding the transient-media expiry
     FROM telnyx_fax_webhook_events;
     DROP TABLE telnyx_fax_webhook_events;
     ALTER TABLE telnyx_fax_webhook_events_v32 RENAME TO telnyx_fax_webhook_events;
+    DROP TABLE IF EXISTS fax_inbound_acquisitions;
+    ALTER TABLE faxes DROP COLUMN document_acquisition_state;
     PRAGMA user_version=32;
   `);
   legacy.close();
@@ -2123,6 +2133,44 @@ test("FAX-006: migrates a v32 database to v33, adding the transient-media expiry
     assert.equal(row.transient_media_expires_at, "", "the new column defaults to '' for a pre-existing row, never NULL");
     assert.equal(row.event_type, "fax.queued");
     assert.equal(database.faxByLocalId("fax-v32-survivor")!.to_number, "+15557654321");
+  } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-007: migrates a v33 database to v34, adding inbound reception columns/table without losing existing outbound fax data", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-v33-upgrade-"));
+  const path = join(directory, "phone.sqlite3");
+  let database: PhoneDatabase | undefined = new PhoneDatabase(path);
+  database.createFax({ local_fax_id: "fax-v33-survivor", direction: "outbound", to_number: "+15557654321", provider: "telnyx", provider_fax_id: "provider-fax-v33" });
+  database.close();
+
+  // v33 -> v34 is a set of pure additive ALTER TABLE ADD COLUMN statements
+  // plus one new table, so downgrading only needs to drop the new table and
+  // the new faxes column.
+  const legacy = new DatabaseSync(path);
+  legacy.exec(`
+    DROP TABLE IF EXISTS fax_inbound_acquisitions;
+    ALTER TABLE faxes DROP COLUMN document_acquisition_state;
+    ALTER TABLE telnyx_fax_webhook_events DROP COLUMN connection_id;
+    ALTER TABLE telnyx_fax_webhook_events DROP COLUMN from_number;
+    ALTER TABLE telnyx_fax_webhook_events DROP COLUMN to_number;
+    ALTER TABLE telnyx_fax_webhook_events DROP COLUMN partial_content;
+    PRAGMA user_version=33;
+  `);
+  legacy.close();
+
+  database = new PhoneDatabase(path);
+  try {
+    assert.equal(database.state.schemaVersion, CURRENT_SCHEMA_VERSION);
+    assert.ok(database.state.migrationBackup && existsSync(database.state.migrationBackup));
+    const tables = new Set((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
+    assert.equal(tables.has("fax_inbound_acquisitions"), true);
+    const faxColumns = new Set((database.connection.prepare("PRAGMA table_info(faxes)").all() as Array<{ name: string }>).map((c) => c.name));
+    assert.equal(faxColumns.has("document_acquisition_state"), true);
+    const fax = database.faxByLocalId("fax-v33-survivor")!;
+    assert.ok(fax, "the fax row survives the v33 -> v34 migration");
+    assert.equal(fax.to_number, "+15557654321");
+    assert.equal(fax.document_acquisition_state, "not_required", "a pre-existing outbound fax defaults to not_required, never a blank/null acquisition state");
+    assert.equal(database.faxByProviderFaxId("telnyx", "provider-fax-v33")!.local_fax_id, "fax-v33-survivor");
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -2644,7 +2692,7 @@ test("FAX-006: the ingress queue enqueues once, dedupes by event id, and separat
       event_id: "evt-fax-1", event_type: "fax.queued", occurred_at: "2026-09-11T12:00:00.000Z",
       received_at: "2026-09-11T12:00:01.000Z", signed_at: "2026-09-11T12:00:00.000Z", attempt: 1,
       provider_fax_id: "provider-fax-1", direction: "outbound", client_state: "", page_count: null,
-      failure_category: "", transient_media_url: "", transient_media_expires_at: "", delivery_target_hash: "", payload_sha256: "hash-1"
+      failure_category: "", connection_id: "", from_number: "", to_number: "", partial_content: null, transient_media_url: "", transient_media_expires_at: "", delivery_target_hash: "", payload_sha256: "hash-1"
     };
     assert.equal(database.enqueueTelnyxFaxWebhookEvent(baseEvent), true);
     assert.equal(database.enqueueTelnyxFaxWebhookEvent(baseEvent), false, "a duplicate event id must not enqueue a second row");
@@ -2674,7 +2722,8 @@ function transientMediaIngressEvent(overrides: Record<string, unknown> = {}) {
     event_id: "evt-media-1", event_type: "fax.received", occurred_at: "2026-09-10T12:00:00.000Z",
     received_at: "2026-09-10T12:00:01.000Z", signed_at: "2026-09-10T12:00:00.000Z", attempt: 1,
     provider_fax_id: "provider-fax-inbound-1", direction: "inbound", client_state: "", page_count: 3,
-    failure_category: "", transient_media_url: "https://telnyx.example/fax/media/abc123",
+    failure_category: "", connection_id: "", from_number: "", to_number: "", partial_content: null,
+    transient_media_url: "https://telnyx.example/fax/media/abc123",
     transient_media_expires_at: "2026-09-10T12:10:00.000Z",
     delivery_target_hash: "", payload_sha256: "hash-media-1",
     ...overrides
@@ -2766,7 +2815,7 @@ test("FAX-006 (3.1): unresolvedTelnyxFaxWebhookEventsPage walks a backlog larger
         event_id: eventId, event_type: "fax.queued", occurred_at: `2026-09-10T12:00:${String(i % 60).padStart(2, "0")}.000Z`,
         received_at: "2026-09-10T12:00:00.000Z", signed_at: "2026-09-10T12:00:00.000Z", attempt: 1,
         provider_fax_id: `provider-fax-${i}`, direction: "outbound", client_state: "", page_count: null,
-        failure_category: "", transient_media_url: "", transient_media_expires_at: "", delivery_target_hash: "", payload_sha256: `hash-${i}`
+        failure_category: "", connection_id: "", from_number: "", to_number: "", partial_content: null, transient_media_url: "", transient_media_expires_at: "", delivery_target_hash: "", payload_sha256: `hash-${i}`
       });
       database.completeTelnyxFaxWebhookEvent(eventId, "unresolved");
     }
@@ -2786,5 +2835,126 @@ test("FAX-006 (3.1): unresolvedTelnyxFaxWebhookEventsPage walks a backlog larger
       }
     }
     assert.equal(visited.size, total, "every row in the backlog must be visited across pages");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// --- Phase 4: inbound fax reception primitives (FAX-007) --------------------
+
+test("FAX-007: ensureInboundFax creates one inbound fax, is idempotent for the same provider identity, and fails closed on a direction conflict", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-ensure-inbound-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const firstId = database.ensureInboundFax({ provider: "telnyx", providerFaxId: "provider-fax-in-1", fromNumber: "+15557654321", toNumber: "+15550001111" });
+    assert.ok(firstId);
+    const fax = database.faxByLocalId(firstId!)!;
+    assert.equal(fax.direction, "inbound");
+    assert.equal(fax.from_number, "+15557654321");
+    assert.equal(fax.to_number, "+15550001111");
+    assert.equal(fax.state, "receiving", "a freshly-ensured inbound fax begins in the inbound initial state");
+
+    const secondId = database.ensureInboundFax({ provider: "telnyx", providerFaxId: "provider-fax-in-1", fromNumber: "+15557654321", toNumber: "+15550001111" });
+    assert.equal(secondId, firstId, "the same provider identity must resolve to the same local fax");
+
+    // A provider identity already bound to an outbound fax is a genuine conflict.
+    database.createFax({ local_fax_id: "fax-outbound-conflict", direction: "outbound", to_number: "+15557654321", provider: "telnyx", provider_fax_id: "provider-fax-out-1" });
+    const conflict = database.ensureInboundFax({ provider: "telnyx", providerFaxId: "provider-fax-out-1", fromNumber: "+15557654321", toNumber: "+15550001111" });
+    assert.equal(conflict, null, "a provider identity already bound to an outbound fax must fail closed, never guess");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-007: ensureInboundFax fills in currently-blank communication metadata from a later event without overwriting a known value", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-ensure-inbound-hydrate-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const localFaxId = database.ensureInboundFax({ provider: "telnyx", providerFaxId: "provider-fax-in-2", fromNumber: "", toNumber: "" })!;
+    assert.equal(database.faxByLocalId(localFaxId)!.from_number, null);
+    database.ensureInboundFax({ provider: "telnyx", providerFaxId: "provider-fax-in-2", fromNumber: "+15557654321", toNumber: "+15550001111" });
+    const hydrated = database.faxByLocalId(localFaxId)!;
+    assert.equal(hydrated.from_number, "+15557654321");
+    assert.equal(hydrated.to_number, "+15550001111");
+    // A later event carrying a *different* number must never overwrite the
+    // now-known value -- only ever fills a genuinely blank field.
+    database.ensureInboundFax({ provider: "telnyx", providerFaxId: "provider-fax-in-2", fromNumber: "+15559998888", toNumber: "+15550002222" });
+    const unchanged = database.faxByLocalId(localFaxId)!;
+    assert.equal(unchanged.from_number, "+15557654321");
+    assert.equal(unchanged.to_number, "+15550001111");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-007: claimInboundFaxAcquisition is idempotent -- a duplicate claim never resets an in-flight or completed acquisition", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-claim-acquisition-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const localFaxId = database.ensureInboundFax({ provider: "telnyx", providerFaxId: "provider-fax-in-3", fromNumber: "+15557654321", toNumber: "+15550001111" })!;
+    database.claimInboundFaxAcquisition({ provider: "telnyx", providerFaxId: "provider-fax-in-3", localFaxId, sourceEventId: "evt-1", transientMediaUrl: "https://telnyx.example/media/1", transientMediaExpiresAt: "2026-09-11T00:10:00.000Z" });
+    assert.equal(database.faxByLocalId(localFaxId)!.document_acquisition_state, "pending");
+    const acquisition = database.faxInboundAcquisitionByProviderFaxId("telnyx", "provider-fax-in-3")!;
+    assert.equal(acquisition.state, "pending");
+    assert.equal(acquisition.source_reference, "https://telnyx.example/media/1");
+
+    // Advance the acquisition (simulating the worker), then claim again with a duplicate webhook.
+    database.completeInboundFaxAcquisition({ provider: "telnyx", providerFaxId: "provider-fax-in-3", state: "available", managedDocumentId: "doc-1", contentSha256: "a".repeat(64), byteSize: 1234, contentType: "application/pdf" });
+    database.claimInboundFaxAcquisition({ provider: "telnyx", providerFaxId: "provider-fax-in-3", localFaxId, sourceEventId: "evt-2-duplicate", transientMediaUrl: "https://telnyx.example/media/2", transientMediaExpiresAt: "2026-09-11T00:20:00.000Z" });
+    const afterDuplicate = database.faxInboundAcquisitionByProviderFaxId("telnyx", "provider-fax-in-3")!;
+    assert.equal(afterDuplicate.state, "available", "a duplicate claim must never reset a completed acquisition back to pending");
+    assert.equal(afterDuplicate.managed_document_id, "doc-1");
+    assert.equal(database.faxByLocalId(localFaxId)!.document_acquisition_state, "available");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-007: claimNextInboundFaxAcquisition claims the oldest due row, respects next_retry_at gating, and mirrors the state onto faxes.document_acquisition_state", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-claim-next-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const faxA = database.ensureInboundFax({ provider: "telnyx", providerFaxId: "provider-fax-a", fromNumber: "+1", toNumber: "+1" })!;
+    database.claimInboundFaxAcquisition({ provider: "telnyx", providerFaxId: "provider-fax-a", localFaxId: faxA, sourceEventId: "evt-a", transientMediaUrl: "", transientMediaExpiresAt: "" });
+    const faxB = database.ensureInboundFax({ provider: "telnyx", providerFaxId: "provider-fax-b", fromNumber: "+1", toNumber: "+1" })!;
+    database.claimInboundFaxAcquisition({ provider: "telnyx", providerFaxId: "provider-fax-b", localFaxId: faxB, sourceEventId: "evt-b", transientMediaUrl: "", transientMediaExpiresAt: "" });
+    // Mark B retryable with a future next_retry_at -- must not be claimable yet.
+    database.completeInboundFaxAcquisition({ provider: "telnyx", providerFaxId: "provider-fax-b", state: "retryable", lastSafeError: "network_error", nextRetryAt: "2099-01-01T00:00:00.000Z", incrementAttempt: true });
+
+    const now = new Date().toISOString();
+    const claimed = database.claimNextInboundFaxAcquisition(now);
+    assert.equal(claimed?.provider_fax_id, "provider-fax-a", "the still-pending, older row is claimed first");
+    assert.equal(claimed?.state, "acquiring");
+    assert.equal(database.faxByLocalId(faxA)!.document_acquisition_state, "acquiring");
+
+    const secondClaim = database.claimNextInboundFaxAcquisition(now);
+    assert.equal(secondClaim, undefined, "B's future next_retry_at means it is not due yet, and A is already claimed");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-007: recoverStaleInboundFaxAcquisitions resets only a claim stuck 'acquiring' past the staleness threshold", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-recover-stale-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const localFaxId = database.ensureInboundFax({ provider: "telnyx", providerFaxId: "provider-fax-stale", fromNumber: "+1", toNumber: "+1" })!;
+    database.claimInboundFaxAcquisition({ provider: "telnyx", providerFaxId: "provider-fax-stale", localFaxId, sourceEventId: "evt-stale", transientMediaUrl: "", transientMediaExpiresAt: "" });
+    database.claimNextInboundFaxAcquisition(new Date().toISOString());
+    assert.equal(database.faxInboundAcquisitionByProviderFaxId("telnyx", "provider-fax-stale")!.state, "acquiring");
+
+    // Nothing recovered yet -- the claim is not stale relative to "now".
+    const tooSoon = database.recoverStaleInboundFaxAcquisitions(new Date(Date.now() - 60_000).toISOString());
+    assert.equal(tooSoon, 0);
+    assert.equal(database.faxInboundAcquisitionByProviderFaxId("telnyx", "provider-fax-stale")!.state, "acquiring");
+
+    // A generous future staleness threshold recovers the stuck claim.
+    const recovered = database.recoverStaleInboundFaxAcquisitions(new Date(Date.now() + 60_000).toISOString());
+    assert.equal(recovered, 1);
+    assert.equal(database.faxInboundAcquisitionByProviderFaxId("telnyx", "provider-fax-stale")!.state, "retryable");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-007: deleteFaxDocument marks the document deleted exactly once and returns its local_ref for the caller to remove the bytes", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-delete-document-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const localFaxId = database.ensureInboundFax({ provider: "telnyx", providerFaxId: "provider-fax-del", fromNumber: "+1", toNumber: "+1" })!;
+    const { id } = database.createFaxDocument({ fax_id: localFaxId, local_ref: "documents/abc123", content_type: "application/pdf", content_sha256: "b".repeat(64), byte_size: 42 });
+    const first = database.deleteFaxDocument(id);
+    assert.equal(first?.local_ref, "documents/abc123");
+    assert.equal(database.faxDocumentById(id)!.retention_state, "deleted");
+    const second = database.deleteFaxDocument(id);
+    assert.equal(second, undefined, "a second deletion attempt on an already-deleted document is a safe no-op, never a repeat file removal");
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });

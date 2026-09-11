@@ -476,3 +476,46 @@ export function createTelnyxFaxProvider(options: CreateTelnyxFaxProviderOptions)
     }
   };
 }
+
+// Best-effort inbound media reference recovery (work item 041, Phase 4:
+// FAX-007). Current Telnyx documentation does not state whether
+// GET /v2/faxes/{id} returns a *refreshed* media_url once the original
+// webhook's signed URL has expired, nor does it document an
+// inbound-specific size limit -- this function makes no such assumption.
+// It only fetches and normalizes whatever the Fax resource currently
+// reports; the caller (fax-inbound-acquisition.ts) is responsible for
+// validating the returned identity fields before using any media URL and
+// for treating a still-unusable/expired reference as a truthful
+// retryable/unavailable acquisition state, never a fabricated success.
+// Deliberately separate from FaxProvider.getFax -- that method's
+// FaxStatusUpdate contract is provider-neutral and does not carry
+// media_url; this function is Telnyx-specific media recovery only.
+export interface TelnyxInboundFaxMediaReference {
+  providerFaxId: string;
+  direction: FaxDirection | null;
+  connectionId: string;
+  mediaUrl: string;
+}
+
+export async function getTelnyxInboundFaxMediaReference(
+  config: TelnyxFaxConfig,
+  providerFaxId: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<TelnyxInboundFaxMediaReference | null> {
+  let response: Response;
+  try {
+    response = await fetchImpl(`https://api.telnyx.com/v2/faxes/${encodeURIComponent(providerFaxId)}`, { headers: authHeaders(config), signal: AbortSignal.timeout(20_000) });
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  const json = await response.json().catch(() => null) as { data?: { id?: string; direction?: string; connection_id?: string; media_url?: string } } | null;
+  const data = json?.data;
+  const id = typeof data?.id === "string" ? data.id : "";
+  if (!id) return null;
+  const rawDirection = data?.direction;
+  const direction: FaxDirection | null = rawDirection === "outbound" ? "outbound" : rawDirection === "inbound" ? "inbound" : null;
+  const connectionId = typeof data?.connection_id === "string" ? data.connection_id : "";
+  const mediaUrl = typeof data?.media_url === "string" ? data.media_url : "";
+  return { providerFaxId: id, direction, connectionId, mediaUrl };
+}

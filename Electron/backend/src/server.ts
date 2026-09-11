@@ -13,6 +13,9 @@ import { createChannelRegistry, PLANNED_PROVIDERS } from "./channels";
 import { createTelnyxAdapter, parseTelnyxWebhookEnvelope, sendTelnyxMessage, verifyTelnyxWebhook } from "./telnyx";
 import { loadTelnyxFaxConfig } from "./telnyx-fax";
 import { processTelnyxFaxWebhookEvent, parseTelnyxFaxWebhookEnvelope } from "./telnyx-fax-webhook";
+import { processDeferredInboundFaxEvent } from "./fax-inbound";
+import { recoverInboundFaxAcquisitions, runInboundFaxAcquisitionBatch } from "./fax-inbound-acquisition";
+import { ManagedDocumentStore } from "./managed-document-store";
 import { createEmailAdapter, EmailTransport, emailConfigured, emailInboundConfigured, emailQuickActionConfigured, validateEmailWebhookSignature, verifyQuickActionToken } from "./email";
 import { createPushAdapter, loadPushConfig, PushTransport, pushConfigured } from "./push";
 import { LocalIntegrationBoundary, LocalIntegrationConfig, LocalIntegrationRegistry, LocalIntegrationScope, LOCAL_INTEGRATION_SCOPES, loadLocalIntegrationConfig, LOCAL_INTEGRATION_MAX_BODY_BYTES } from "./localIntegrations";
@@ -104,7 +107,14 @@ async function readForm(request: IncomingMessage): Promise<Record<string, string
   return Object.fromEntries(params.entries());
 }
 
-export interface BackendOptions { host: string; port: number; dataDir: string; apiToken: string; sendMessage?: typeof sendTwilioMessage; sendTelnyxMessage?: typeof sendTelnyxMessage; startCall?: typeof startTwilioCall; endCall?: typeof endTwilioCall; operatorStatus?: (requestId: string) => Promise<unknown>; emailTransport?: EmailTransport; pushTransport?: PushTransport; localIntegration?: LocalIntegrationConfig; }
+export interface BackendOptions { host: string; port: number; dataDir: string; apiToken: string; sendMessage?: typeof sendTwilioMessage; sendTelnyxMessage?: typeof sendTelnyxMessage; startCall?: typeof startTwilioCall; endCall?: typeof endTwilioCall; operatorStatus?: (requestId: string) => Promise<unknown>; emailTransport?: EmailTransport; pushTransport?: PushTransport; localIntegration?: LocalIntegrationConfig;
+  // Work item 041, Phase 4 (FAX-007): injectable transport for inbound fax
+  // document acquisition (the Telnyx GET reconciliation call and the
+  // signed-media-URL download itself). Defaults to the real global
+  // `fetch`; tests inject a synthetic implementation so no real network
+  // call ever occurs in the suite.
+  faxInboundFetch?: typeof fetch;
+}
 
 function isPrivateRoute(pathname: string): boolean {
   return pathname === "/health" || pathname === "/upload" || pathname.startsWith("/api/");
@@ -459,6 +469,7 @@ export function createBackend(options: BackendOptions): { server: Server; databa
         try {
           if (!backendClosing && database.pendingTelnyxFaxWebhookEvents(1).length) scheduleTelnyxFaxWebhookDrain();
         } catch { /* database may be closing */ }
+        if (!backendClosing) scheduleInboundFaxProcessing();
       }
     });
   };
@@ -501,6 +512,69 @@ export function createBackend(options: BackendOptions): { server: Server; databa
   const clearExpiredTelnyxFaxTransientMedia = (): void => {
     try { database.clearExpiredTelnyxFaxTransientMedia(utcNow()); } catch { /* a later startup can retry */ }
   };
+  // Inbound fax reception (work item 041, Phase 4: FAX-007). Deliberately
+  // two separate sweeps, matching the mission's explicit requirement that
+  // consuming deferred_inbound rows must never itself perform a network
+  // download:
+  //
+  //   1. scheduleInboundFaxProcessing -- DB-only (fax-inbound.ts): ensures
+  //      local inbound fax identity, applies the transport observation,
+  //      and claims/creates the document-acquisition authority for
+  //      fax.received events. Mirrors scheduleTelnyxFaxWebhookDrain's own
+  //      setImmediate/self-reschedule-if-more-work shape, but walks
+  //      deferred_inbound rows via the same rowid-cursor pattern as the
+  //      Phase 3.1 unresolved sweep so a backlog larger than one page is
+  //      never silently truncated.
+  //   2. scheduleInboundFaxAcquisitionBatch -- the only place in this file
+  //      that performs a network download for inbound fax. Claims and
+  //      processes a bounded batch (never unbounded) of due acquisitions
+  //      via fax-inbound-acquisition.ts, using `options.faxInboundFetch`
+  //      (defaults to real global fetch) so tests can inject a synthetic
+  //      transport and guarantee no real network call occurs.
+  const faxInboundIngressConfig = () => ({ connectionId: loadTelnyxFaxConfig().connectionId });
+  const managedDocumentStore = new ManagedDocumentStore(options.dataDir);
+  let inboundFaxProcessingScheduled = false;
+  const scheduleInboundFaxProcessing = (): void => {
+    if (backendClosing || inboundFaxProcessingScheduled) return;
+    inboundFaxProcessingScheduled = true;
+    setImmediate(() => {
+      try {
+        let cursor = 0;
+        for (;;) {
+          const page = database.deferredInboundTelnyxFaxWebhookEventsPage(cursor, 100);
+          if (page.length === 0) break;
+          for (const row of page) {
+            processDeferredInboundFaxEvent(row, database, faxInboundIngressConfig());
+            cursor = row.rowid;
+          }
+        }
+      } catch { /* a later startup/trigger can recover remaining deferred events */ }
+      finally {
+        inboundFaxProcessingScheduled = false;
+        try {
+          if (!backendClosing && database.deferredInboundTelnyxFaxWebhookEventsPage(0, 1).length) scheduleInboundFaxProcessing();
+        } catch { /* database may be closing */ }
+        if (!backendClosing) scheduleInboundFaxAcquisitionBatch();
+      }
+    });
+  };
+  let inboundFaxAcquisitionScheduled = false;
+  const scheduleInboundFaxAcquisitionBatch = (): void => {
+    if (backendClosing || inboundFaxAcquisitionScheduled) return;
+    inboundFaxAcquisitionScheduled = true;
+    setImmediate(() => {
+      runInboundFaxAcquisitionBatch({
+        database,
+        store: managedDocumentStore,
+        config: loadTelnyxFaxConfig(),
+        fetchImpl: options.faxInboundFetch
+      }, 5).catch(() => { /* a later trigger can retry remaining/failed acquisitions */ })
+        .finally(() => { inboundFaxAcquisitionScheduled = false; });
+    });
+  };
+  const recoverInboundFaxAcquisitionsOnStartup = (): void => {
+    recoverInboundFaxAcquisitions(database, managedDocumentStore).catch(() => { /* best-effort startup recovery */ });
+  };
   // Email internet channel (work item 018, EMAIL-003): registered only when SMTP is
   // configured. Provider-neutral; a fallback/long-form channel, never the default
   // approval loop.
@@ -529,6 +603,19 @@ export function createBackend(options: BackendOptions): { server: Server; databa
     try {
       await database.backupTo(join(directory, "phone.sqlite3"));
       if (await stat(uploadsDir).then((value) => value.isDirectory()).catch(() => false)) await cp(uploadsDir, join(directory, "uploads"), { recursive: true });
+      // Work item 041, Phase 4 (FAX-007): the private managed-document
+      // store (inbound fax PDFs, and anything FAX-009 later stages through
+      // the same primitive) is a separate tree from uploads/ and must be
+      // backed up alongside it -- a backup containing the database but not
+      // its referenced inbound fax documents would be incomplete.
+      if (await stat(managedDocumentStore.root).then((value) => value.isDirectory()).catch(() => false)) {
+        await cp(managedDocumentStore.root, join(directory, "managed-documents"), {
+          recursive: true,
+          // staging/ never holds a durable identity -- excluding it keeps
+          // backups from capturing an in-flight download's partial bytes.
+          filter: (source) => !source.split(/[\\/]/).includes("staging")
+        });
+      }
       await writeFile(join(directory, "manifest.json"), JSON.stringify({ format: BACKUP_FORMAT, created_at: utcNow(), schema_version: database.state.schemaVersion }, null, 2), { mode: 0o600 });
       return { name };
     } catch (error) {
@@ -543,16 +630,23 @@ export function createBackend(options: BackendOptions): { server: Server; databa
     const manifest = JSON.parse(await readFile(join(directory, "manifest.json"), "utf8")) as { format?: string };
     if (![BACKUP_FORMAT, LEGACY_BACKUP_FORMAT].includes(manifest.format || "")) throw new Error("The latest backup manifest is invalid.");
     const uploadsRollback = `${uploadsDir}.before-restore`;
+    const managedDocumentsRollback = `${managedDocumentStore.root}.before-restore`;
     await rm(uploadsRollback, { recursive: true, force: true });
+    await rm(managedDocumentsRollback, { recursive: true, force: true });
     if (await stat(uploadsDir).then((value) => value.isDirectory()).catch(() => false)) await rename(uploadsDir, uploadsRollback);
+    if (await stat(managedDocumentStore.root).then((value) => value.isDirectory()).catch(() => false)) await rename(managedDocumentStore.root, managedDocumentsRollback);
     try {
       database.restoreFrom(join(directory, "phone.sqlite3"));
       if (await stat(join(directory, "uploads")).then((value) => value.isDirectory()).catch(() => false)) await cp(join(directory, "uploads"), uploadsDir, { recursive: true });
+      if (await stat(join(directory, "managed-documents")).then((value) => value.isDirectory()).catch(() => false)) await cp(join(directory, "managed-documents"), managedDocumentStore.root, { recursive: true });
       await rm(uploadsRollback, { recursive: true, force: true });
+      await rm(managedDocumentsRollback, { recursive: true, force: true });
       return { name: latest };
     } catch (error) {
       await rm(uploadsDir, { recursive: true, force: true });
+      await rm(managedDocumentStore.root, { recursive: true, force: true });
       if (await stat(uploadsRollback).then((value) => value.isDirectory()).catch(() => false)) await rename(uploadsRollback, uploadsDir);
+      if (await stat(managedDocumentsRollback).then((value) => value.isDirectory()).catch(() => false)) await rename(managedDocumentsRollback, managedDocumentStore.root);
       throw error;
     }
   };
@@ -1873,12 +1967,17 @@ export function createBackend(options: BackendOptions): { server: Server; databa
             client_state: envelope.clientState,
             page_count: envelope.pageCount,
             failure_category: envelope.failureCategory,
+            connection_id: envelope.connectionId,
+            from_number: envelope.fromNumber,
+            to_number: envelope.toNumber,
+            partial_content: envelope.partialContent,
             transient_media_url: envelope.transientMediaUrl,
             transient_media_expires_at: envelope.transientMediaExpiresAt,
             delivery_target_hash: envelope.deliveredTo ? sha256(envelope.deliveredTo) : "",
             payload_sha256: sha256(raw)
           });
           scheduleTelnyxFaxWebhookDrain();
+          scheduleInboundFaxProcessing();
           return sendJson(response, { ok: true, queued, duplicate: !queued });
         } catch {
           // Durable enqueue failed -- do not acknowledge; Telnyx should retry.
@@ -1934,6 +2033,8 @@ export function createBackend(options: BackendOptions): { server: Server; databa
   scheduleTelnyxFaxWebhookDrain();
   drainUnresolvedTelnyxFaxWebhookEvents();
   clearExpiredTelnyxFaxTransientMedia();
+  scheduleInboundFaxProcessing();
+  recoverInboundFaxAcquisitionsOnStartup();
   server.on("close", () => {
     backendClosing = true;
     database.close();

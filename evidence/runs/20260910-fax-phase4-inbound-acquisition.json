@@ -1,0 +1,56 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260910-fax-phase4-inbound-acquisition",
+  "timestamp": "2026-09-11T03:17:20Z",
+  "work_item": "041",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cd Electron && npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed with schema v34 (telnyx_fax_webhook_events.connection_id/from_number/to_number/partial_content, faxes.document_acquisition_state, the new fax_inbound_acquisitions table), the new managed-document-store.ts, fax-inbound.ts, fax-inbound-acquisition.ts modules, telnyx-fax.ts's getTelnyxInboundFaxMediaReference, and server.ts's inbound processing/acquisition scheduling plus backup/restore integration."
+    },
+    {
+      "command": "cd Electron && node --test backend-dist/fax.test.js backend-dist/database.test.js backend-dist/channels.test.js backend-dist/telnyx.test.js backend-dist/telnyx-fax.test.js backend-dist/telnyx-fax-webhook.test.js backend-dist/fax-submission.test.js backend-dist/server.test.js backend-dist/migration.test.js backend-dist/fax-inbound.test.js backend-dist/fax-inbound-acquisition.test.js backend-dist/managed-document-store.test.js",
+      "exit_code": 0,
+      "summary": "305 tests passed. New Phase 4 coverage: managed-document-store.test.ts (8) -- staging placeholder creation, atomic commit with hash/size recomputed from disk, quarantine isolation from documents/, discard, startup abandoned-staging sweep, path-escape rejection, hash verification, targeted deletion without disturbing an unrelated document. fax-inbound.test.ts (8) -- a receiving event creates exactly one inbound fax; a processing event advances the same fax and records page_count; fax.received arriving before receiving.started still creates one fax and claims acquisition, with a later stale receiving.started never regressing it; a duplicate fax.received never duplicates the fax or the acquisition claim; an inbound fax.failed creates a failed fax with no document acquisition; a foreign connection_id is rejected before any local fax creation; an unconfigured connection id fails closed; transport state and acquisition state are proven independent (a received+quarantined fax is never reported failed). fax-inbound-acquisition.test.ts (15) -- SSRF/media-URL validation (https-only, no credentials, bounded length, forbidden hosts including loopback/private/link-local/IPv6); a fresh webhook URL used directly with no GET call and no Telnyx bearer token sent to it; transient URL cleared after commit; expired URL triggers GET fallback; GET id/direction/connection mismatches rejected without any download attempt; non-PDF/zero-byte/oversized (both declared-Content-Length and mid-stream) responses quarantined and never committed; HTTP errors classified retryable with bounded backoff; attempt exhaustion reaches terminal unavailable without a transport-state mutation; redirects re-validated per hop and bounded; restart recovery resets a stale acquiring claim and sweeps an abandoned staging file. database.test.ts gained 6 new tests for ensureInboundFax (create/idempotent/conflict/metadata-hydration), claimInboundFaxAcquisition idempotency, claimNextInboundFaxAcquisition claim-ordering/gating, recoverStaleInboundFaxAcquisitions, and deleteFaxDocument, plus a new v33->v34 migration test (and the v33 fresh-schema test was extended for the new table/columns). server.test.ts gained 2 new integration tests: a full signed-webhook-sequence-to-acquired-document end-to-end flow (proving exactly one inbound fax, a committed document with a non-provider-URL local_ref, and non-exposure via /media under two different attempted filenames), and a backup/restore/integrity-check test proving a managed document survives backup+restore with a verified hash and that a genuinely missing document is reported missing rather than assumed present. All pre-existing Phase 1/1.1/2/2.1/3/3.1 fax tests unchanged and passing."
+    },
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Full suite: 453 node:test cases, 452 passed, 1 skipped (opt-in live Twilio, unrelated), 0 failed; vitest App.test.tsx (228 cases) and npm run renderer:build both passed cleanly. No Telnyx network call occurred anywhere in this phase; every acquisition test constructs and injects its own synthetic fetch implementation."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact 2.2.0 validation, LIE-003 schema-ladder invariants (v34 recorded in decisions/0011-schema-migration-coordination.md), and markdown link/last_verified checks all passed after the WI041 ledger updates."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/database.test.ts",
+    "Electron/backend/src/fax-inbound.ts",
+    "Electron/backend/src/fax-inbound.test.ts",
+    "Electron/backend/src/fax-inbound-acquisition.ts",
+    "Electron/backend/src/fax-inbound-acquisition.test.ts",
+    "Electron/backend/src/managed-document-store.ts",
+    "Electron/backend/src/managed-document-store.test.ts",
+    "Electron/backend/src/telnyx-fax.ts",
+    "Electron/backend/src/telnyx-fax-webhook.ts",
+    "Electron/backend/src/server.ts",
+    "Electron/backend/src/server.test.ts",
+    "Electron/backend/src/fax-submission.test.ts",
+    "Electron/package.json",
+    "decisions/0011-schema-migration-coordination.md",
+    "docs/telnyx-fax.md",
+    "work/active/041-first-class-fax-communications-and-telnyx-fax-edge/README.md",
+    "work/active/041-first-class-fax-communications-and-telnyx-fax-edge/work-item.json",
+    "work/active/041-first-class-fax-communications-and-telnyx-fax-edge/local-artifacts/phase4-inbound-fax-acquisition-contract.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "WI041 Phase 4: inbound fax reception and durable managed document acquisition, built on Phase 3.1's final SHA 5e793e13b35cd33a6047c4c566c2aa51807de639. Re-froze the current Telnyx inbound fax contract (developers.telnyx.com/docs/programmable-fax/receive-a-fax-api, re-verified 2026-09-10): confirmed the exact fax.receiving.started/fax.media.processing.started/fax.received/fax.failed payload fields and the documented ~10 minute fax.received.media_url validity (matching Phase 3.1's existing constant, no change needed). Explicitly did not assume GET /v2/faxes/{id} returns a refreshed media reference once the webhook's own signed URL expires -- current documentation does not confirm this either way, so GET is implemented purely as a best-effort reconciliation source, validated against the expected fax id/direction/connection_id before any media URL from it is trusted, with a truthful retryable/unavailable outcome (never a fabricated success) when neither source yields a usable reference. Implemented a deliberate transport-state-vs-document-acquisition-state separation: a new faxes.document_acquisition_state column (not_required/pending/acquiring/available/retryable/quarantined/unavailable/deleted) is fully independent of faxes.state (FaxState) -- a received fax whose document fails local validation is never reported as a failed transmission, and a successful document commit never fabricates a received transport observation. Added Fax Application ownership validation (connection_id compared against TELNYX_FAX_CONNECTION_ID before any local fax is touched; a mismatch is durably classified foreign_connection with zero local fax lookup) and recorded the deliberate product-policy decision not to additionally restrict by the to number, since a Fax Application may legitimately own more than one number. Added an atomic, idempotent local inbound fax identity seam (ensureInboundFax, keyed by (provider, provider_fax_id), never phone-number/timestamp heuristics) and a durable, restart-safe document-acquisition authority (fax_inbound_acquisitions, primary-keyed (provider, provider_fax_id) so a duplicate fax.received webhook can never start a second concurrent download). Implemented the acquisition worker (fax-inbound-acquisition.ts): media source selection preferring a still-fresh webhook URL with authenticated GET fallback; a media-URL/SSRF boundary (HTTPS-only, no embedded credentials, bounded length, forbidden-host checks for loopback/private/link-local/IPv6 ranges, manually-followed and re-validated, hop-bounded redirects, and the Telnyx API bearer token never sent to the media download on any hop -- proven directly); bounded streaming to a private managed-document store with a ForgeLink-defined 20MB safety limit (current Telnyx docs publish no inbound-specific limit) enforced both via Content-Length pre-check and during streaming; PDF magic-byte validation with quarantine (never commit, never associate with fax_documents, never treated as a transport failure) for anything else; bounded retry with exponential backoff (up to 6 attempts) for recoverable HTTP/network failures, never an unbounded loop and never a fax resend. Introduced ManagedDocumentStore, a provider-neutral private storage primitive under <dataDir>/managed-documents/ (staging/documents/quarantine), structurally separate from <dataDir>/uploads/ and therefore never reachable through the existing public /media/:filename route (proven both structurally and via a live end-to-end HTTP test); deliberately did not introduce a second generic managed_documents database table, since fax_documents already carries everything a managed association needs -- coordinated with FAX-009 by leaving the filesystem primitive itself reusable for a later phase's source adapters, none of which were implemented now. Added restart recovery (stale acquiring-claim reclaim; unconditional staging/ sweep, provably safe since a committed file is always renamed out of staging first) and extended the existing backup/restore machinery to include/restore managed-documents/ alongside uploads/, plus a new database.deleteFaxDocument explicit deletion primitive. partial_content is parsed and stored as a bounded informational field only; its semantics remain unconfirmed by current Telnyx documentation and it drives no product decision in this phase. FAX-007 is satisfied per the mission's explicit criteria. This phase materially advances FAX-015 (a substantial new negative-test matrix) but FAX-015 is not marked satisfied, since the complete cross-phase negative matrix was not independently re-verified as complete in this review. FAX-008 (Fax UI), FAX-009 (camera/device/cloud acquisition -- the binding document-acquisition scope amendment remains untouched and unimplemented), FAX-010 (firewall/draft flow), FAX-011 (MCP), FAX-013 (full retention/privacy policy -- this phase provides necessary deletion/backup infrastructure only), and FAX-016 all remain pending. No live fax was sent, no operator Telnyx credential was used, no live Telnyx resource was mutated, no real inbound fax document was downloaded, no camera/Google Drive/OneDrive/Dropbox source was implemented, and FAX-016 was not attempted."
+  }
+}

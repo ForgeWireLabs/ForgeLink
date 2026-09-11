@@ -1199,6 +1199,113 @@ test("FAX-006: the dedicated Telnyx Fax webhook route verifies, enqueues before 
   }
 });
 
+test("FAX-007: an inbound fax webhook sequence (receiving -> processing -> received) creates one inbound fax and durably acquires its document, never exposed via /media", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-inbound-e2e-"));
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const der = publicKey.export({ format: "der", type: "spki" }) as Buffer;
+  const previousFaxKey = process.env.TELNYX_FAX_PUBLIC_KEY;
+  const previousConnectionId = process.env.TELNYX_FAX_CONNECTION_ID;
+  process.env.TELNYX_FAX_PUBLIC_KEY = der.subarray(der.length - 32).toString("base64");
+  process.env.TELNYX_FAX_CONNECTION_ID = "fax-app-e2e-1";
+  const pdfBody = "%PDF-1.4\nsynthetic end-to-end inbound fax content";
+  const faxInboundFetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes("telnyx-fax-media.example.com")) return new Response(pdfBody, { status: 200, headers: { "content-type": "application/pdf" } });
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+  const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken, faxInboundFetch });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const localUrl = `http://127.0.0.1:${port}`;
+  const post = (body: string, ts = String(Math.floor(Date.now() / 1000))) =>
+    fetch(`${localUrl}/webhooks/telnyx/fax`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "telnyx-timestamp": ts, "telnyx-signature-ed25519": sign(null, Buffer.from(`${ts}|${body}`, "utf8"), privateKey).toString("base64") },
+      body
+    });
+  const inboundEvent = (eventId: string, eventType: string, extraPayload: Record<string, unknown> = {}) => JSON.stringify({
+    data: {
+      id: eventId, event_type: eventType, occurred_at: new Date().toISOString(),
+      payload: { fax_id: "provider-fax-e2e-1", direction: "inbound", connection_id: "fax-app-e2e-1", from: "+15557654321", to: "+15550001111", ...extraPayload }
+    },
+    meta: { attempt: 1 }
+  });
+  try {
+    assert.equal((await post(inboundEvent("evt-e2e-receiving", "fax.receiving.started"))).status, 200);
+    for (let i = 0; i < 100 && database.faxes({ direction: "inbound" }).length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(database.faxes({ direction: "inbound" }).length, 1);
+    assert.equal(database.faxes({ direction: "inbound" })[0].state, "receiving");
+
+    assert.equal((await post(inboundEvent("evt-e2e-processing", "fax.media.processing.started", { page_count: 3 }))).status, 200);
+    for (let i = 0; i < 100 && database.faxes({ direction: "inbound" })[0].state !== "processing"; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(database.faxes({ direction: "inbound" })[0].state, "processing");
+
+    assert.equal((await post(inboundEvent("evt-e2e-received", "fax.received", { page_count: 3, media_url: "https://telnyx-fax-media.example.com/e2e.pdf" }))).status, 200);
+    for (let i = 0; i < 200 && database.faxes({ direction: "inbound" })[0].document_acquisition_state !== "available"; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const fax = database.faxes({ direction: "inbound" })[0];
+    assert.equal(fax.state, "received");
+    assert.equal(fax.document_acquisition_state, "available");
+    assert.equal(database.faxes({ direction: "inbound" }).length, 1, "exactly one inbound fax across the whole sequence");
+    const docs = database.faxDocumentsByFaxId(fax.local_fax_id);
+    assert.equal(docs.length, 1);
+    assert.equal(docs[0].content_type, "application/pdf");
+    assert.ok(docs[0].content_sha256.length === 64);
+    assert.notEqual(docs[0].local_ref, "https://telnyx-fax-media.example.com/e2e.pdf");
+
+    // The managed document must never be reachable through the generic
+    // public media route, regardless of what its local_ref looks like.
+    const mediaAttempt1 = await fetch(`${localUrl}/media/${encodeURIComponent(docs[0].local_ref)}`);
+    assert.notEqual(mediaAttempt1.status, 200);
+    const mediaAttempt2 = await fetch(`${localUrl}/media/${docs[0].id}.pdf`);
+    assert.notEqual(mediaAttempt2.status, 200);
+  } finally {
+    if (previousFaxKey === undefined) delete process.env.TELNYX_FAX_PUBLIC_KEY; else process.env.TELNYX_FAX_PUBLIC_KEY = previousFaxKey;
+    if (previousConnectionId === undefined) delete process.env.TELNYX_FAX_CONNECTION_ID; else process.env.TELNYX_FAX_CONNECTION_ID = previousConnectionId;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("FAX-007: a backup preserves an inbound managed document and restore detects a document missing on disk rather than silently treating it as available", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-inbound-backup-"));
+  const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const localUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    const localFaxId = database.ensureInboundFax({ provider: "telnyx", providerFaxId: "provider-fax-backup-1", fromNumber: "+15557654321", toNumber: "+15550001111" })!;
+    const { ManagedDocumentStore } = await import("./managed-document-store");
+    const store = new ManagedDocumentStore(directory);
+    const staged = await store.beginStaging();
+    await (await import("node:fs/promises")).writeFile(staged.stagingPath, "%PDF-1.4\nbackup test content");
+    const ref = await store.commit(staged, "application/pdf", "webhook_media_url");
+    database.createFaxDocument({ fax_id: localFaxId, local_ref: ref.localRef, content_type: ref.contentType, content_sha256: ref.contentSha256, byte_size: ref.byteSize });
+
+    const backupResponse = await fetch(`${localUrl}/api/data/backup`, { method: "POST", headers: authorized() });
+    assert.equal(backupResponse.status, 200);
+
+    // Delete the managed document bytes to simulate loss, then restore.
+    await store.delete(ref.localRef);
+    assert.equal((await store.inspect(ref.localRef)).exists, false);
+
+    const restoreResponse = await fetch(`${localUrl}/api/data/restore-latest`, { method: "POST", headers: authorized() });
+    assert.equal(restoreResponse.status, 200);
+    const restoredInspect = await store.inspect(ref.localRef);
+    assert.equal(restoredInspect.exists, true, "the backup must include the managed document, and restore must bring its bytes back");
+    assert.equal(await store.verify(ref.localRef, ref.contentSha256), true);
+
+    // Integrity check: if the file were still missing after restore
+    // (e.g. an incomplete backup), it must be detected, never silently
+    // reported as available.
+    await store.delete(ref.localRef);
+    const missing = await store.inspect(ref.localRef);
+    assert.equal(missing.exists, false, "a genuinely missing managed document must be reported as missing, never assumed present");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("FAX-006 (3.1): the startup unresolved recovery sweep visits a resolvable event beyond page 100 in one pass, without hot-looping on permanently unresolved rows", async () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-restart-sweep-"));
   // Seed directly against the database (bypassing HTTP/signing) so this test
@@ -1224,7 +1331,7 @@ test("FAX-006 (3.1): the startup unresolved recovery sweep visits a resolvable e
       received_at: "2026-09-10T00:00:00.000Z", signed_at: "2026-09-10T00:00:00.000Z", attempt: 1,
       provider_fax_id: isResolvable ? "provider-fax-late" : `provider-fax-unknown-${i}`,
       direction: "outbound", client_state: "", page_count: null,
-      failure_category: "", transient_media_url: "", transient_media_expires_at: "", delivery_target_hash: "", payload_sha256: `hash-${i}`
+      failure_category: "", connection_id: "", from_number: "", to_number: "", partial_content: null, transient_media_url: "", transient_media_expires_at: "", delivery_target_hash: "", payload_sha256: `hash-${i}`
     });
     seed.completeTelnyxFaxWebhookEvent(eventId, "unresolved");
   }

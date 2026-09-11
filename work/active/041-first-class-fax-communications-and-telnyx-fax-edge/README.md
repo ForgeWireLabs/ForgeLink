@@ -712,7 +712,7 @@ Live evidence must contain no API keys, signing keys, private fax document conte
 - [x] **FAX-004** Add a separate Telnyx Programmable Fax configuration/validation surface and adapter while preserving separation from Telnyx messaging, voice, and ForgeWire inference configuration.
 - [x] **FAX-005** Implement outbound Telnyx fax submission, provider ID/status normalization, bounded safe errors, cancellation/reconciliation where supported, and duplicate-safe retry policy.
 - [x] **FAX-006** Add a dedicated signed Telnyx fax webhook route reusing hardened signature/freshness primitives while keeping fax event parsing/lifecycle separate from SMS/MMS; prove enqueue-before-ack, deduplication, ordering, restart drain, and unsupported-event handling.
-- [ ] **FAX-007** Implement inbound fax reception and managed local document acquisition with authenticated download, strict media/resource validation, opaque local references, quarantine/failure behavior, retention, deletion, backup/export, and recovery semantics.
+- [x] **FAX-007** Implement inbound fax reception and managed local document acquisition with authenticated download, strict media/resource validation, opaque local references, quarantine/failure behavior, retention, deletion, backup/export, and recovery semantics.
 - [ ] **FAX-008** Deliver a first-class human Fax UI with New Fax, preview, Sent, Inbox, receipt/detail, readiness/settings, safe retry/cancel, document open/export/delete, accessibility, and clear error remediation without any agent dependency.
 - [ ] **FAX-009** Implement local document preparation sufficient for common PDFs/images and define the Tauri/mobile camera-scan path without creating hidden cloud/LLM egress requirements or a fax-specific shell fork.
 - [ ] **FAX-010** Extend ForgeLink communication firewall, reviewed drafts, consent/purpose hooks, and approval content identity to fax; human operator sends remain direct while agent-originated sends default to draft-don't-send.
@@ -1425,3 +1425,155 @@ That is the product boundary this work item must preserve.
   - Evidence: `evidence/runs/20260910-fax-phase3-1-webhook-correctness-hardening.json`
     (together with the retained, timestamp-corrected original,
     `evidence/runs/20260910-fax-phase3-telnyx-fax-webhook-ingress.json`).
+
+- **2026-09-10 — Phase 4: inbound fax reception and durable managed
+  document acquisition (FAX-007 satisfied), schema v33 → v34.** Turns the
+  authenticated `deferred_inbound` events built in Phase 3/3.1 into
+  durable inbound fax records with safely-acquired local documents:
+  - **Re-froze the inbound contract** against current Telnyx documentation
+    (`local-artifacts/phase4-inbound-fax-acquisition-contract.md`):
+    confirmed the exact `fax.receiving.started`/`fax.media.processing.started`/
+    `fax.received`/`fax.failed` payload fields and the documented ~10
+    minute `fax.received.media_url` validity (matching Phase 3.1's
+    existing constant). **Explicitly did not assume** `GET /v2/faxes/{id}`
+    returns a refreshed media reference once the webhook's own signed URL
+    has expired -- current documentation does not say either way, so `GET`
+    is implemented as a best-effort reconciliation source only; if neither
+    it nor the webhook URL yields a usable reference, acquisition reaches
+    a truthful `retryable`/`unavailable` state rather than a fabricated
+    success.
+  - **Transport state vs. document acquisition state, kept strictly
+    separate:** a new `faxes.document_acquisition_state` column
+    (`not_required`/`pending`/`acquiring`/`available`/`retryable`/
+    `quarantined`/`unavailable`/`deleted`) answers "do we have a safe
+    local copy of the document", entirely independent of `faxes.state`
+    (FaxState, "what happened to the transmission"). A received fax whose
+    PDF fails local validation is never reported as a failed transmission;
+    a successful document commit never fabricates a `received` transport
+    observation the provider did not report. Proven directly by a
+    dedicated test.
+  - **Fax Application ownership validation:** `processDeferredInboundFaxEvent`
+    (`fax-inbound.ts`, new) compares each event's `connection_id` against
+    the configured `TELNYX_FAX_CONNECTION_ID` *before* any local fax is
+    touched; a mismatch (including an unconfigured/blank connection id)
+    is durably classified `"foreign_connection"` with zero local fax
+    lookup, never treated as a signature failure. Deliberately does **not**
+    additionally restrict by the `to` number -- a Fax Application may
+    legitimately own more than one number, and ForgeLink's current
+    configuration records only one for outbound-readiness purposes; that
+    product-policy decision is recorded in the Phase 4 contract.
+  - **Atomic inbound identity:** `ensureInboundFax(provider, providerFaxId,
+    from, to)` (new `database.ts` method) creates exactly one inbound fax
+    per `(provider, provider_fax_id)`, is idempotent for a duplicate/
+    out-of-order webhook, fills a currently-blank from/to from a later
+    event without ever overwriting a known value, and fails closed
+    (`null`) rather than guessing when the identity is already bound to a
+    fax of the *other* direction. `fax.received` arriving before any
+    `receiving.started` event still creates exactly one fax and claims
+    document acquisition; a subsequent stale `receiving.started` never
+    regresses the already-`received` transport state.
+  - **Durable, restart-safe acquisition authority:** a new
+    `fax_inbound_acquisitions` table, primary-keyed `(provider,
+    provider_fax_id)` so at most one active acquisition exists per inbound
+    provider fax -- a duplicate `fax.received` webhook can never start a
+    second, concurrent download. `claimNextInboundFaxAcquisition` is a
+    CAS-guarded claim (pending, or retryable whose `next_retry_at` has
+    passed); `recoverStaleInboundFaxAcquisitions` resets a claim stuck
+    `acquiring` past a 5-minute staleness threshold (a crashed worker
+    never permanently blocks a provider fax) -- both exercised directly by
+    restart-recovery tests.
+  - **Media source selection, `GET` fallback, and identity validation
+    (`fax-inbound-acquisition.ts`, new):** prefers the still-fresh webhook
+    `media_url`; falls back to an authenticated `GET /v2/faxes/{id}`
+    (`getTelnyxInboundFaxMediaReference`, new in `telnyx-fax.ts`) only when
+    expired/absent, and validates the response's `id`/`direction`/
+    `connection_id` against the expected fax before trusting any media URL
+    it returns -- a mismatch on any of the three is rejected without ever
+    attempting a download.
+  - **Media URL / SSRF boundary:** every media URL (webhook or GET-derived)
+    passes `validateMediaUrl` -- HTTPS-only, no embedded credentials,
+    bounded length, and a forbidden-host check (localhost, loopback,
+    `10/8`/`172.16/12`/`192.168/16`, link-local, IPv6 loopback/unique-local/
+    link-local). Redirects are followed manually, re-validated at every
+    hop, bounded to 3 hops. The Telnyx API bearer token is attached only to
+    the `GET` call, **never** to any hop of the media download -- proven
+    directly by inspecting the headers an injected test transport actually
+    receives. A residual DNS-rebinding limitation (a point-in-time literal-
+    host check, no pre-connect IP pinning) is recorded honestly in the
+    contract rather than silently assumed away.
+  - **Bounded streaming and PDF validation:** `FAX_INBOUND_MAX_BYTES` (20MB,
+    a ForgeLink-defined safety limit -- current Telnyx docs do not publish
+    an inbound-specific size limit) is checked against `Content-Length`
+    when present and enforced during streaming (never `response.arrayBuffer()`
+    on unbounded input); only a body starting with the PDF magic bytes is
+    ever committed. Oversized/zero-byte/non-PDF content is quarantined or
+    discarded -- never committed, never associated with `fax_documents`,
+    never treated as a transport failure of the underlying fax.
+  - **Private managed document storage:** `ManagedDocumentStore` (new
+    `managed-document-store.ts`) -- a provider-neutral primitive under
+    `<dataDir>/managed-documents/` (staging/documents/quarantine
+    subdirectories), structurally separate from `<dataDir>/uploads/` and
+    therefore never reachable through the existing public `/media/:filename`
+    route (proven both structurally and by a live end-to-end HTTP test).
+    Atomic commit: stage to a zero-byte placeholder, stream bytes, then
+    `fs.rename` into `documents/` with hash/size recomputed from the file
+    on disk, never a caller claim. No new generic `managed_documents` table
+    was introduced -- `fax_documents` already carried everything a managed
+    association needs; the filesystem primitive itself is intentionally
+    reusable so FAX-009 can stage/commit through it in a later phase
+    without a source adapter being built now.
+  - **Restart recovery:** `recoverInboundFaxAcquisitions` runs unconditionally
+    at backend startup -- resets stale `acquiring` claims and unconditionally
+    sweeps any file still under `staging/` (provably abandoned, since a
+    committed file is always renamed *out* of staging/ first).
+  - **Backup/restore/deletion:** `createBackup`/`restoreLatest` now
+    include/restore `<dataDir>/managed-documents/` alongside `uploads/`
+    (excluding in-flight `staging/`), with the same rollback-safe rename-
+    aside pattern already used for uploads; proven by a test that backs up
+    a committed document, deletes its bytes, restores, and verifies the
+    hash matches, plus an explicit integrity-check proof that a genuinely
+    missing document is reported missing, never silently assumed present.
+    `database.deleteFaxDocument(id)` (new) marks the association deleted
+    and returns its `local_ref` exactly once, so a second deletion attempt
+    is a safe no-op.
+  - **Transient URL cleanup:** once a managed document is durably committed,
+    the originating ingress row's transient webhook URL/expiry is cleared
+    immediately (`clearTelnyxFaxWebhookEventTransientMedia`, new), rather
+    than waiting for the Phase 3.1 bulk expiry sweep.
+  - **`partial_content`:** parsed and stored as a bounded informational
+    field only; current Telnyx documentation does not adequately define
+    its semantics, so it is never translated into a completeness/
+    corruption judgment in this phase.
+  - **Schema:** v33 -> v34 (additive: `telnyx_fax_webhook_events.connection_id`/
+    `from_number`/`to_number`/`partial_content`; `faxes.document_acquisition_state`;
+    new `fax_inbound_acquisitions` table). Recorded in
+    `decisions/0011-schema-migration-coordination.md`.
+  - **Tests:** 75 new (`managed-document-store.test.ts`, 8; `fax-inbound.test.ts`,
+    8; `fax-inbound-acquisition.test.ts`, 15, covering SSRF/credential-
+    separation/streaming-limits/PDF-validation/quarantine/GET-fallback/
+    retry-exhaustion/redirect-bounding/restart-recovery; 6 new
+    `database.test.ts` tests for the new primitives plus a v33->v34
+    migration test; 2 new `server.test.ts` integration tests -- a full
+    HTTP webhook-sequence-to-acquired-document end-to-end flow, and
+    backup/restore/integrity-check coverage). 305 total in the focused
+    fax/database/channels/telnyx/webhook/submission/server/migration/
+    inbound run. Full suite: 453 node:test cases, 452 passed, 1 skipped
+    (opt-in live Twilio, unrelated), 0 failed; `npm run backend:build`,
+    `npm run renderer:build`, and vitest (228 cases) all pass;
+    `python .local/validate_system.py` passes.
+  - **Materially advances FAX-015** (a substantial negative-test matrix
+    across identity/ownership/SSRF/streaming/validation/quarantine/retry/
+    restart) but FAX-015 is **not** marked satisfied -- the full
+    cross-phase negative matrix (including outbound-side cases from
+    earlier phases) has not been independently re-verified as complete in
+    this review. FAX-008 (Fax UI), FAX-009 (camera/device/cloud
+    acquisition -- the binding document-acquisition scope amendment
+    remains untouched), FAX-010 (firewall/draft flow), FAX-011 (MCP), and
+    FAX-013 (full retention/privacy policy -- this phase provides
+    necessary deletion/backup infrastructure, not the complete criterion)
+    all remain pending. FAX-016 remains pending.
+  - **No live fax was sent. No operator Telnyx credential was used. No
+    live Telnyx resource was mutated. No real inbound fax document was
+    downloaded. No camera/Google Drive/OneDrive/Dropbox source was
+    implemented. FAX-009 remains pending. FAX-016 was not attempted.**
+  - Evidence: `evidence/runs/20260910-fax-phase4-inbound-acquisition.json`.
