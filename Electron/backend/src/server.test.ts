@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { AddressInfo } from "node:net";
-import { CURRENT_SCHEMA_VERSION } from "./database";
+import { CURRENT_SCHEMA_VERSION, PhoneDatabase } from "./database";
 import { createBackend } from "./server";
 import { mintQuickActionToken } from "./email";
 
@@ -1194,6 +1194,68 @@ test("FAX-006: the dedicated Telnyx Fax webhook route verifies, enqueues before 
   } finally {
     if (previousFaxKey === undefined) delete process.env.TELNYX_FAX_PUBLIC_KEY; else process.env.TELNYX_FAX_PUBLIC_KEY = previousFaxKey;
     if (previousSmsKey === undefined) delete process.env.TELNYX_PUBLIC_KEY; else process.env.TELNYX_PUBLIC_KEY = previousSmsKey;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("FAX-006 (3.1): the startup unresolved recovery sweep visits a resolvable event beyond page 100 in one pass, without hot-looping on permanently unresolved rows", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-restart-sweep-"));
+  // Seed directly against the database (bypassing HTTP/signing) so this test
+  // is fast and deterministic; createBackend's own startup call sequence
+  // (drainUnresolvedTelnyxFaxWebhookEvents) is what is actually under test.
+  const seed = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  seed.createFax({ local_fax_id: "fax-late-page", direction: "outbound", to_number: "+15557654321" });
+  seed.createFaxDocument({ fax_id: "fax-late-page", local_ref: "synthetic-fax.pdf", content_type: "application/pdf" });
+  seed.applyFaxState("fax-late-page", "prepared");
+  seed.applyFaxState("fax-late-page", "submission_pending");
+  seed.applyFaxState("fax-late-page", "submitting");
+  seed.bindFaxProvider("fax-late-page", "telnyx");
+  // The provider fax id becomes known (bound) only after every ingress
+  // event below was already left "unresolved" -- exactly the restart
+  // scenario the sweep must recover without the onProviderFaxIdBound hook.
+  const resolvableIndex = 120;
+  const total = 150;
+  for (let i = 0; i < total; i += 1) {
+    const eventId = `evt-sweep-${i}`;
+    const isResolvable = i === resolvableIndex;
+    seed.enqueueTelnyxFaxWebhookEvent({
+      event_id: eventId, event_type: "fax.queued", occurred_at: `2026-09-10T00:${String(i % 60).padStart(2, "0")}:00.000Z`,
+      received_at: "2026-09-10T00:00:00.000Z", signed_at: "2026-09-10T00:00:00.000Z", attempt: 1,
+      provider_fax_id: isResolvable ? "provider-fax-late" : `provider-fax-unknown-${i}`,
+      direction: "outbound", client_state: "", page_count: null,
+      failure_category: "", transient_media_url: "", transient_media_expires_at: "", delivery_target_hash: "", payload_sha256: `hash-${i}`
+    });
+    seed.completeTelnyxFaxWebhookEvent(eventId, "unresolved");
+  }
+  seed.bindFaxProviderIdentity("fax-late-page", "telnyx", "provider-fax-late");
+  seed.close();
+
+  const startedAt = Date.now();
+  const { server, database } = createBackend({ host: "127.0.0.1", port: 0, dataDir: directory, apiToken });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const elapsedMs = Date.now() - startedAt;
+  try {
+    assert.ok(elapsedMs < 5000, `the startup sweep must complete promptly, not hang on a backlog of permanently unresolved rows (took ${elapsedMs}ms)`);
+    assert.equal(database.faxByLocalId("fax-late-page")!.state, "accepted", "the resolvable event beyond the first 100-row page must be visited and resolved during one startup sweep");
+    const resolvedRow = database.connection.prepare("SELECT processing_status, local_fax_id FROM telnyx_fax_webhook_events WHERE event_id=?").get(`evt-sweep-${resolvableIndex}`) as { processing_status: string; local_fax_id: string };
+    assert.equal(resolvedRow.processing_status, "resolved");
+    assert.equal(resolvedRow.local_fax_id, "fax-late-page");
+    // A representative sample of permanently-unresolved rows -- including
+    // ones on both sides of the old 100-row page boundary -- must remain
+    // unresolved (never guessed, never falsely marked failed or lost)
+    // rather than hot-looping or being silently dropped.
+    for (const i of [0, 1, 99, 100, 149]) {
+      const row = database.connection.prepare("SELECT processing_status FROM telnyx_fax_webhook_events WHERE event_id=?").get(`evt-sweep-${i}`) as { processing_status: string };
+      assert.equal(row.processing_status, "unresolved");
+    }
+  } finally {
+    // createBackend also schedules the ordinary SMS and fax "pending"
+    // drains via setImmediate at startup (harmless here -- there is nothing
+    // pending, only unresolved). server.close()'s own "close" handler
+    // already closes the database -- do not close it a second time here,
+    // which would race that handler and surface an unrelated async
+    // "database is not open" error.
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(directory, { recursive: true, force: true });
   }

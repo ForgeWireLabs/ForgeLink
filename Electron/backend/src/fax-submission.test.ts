@@ -546,7 +546,7 @@ function ingressEvent(overrides: Record<string, unknown> = {}) {
     event_id: "evt-race-1", event_type: "fax.delivered", occurred_at: "2026-09-11T12:05:00.000Z",
     received_at: "2026-09-11T12:05:01.000Z", signed_at: "2026-09-11T12:05:00.000Z", attempt: 1,
     provider_fax_id: "provider-fax-1", direction: "outbound", client_state: "", page_count: null,
-    failure_category: "", transient_media_url: "", delivery_target_hash: "", payload_sha256: "hash-race",
+    failure_category: "", transient_media_url: "", transient_media_expires_at: "", delivery_target_hash: "", payload_sha256: "hash-race",
     local_fax_id: null, processing_status: "pending" as const, bounded_error: "", processed_at: null,
     created_at: "2026-09-11T12:05:01.000Z", ...overrides
   };

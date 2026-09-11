@@ -34,6 +34,47 @@ const TELNYX_FAX_INBOUND_EVENT_TYPES: ReadonlySet<string> = new Set([
   "fax.received"
 ]);
 
+// --- Event-type/direction compatibility (Phase 3.1, FAX-006 correction) ----
+// Phase 3's original routing branched only on `isTelnyxFaxInboundEventType`,
+// which never included `fax.failed` -- so an authentic inbound fax.failed
+// event fell through into outbound local-fax resolution instead of the
+// deferred_inbound path the frozen contract already documented (fax.failed
+// is valid for both directions). Direction compatibility is now explicit
+// and keyed off the validated envelope/ingress-row `direction`, never
+// inferred from event_type alone:
+//   outbound-only : fax.queued, fax.media.processed, fax.sending.started, fax.delivered
+//   inbound-only  : fax.receiving.started, fax.media.processing.started, fax.received
+//   shared        : fax.failed
+// An event whose type's scope disagrees with the row's own validated
+// direction (e.g. an outbound-only event type claiming inbound direction)
+// is never guessed into either lifecycle -- it fails closed as a bounded
+// event/direction mismatch.
+export type TelnyxFaxEventDirectionScope = "outbound" | "inbound" | "shared";
+
+const TELNYX_FAX_OUTBOUND_ONLY_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "fax.queued",
+  "fax.media.processed",
+  "fax.sending.started",
+  "fax.delivered"
+]);
+
+const TELNYX_FAX_SHARED_EVENT_TYPES: ReadonlySet<string> = new Set(["fax.failed"]);
+
+export function telnyxFaxEventDirectionScope(eventType: string): TelnyxFaxEventDirectionScope | null {
+  if (TELNYX_FAX_OUTBOUND_ONLY_EVENT_TYPES.has(eventType)) return "outbound";
+  if (TELNYX_FAX_INBOUND_EVENT_TYPES.has(eventType)) return "inbound";
+  if (TELNYX_FAX_SHARED_EVENT_TYPES.has(eventType)) return "shared";
+  return null;
+}
+
+// True only when this event type's scope is "shared" or matches `direction`
+// exactly. An unsupported event type (scope null) is never compatible here
+// -- callers must check isTelnyxFaxSupportedEventType first.
+export function isTelnyxFaxEventDirectionCompatible(eventType: string, direction: FaxDirection): boolean {
+  const scope = telnyxFaxEventDirectionScope(eventType);
+  return scope === "shared" || scope === direction;
+}
+
 export function mapTelnyxFaxEventType(eventType: string): FaxState | null {
   return TELNYX_FAX_EVENT_STATE_MAP[eventType] ?? null;
 }
@@ -42,9 +83,24 @@ export function isTelnyxFaxSupportedEventType(eventType: string): boolean {
   return eventType in TELNYX_FAX_EVENT_STATE_MAP;
 }
 
+// Inbound-only event types (excludes the shared fax.failed). Kept as a
+// narrower predicate for callers that specifically need "does this event
+// type only ever belong to inbound reception" -- routing decisions should
+// use isTelnyxFaxEventDirectionCompatible instead, since fax.failed is
+// legitimately routable to either lifecycle depending on the validated
+// direction.
 export function isTelnyxFaxInboundEventType(eventType: string): boolean {
   return TELNYX_FAX_INBOUND_EVENT_TYPES.has(eventType);
 }
+
+// Telnyx documents the inbound fax.received `media_url` as a signed link
+// valid for roughly 10 minutes (developers.telnyx.com/docs/programmable-fax/
+// receive-a-fax-api, verified 2026-09-10 -- see the Phase 3 contract). Used
+// to compute a conservative expiry for the transient ingress-row copy of
+// that URL; Phase 3.x never downloads it. If Telnyx's documented validity
+// window changes, update this constant and its citation together -- never
+// silently widen it without re-verifying against current documentation.
+export const TELNYX_FAX_TRANSIENT_MEDIA_URL_VALIDITY_MS = 10 * 60 * 1000;
 
 // Customer-facing failure_reason allow-list (frozen contract, from the
 // authoritative Telnyx OpenAPI spec's Fax.failure_reason description).
@@ -88,6 +144,10 @@ export interface TelnyxFaxWebhookEnvelope {
   pageCount: number | null;
   failureCategory: string;
   transientMediaUrl: string;
+  // Bounded expiry for transientMediaUrl, derived from occurredAt plus
+  // TELNYX_FAX_TRANSIENT_MEDIA_URL_VALIDITY_MS. '' when there is no media
+  // URL (never a fabricated expiry for a URL that was never present).
+  transientMediaExpiresAt: string;
   attempt: number;
   deliveredTo: string;
 }
@@ -135,6 +195,14 @@ export function parseTelnyxFaxWebhookEnvelope(event: unknown): TelnyxFaxWebhookE
   // Transient only: never becomes a durable FaxDocumentRef, held only in the
   // ingress row under the short-lived recovery policy for Phase 4.
   const transientMediaUrl = typeof payload.media_url === "string" ? payload.media_url.slice(0, 2048) : "";
+  const occurredAt = new Date(occurredAtRaw).toISOString();
+  // Conservative expiry: derived from the provider event's own occurred_at
+  // (not received_at/now), so a delayed-delivery webhook does not appear
+  // to grant more remaining validity than Telnyx actually intended. '' when
+  // there is no media URL to expire in the first place.
+  const transientMediaExpiresAt = transientMediaUrl
+    ? new Date(new Date(occurredAt).getTime() + TELNYX_FAX_TRANSIENT_MEDIA_URL_VALIDITY_MS).toISOString()
+    : "";
 
   const rawAttempt = Number(value.meta?.attempt || 0);
   const attempt = Number.isInteger(rawAttempt) && rawAttempt >= 0 && rawAttempt <= 100 ? rawAttempt : 0;
@@ -143,13 +211,14 @@ export function parseTelnyxFaxWebhookEnvelope(event: unknown): TelnyxFaxWebhookE
   return {
     eventId,
     eventType,
-    occurredAt: new Date(occurredAtRaw).toISOString(),
+    occurredAt,
     providerFaxId,
     direction,
     clientState,
     pageCount,
     failureCategory,
     transientMediaUrl,
+    transientMediaExpiresAt,
     attempt,
     deliveredTo
   };
@@ -232,10 +301,29 @@ export function processTelnyxFaxWebhookEvent(row: TelnyxFaxWebhookEventRow, data
       database.completeTelnyxFaxWebhookEvent(row.event_id, "failed", undefined, "invalid_direction");
       return;
     }
-    if (isTelnyxFaxInboundEventType(row.event_type)) {
+    // Phase 3.1 correction: route on the event type's actual
+    // outbound/inbound/shared scope compared against the row's own
+    // validated direction -- never on event_type alone. An outbound-only
+    // event type claiming inbound direction (or vice versa) is an
+    // authentic-but-incoherent event and fails closed without entering
+    // either lifecycle; it is never guessed into one.
+    if (!isTelnyxFaxEventDirectionCompatible(row.event_type, row.direction)) {
+      database.completeTelnyxFaxWebhookEvent(row.event_id, "failed", undefined, "event_direction_mismatch");
+      return;
+    }
+
+    const scope = telnyxFaxEventDirectionScope(row.event_type);
+    // An inbound-only event type is always inbound processing; a shared
+    // event type (fax.failed) is inbound processing only when the row's
+    // own validated direction says so -- this is what previously let an
+    // inbound fax.failed event fall through into outbound local-fax
+    // resolution.
+    const isInboundProcessing = scope === "inbound" || (scope === "shared" && row.direction === "inbound");
+    if (isInboundProcessing) {
       // Phase 3 boundary: authenticate and durably queue only. Inbound fax
       // state creation/reconciliation and document acquisition are Phase 4.
-      // This must never be mistaken for a processing failure on restart.
+      // This must never be mistaken for a processing failure on restart,
+      // and must never attempt any local outbound fax lookup/mutation.
       database.completeTelnyxFaxWebhookEvent(row.event_id, "deferred_inbound");
       return;
     }
@@ -271,7 +359,14 @@ export function processTelnyxFaxWebhookEvent(row: TelnyxFaxWebhookEventRow, data
       event_type: row.event_type,
       normalized_state: normalizedState,
       occurred_at: row.occurred_at,
-      payload_sha256: row.payload_sha256
+      payload_sha256: row.payload_sha256,
+      // Phase 3.1 correction: previously dropped at this exact handoff --
+      // failure_category is already bounded/allow-listed by the parser
+      // (safeTelnyxFaxFailureCategory), and page_count is already bounded
+      // by the parser too. internal_failure_reason is never read anywhere
+      // upstream of this call.
+      failure_category: row.failure_category,
+      page_count: row.page_count
     });
     database.completeTelnyxFaxWebhookEvent(row.event_id, "resolved", localFaxId);
   } catch {

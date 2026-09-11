@@ -279,39 +279,69 @@ non-success status so Telnyx retries. Only a successful durable enqueue —
 new or an idempotent duplicate — is acknowledged; acknowledgement never
 waits for the event to actually be applied to a fax.
 
-**Outbound events** (`fax.queued`, `fax.media.processed`,
-`fax.sending.started`, `fax.delivered`, `fax.failed`) resolve to a local
-fax by direct `(provider, provider_fax_id)` lookup, or by decoding a valid
-`client_state` correlation token and binding the now-known provider fax id
-in the same step. An event that cannot yet be resolved (e.g. it arrives
-before `submitFax`'s own POST response has bound the provider fax id)
-stays durably `"unresolved"` — eligible for reprocessing without a restart
-once the binding occurs, and swept on startup, but never part of the
-immediate drain loop, so an unresolved event can never spin. Every
-resolved observation is applied through Phase 1.1's monotonic,
-direction-aware `applyFaxObservation`, so out-of-order or duplicate
-delivery never regresses or double-applies state. `client_state` is
-treated as untrusted content even though the envelope is signed: it must
-be canonical base64 and decode to ForgeLink's own opaque correlation-token
-shape, or it is rejected without ever being logged.
+Every supported `event_type` is classified as **outbound-only**
+(`fax.queued`, `fax.media.processed`, `fax.sending.started`,
+`fax.delivered`), **inbound-only** (`fax.receiving.started`,
+`fax.media.processing.started`, `fax.received`), or **shared**
+(`fax.failed` — the only event type Telnyx documents for both
+directions). Routing is decided by comparing that classification against
+the event's own signed, validated `direction` field, **never** by
+inferring direction from the event type alone (Phase 3.1 correction: the
+original implementation routed on event type alone, which meant an
+authentic *inbound* `fax.failed` event incorrectly fell through into
+outbound local-fax resolution instead of being deferred — fixed before
+FAX-006 was re-satisfied). An event whose type's scope disagrees with its
+own validated direction (e.g. an outbound-only type claiming inbound
+direction) fails closed as a bounded `event_direction_mismatch` before any
+local fax lookup is attempted in either direction.
 
-**Inbound events** (`fax.receiving.started`, `fax.media.processing.started`,
-`fax.received`) are authenticated and durably enqueued, then immediately
-classified `"deferred_inbound"` with **no local fax lookup, creation, or
-mutation of any kind**. This is a hard Phase 3/Phase 4 boundary, not an
-oversight — inbound fax reception and document acquisition (FAX-007) remain
-future work. Per Telnyx's own documentation, an inbound `fax.received`
-event's `media_url` is a signed link valid for only about ten minutes; it
-is held only as a bounded transient field on the ingress row and never
-becomes a durable `FaxDocumentRef` in this phase.
+**Outbound-routed events** (outbound-only types, or `fax.failed` with
+`direction: "outbound"`) resolve to a local fax by direct `(provider,
+provider_fax_id)` lookup, or by decoding a valid `client_state`
+correlation token and binding the now-known provider fax id in the same
+step. An event that cannot yet be resolved (e.g. it arrives before
+`submitFax`'s own POST response has bound the provider fax id) stays
+durably `"unresolved"` — eligible for reprocessing without a restart once
+the binding occurs, and swept in full on startup (Phase 3.1: the sweep
+now walks the entire unresolved backlog via a stable cursor rather than
+only the first 100 rows), but never part of the immediate drain loop, so
+an unresolved event can never spin. Every resolved observation is applied
+through Phase 1.1's monotonic, direction-aware `applyFaxObservation`, so
+out-of-order or duplicate delivery never regresses or double-applies
+state; a resolved observation's bounded `failure_category` (for
+`fax.failed`) and `page_count` (for events that carry one, such as
+`fax.delivered`) now also reach the canonical fax record and the
+provider-neutral `fax_events` ledger (Phase 3.1 correction: this
+propagation was previously dropped at the handoff into the ledger).
+`client_state` is treated as untrusted content even though the envelope
+is signed: it must be canonical base64 and decode to ForgeLink's own
+opaque correlation-token shape, or it is rejected without ever being
+logged.
+
+**Inbound-routed events** (inbound-only types, or `fax.failed` with
+`direction: "inbound"`) are authenticated and durably enqueued, then
+immediately classified `"deferred_inbound"` with **no local fax lookup,
+creation, or mutation of any kind**. This is a hard Phase 3/Phase 4
+boundary, not an oversight — inbound fax reception and document
+acquisition (FAX-007) remain future work. Per Telnyx's own documentation,
+an inbound `fax.received` event's `media_url` is a signed link valid for
+only about ten minutes; it is held only as a bounded transient field on
+the ingress row, paired with a computed expiry
+(`transient_media_expires_at`, schema v33), and never becomes a durable
+`FaxDocumentRef` in this phase. An already-expired URL is cleared (the URL
+and its expiry marker only — nothing else on the row) at backend startup
+rather than retained indefinitely; Phase 4 must treat a fresh vs.
+expired/missing URL differently rather than treating expiry itself as an
+inbound-fax failure.
 
 An authentic event whose `event_type` is outside the allow-list above is
 durably classified `"unsupported"` and acknowledged — never guessed into
 lifecycle state. See
 `local-artifacts/phase3-telnyx-fax-webhook-contract.md` for the full event
-table, payload fields, ingress queue schema, and the deterministic race
-tests proving both webhook-before-POST-response and
-POST-response-before-webhook convergence.
+table, payload fields, ingress queue schema, the deterministic race tests
+proving both webhook-before-POST-response and
+POST-response-before-webhook convergence, and its "Phase 3.1 correction
+addendum" for the full detail of the corrections summarized above.
 
 ## Current vs. future capability truth
 
@@ -324,6 +354,13 @@ Implemented in Phase 3: the signed `/webhooks/telnyx/fax` ingress route,
 durable event queueing with enqueue-before-ack semantics, outbound event
 normalization and correlation, out-of-order/duplicate/restart-safe
 reconciliation, and authenticated-but-deferred handling of inbound events.
+
+Implemented in Phase 3.1 (correction, schema v32 → v33): explicit
+event-type/direction compatibility routing (fixing an inbound `fax.failed`
+event incorrectly reaching outbound resolution), failure-category/
+page-count propagation into the canonical fax record and ledger, a bounded
+expiry and startup cleanup for the transient inbound media URL, and a
+multi-page restart-recovery sweep for the unresolved-event backlog.
 
 All of the above is exercised only through deterministic mocked
 transport/signed-locally-generated-keypair fixtures in this repository's

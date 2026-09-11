@@ -13,12 +13,14 @@ import { PhoneDatabase, TelnyxFaxWebhookEventRow } from "./database";
 import { generateProviderCorrelationToken } from "./fax-submission";
 import {
   decodeTelnyxClientStateCorrelationToken,
+  isTelnyxFaxEventDirectionCompatible,
   isTelnyxFaxInboundEventType,
   isTelnyxFaxSupportedEventType,
   mapTelnyxFaxEventType,
   parseTelnyxFaxWebhookEnvelope,
   processTelnyxFaxWebhookEvent,
-  safeTelnyxFaxFailureCategory
+  safeTelnyxFaxFailureCategory,
+  telnyxFaxEventDirectionScope
 } from "./telnyx-fax-webhook";
 
 function baseEvent(overrides: Record<string, unknown> = {}) {
@@ -112,6 +114,20 @@ test("FAX-006: media_url is captured only as a bounded transient field, never tr
   assert.equal(envelope!.transientMediaUrl, "https://telnyx.example/fax/media/abc123");
 });
 
+test("FAX-006 (3.1): a media_url gets a conservative bounded expiry derived from occurred_at, using Telnyx's documented ~10 minute validity window", () => {
+  const envelope = parseTelnyxFaxWebhookEnvelope(baseEvent({
+    data: { id: "evt-media-expiry", event_type: "fax.received", occurred_at: "2026-09-10T12:00:00.000Z", payload: { fax_id: "provider-fax-inbound-1", direction: "inbound", media_url: "https://telnyx.example/fax/media/xyz789" } }
+  }));
+  assert.equal(envelope!.transientMediaUrl, "https://telnyx.example/fax/media/xyz789");
+  assert.equal(envelope!.transientMediaExpiresAt, "2026-09-10T12:10:00.000Z", "expiry is derived from occurred_at, not received_at/now");
+});
+
+test("FAX-006 (3.1): no media_url means no fabricated expiry", () => {
+  const envelope = parseTelnyxFaxWebhookEnvelope(baseEvent());
+  assert.equal(envelope!.transientMediaUrl, "");
+  assert.equal(envelope!.transientMediaExpiresAt, "", "an expiry must never be recorded for a URL that was never present");
+});
+
 // --- client_state correlation -----------------------------------------------
 
 test("FAX-006: a valid opaque correlation token round-trips through canonical base64 client_state", () => {
@@ -146,7 +162,7 @@ function ingressRow(overrides: Partial<TelnyxFaxWebhookEventRow> = {}): TelnyxFa
     event_id: "evt-1", event_type: "fax.queued", occurred_at: "2026-09-11T12:00:00.000Z",
     received_at: "2026-09-11T12:00:01.000Z", signed_at: "2026-09-11T12:00:00.000Z", attempt: 1,
     provider_fax_id: "provider-fax-1", direction: "outbound", client_state: "", page_count: null,
-    failure_category: "", transient_media_url: "", delivery_target_hash: "", payload_sha256: "hash-1",
+    failure_category: "", transient_media_url: "", transient_media_expires_at: "", delivery_target_hash: "", payload_sha256: "hash-1",
     local_fax_id: null, processing_status: "pending", bounded_error: "", processed_at: null,
     created_at: "2026-09-11T12:00:01.000Z", ...overrides
   };
@@ -241,19 +257,124 @@ test("FAX-006: invalid/missing direction never mutates local fax state, even whe
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("FAX-006: a provider-reported direction mismatched against the local fax's own direction fails closed without mutating state", () => {
-  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-webhook-direction-mismatch-"));
+// --- Phase 3.1 correction: fax.failed is shared between directions --------
+// The original Phase 3 test above (retained in git history) treated an
+// inbound fax.failed event as an ordinary local outbound-fax direction
+// mismatch -- but the frozen contract says fax.failed is valid for BOTH
+// directions, and the Phase 3 boundary requires zero local fax lookup for
+// any inbound event, fax.failed included. isTelnyxFaxInboundEventType()
+// never listed fax.failed (correctly -- it is not inbound-*only*), so the
+// original routing (`if (isTelnyxFaxInboundEventType(...))`) let an
+// authentic inbound fax.failed event fall through into outbound local-fax
+// resolution instead. These tests replace it with the corrected,
+// direction-validated routing.
+
+test("FAX-006 (3.1): an inbound fax.failed event is deferred without any local outbound fax lookup or mutation, even when its provider_fax_id matches an existing outbound fax", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-webhook-inbound-failed-"));
   const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
   try {
     setUpOutboundFax(database, "fax-1", { providerFaxId: "provider-fax-1" });
-    // The webhook claims this provider fax id is inbound, but locally it is outbound.
-    database.enqueueTelnyxFaxWebhookEvent(ingressRow({ event_id: "evt-dir-mismatch", direction: "inbound", event_type: "fax.failed" }));
+    // Deliberately reuses fax-1's own provider_fax_id to prove resolution is
+    // never even attempted for inbound-routed processing -- if it were, this
+    // event would incorrectly resolve to and mutate fax-1.
+    database.enqueueTelnyxFaxWebhookEvent(ingressRow({ event_id: "evt-inbound-failed", event_type: "fax.failed", direction: "inbound", provider_fax_id: "provider-fax-1" }));
     const row = database.pendingTelnyxFaxWebhookEvents()[0];
     processTelnyxFaxWebhookEvent(row, database);
-    assert.equal(database.faxByLocalId("fax-1")!.state, "submitting", "must not be mutated into failed by a mismatched-direction observation");
-    const completed = database.connection.prepare("SELECT processing_status, bounded_error FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-dir-mismatch") as { processing_status: string; bounded_error: string };
+    assert.equal(database.faxByLocalId("fax-1")!.state, "submitting", "an inbound fax.failed event must never mutate an outbound fax, even one sharing its provider_fax_id");
+    const completed = database.connection.prepare("SELECT processing_status, local_fax_id FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-inbound-failed") as { processing_status: string; local_fax_id: string | null };
+    assert.equal(completed.processing_status, "deferred_inbound");
+    assert.equal(completed.local_fax_id, null, "inbound processing must never attach a local fax id");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006 (3.1): an outbound fax.failed event still resolves and applies to outbound lifecycle processing normally", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-webhook-outbound-failed-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpOutboundFax(database, "fax-1", { providerFaxId: "provider-fax-1" });
+    database.enqueueTelnyxFaxWebhookEvent(ingressRow({ event_id: "evt-outbound-failed", event_type: "fax.failed", direction: "outbound" }));
+    const row = database.pendingTelnyxFaxWebhookEvents()[0];
+    processTelnyxFaxWebhookEvent(row, database);
+    assert.equal(database.faxByLocalId("fax-1")!.state, "failed");
+    const completed = database.connection.prepare("SELECT processing_status, local_fax_id FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-outbound-failed") as { processing_status: string; local_fax_id: string };
+    assert.equal(completed.processing_status, "resolved");
+    assert.equal(completed.local_fax_id, "fax-1");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006 (3.1): an outbound-only event type claiming inbound direction fails closed as an event/direction mismatch, never entering either lifecycle", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-webhook-event-scope-outbound-only-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    // No local fax is ever set up here -- this must fail before any
+    // resolution attempt, so there is nothing to resolve against anyway.
+    database.enqueueTelnyxFaxWebhookEvent(ingressRow({ event_id: "evt-scope-mismatch-1", event_type: "fax.delivered", direction: "inbound", provider_fax_id: "provider-fax-nonexistent" }));
+    const row = database.pendingTelnyxFaxWebhookEvents()[0];
+    processTelnyxFaxWebhookEvent(row, database);
+    const completed = database.connection.prepare("SELECT processing_status, local_fax_id, bounded_error FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-scope-mismatch-1") as { processing_status: string; local_fax_id: string | null; bounded_error: string };
+    assert.equal(completed.processing_status, "failed");
+    assert.equal(completed.bounded_error, "event_direction_mismatch");
+    assert.equal(completed.local_fax_id, null, "an event/direction mismatch must never attempt local fax resolution");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006 (3.1): an inbound-only event type claiming outbound direction fails closed as an event/direction mismatch", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-webhook-event-scope-inbound-only-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    database.enqueueTelnyxFaxWebhookEvent(ingressRow({ event_id: "evt-scope-mismatch-2", event_type: "fax.receiving.started", direction: "outbound" }));
+    const row = database.pendingTelnyxFaxWebhookEvents()[0];
+    processTelnyxFaxWebhookEvent(row, database);
+    const completed = database.connection.prepare("SELECT processing_status, bounded_error FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-scope-mismatch-2") as { processing_status: string; bounded_error: string };
+    assert.equal(completed.processing_status, "failed");
+    assert.equal(completed.bounded_error, "event_direction_mismatch");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006 (3.1): telnyxFaxEventDirectionScope/isTelnyxFaxEventDirectionCompatible classify the outbound-only/inbound-only/shared event types correctly", () => {
+  assert.equal(telnyxFaxEventDirectionScope("fax.queued"), "outbound");
+  assert.equal(telnyxFaxEventDirectionScope("fax.media.processed"), "outbound");
+  assert.equal(telnyxFaxEventDirectionScope("fax.sending.started"), "outbound");
+  assert.equal(telnyxFaxEventDirectionScope("fax.delivered"), "outbound");
+  assert.equal(telnyxFaxEventDirectionScope("fax.receiving.started"), "inbound");
+  assert.equal(telnyxFaxEventDirectionScope("fax.media.processing.started"), "inbound");
+  assert.equal(telnyxFaxEventDirectionScope("fax.received"), "inbound");
+  assert.equal(telnyxFaxEventDirectionScope("fax.failed"), "shared");
+  assert.equal(telnyxFaxEventDirectionScope("profile.updated"), null);
+
+  assert.equal(isTelnyxFaxEventDirectionCompatible("fax.queued", "outbound"), true);
+  assert.equal(isTelnyxFaxEventDirectionCompatible("fax.queued", "inbound"), false);
+  assert.equal(isTelnyxFaxEventDirectionCompatible("fax.received", "inbound"), true);
+  assert.equal(isTelnyxFaxEventDirectionCompatible("fax.received", "outbound"), false);
+  assert.equal(isTelnyxFaxEventDirectionCompatible("fax.failed", "outbound"), true);
+  assert.equal(isTelnyxFaxEventDirectionCompatible("fax.failed", "inbound"), true);
+});
+
+// --- Phase 3.1 correction: a genuine local identity mix-up still fails closed ---
+// The original "direction mismatch" test used an inbound-direction
+// fax.failed event to exercise the local (`localFax.direction !==
+// row.direction`) guard -- but per the fix above, an inbound fax.failed
+// event never reaches that guard at all (it is deferred first). This
+// replacement exercises the same local guard with an event/direction
+// combination that IS routable to outbound processing (fax.delivered,
+// direction: outbound) but whose provider_fax_id happens to be bound to a
+// local fax of the *other* direction -- a genuine stale/incorrect identity
+// binding, which is exactly what this guard exists to catch.
+test("FAX-006 (3.1): an outbound-routable event whose provider_fax_id resolves to a local fax of the wrong direction fails closed without mutating it", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-webhook-local-direction-mismatch-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    database.createFax({ local_fax_id: "fax-in-1", direction: "inbound", to_number: "+15550001111", from_number: "+15557654321" });
+    database.bindFaxProvider("fax-in-1", "telnyx");
+    database.bindFaxProviderIdentity("fax-in-1", "telnyx", "provider-fax-in-1");
+    database.enqueueTelnyxFaxWebhookEvent(ingressRow({ event_id: "evt-local-dir-mismatch", event_type: "fax.delivered", direction: "outbound", provider_fax_id: "provider-fax-in-1" }));
+    const row = database.pendingTelnyxFaxWebhookEvents()[0];
+    processTelnyxFaxWebhookEvent(row, database);
+    assert.equal(database.faxByLocalId("fax-in-1")!.state, "receiving", "must not be mutated by an observation whose direction disagrees with the resolved local fax's own direction");
+    const completed = database.connection.prepare("SELECT processing_status, local_fax_id, bounded_error FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-local-dir-mismatch") as { processing_status: string; local_fax_id: string; bounded_error: string };
     assert.equal(completed.processing_status, "failed");
     assert.equal(completed.bounded_error, "direction_mismatch");
+    assert.equal(completed.local_fax_id, "fax-in-1");
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -345,6 +466,106 @@ test("FAX-006: unknown failure_reason values map to a generic safe category, and
     database.enqueueTelnyxFaxWebhookEvent(ingressRow({ event_id: "evt-failed", event_type: "fax.failed", occurred_at: "2026-09-11T12:03:00.000Z", failure_category: envelope!.failureCategory }));
     processTelnyxFaxWebhookEvent(database.pendingTelnyxFaxWebhookEvents()[0], database);
     assert.equal(database.faxByLocalId("fax-1")!.state, "failed");
+    // Phase 3.1 correction: the safe generic category must reach the
+    // canonical fax record -- never the raw "a_brand_new_unlisted_reason"
+    // text, and never internal_failure_reason.
+    assert.equal(database.faxByLocalId("fax-1")!.failure_category, "unknown");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// --- Phase 3.1 correction: failure category and page count were dropped ----
+// at the recordFaxEvent handoff -- parseTelnyxFaxWebhookEnvelope and the
+// ingress queue already carried these bounded fields correctly, but
+// processTelnyxFaxWebhookEvent never forwarded them into recordFaxEvent, so
+// database.ts's own hardcoded '' silently discarded a known-safe failure
+// category (and no page_count seam was wired at all) at the canonical fax
+// lifecycle boundary. These tests prove the full path end to end.
+
+test("FAX-006 (3.1): an outbound fax.failed event's failure category propagates to both the canonical fax record and the fax_events ledger", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-webhook-failure-propagation-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpOutboundFax(database, "fax-1", { providerFaxId: "provider-fax-1" });
+    database.enqueueTelnyxFaxWebhookEvent(ingressRow({ event_id: "evt-failed-user-busy", event_type: "fax.failed", failure_category: "user_busy" }));
+    processTelnyxFaxWebhookEvent(database.pendingTelnyxFaxWebhookEvents()[0], database);
+    assert.equal(database.faxByLocalId("fax-1")!.state, "failed");
+    assert.equal(database.faxByLocalId("fax-1")!.failure_category, "user_busy");
+    const ledgerRow = database.connection.prepare("SELECT failure_category FROM fax_events WHERE provider=? AND event_id=?").get("telnyx", "evt-failed-user-busy") as { failure_category: string };
+    assert.equal(ledgerRow.failure_category, "user_busy");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006 (3.1): internal_failure_reason never appears in the fax record, the ledger, or the ingress row for a failed event", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-webhook-no-internal-reason-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpOutboundFax(database, "fax-1", { providerFaxId: "provider-fax-1" });
+    const envelope = parseTelnyxFaxWebhookEnvelope({
+      data: { id: "evt-internal-reason", event_type: "fax.failed", occurred_at: "2026-09-10T12:00:00.000Z", payload: { fax_id: "provider-fax-1", direction: "outbound", failure_reason: "user_busy", internal_failure_reason: "internal stack trace: connection reset by carrier gateway 10.0.0.4" } }
+    });
+    database.enqueueTelnyxFaxWebhookEvent(ingressRow({ event_id: "evt-internal-reason", event_type: "fax.failed", failure_category: envelope!.failureCategory }));
+    processTelnyxFaxWebhookEvent(database.pendingTelnyxFaxWebhookEvents()[0], database);
+    const fax = database.faxByLocalId("fax-1")!;
+    assert.equal(fax.failure_category, "user_busy");
+    assert.doesNotMatch(fax.failure_category, /stack trace|10\.0\.0\.4|internal/i);
+    assert.doesNotMatch(fax.redacted_error || "", /stack trace|10\.0\.0\.4/i);
+    const ledgerRow = database.connection.prepare("SELECT failure_category FROM fax_events WHERE provider=? AND event_id=?").get("telnyx", "evt-internal-reason") as { failure_category: string };
+    assert.doesNotMatch(ledgerRow.failure_category, /stack trace|10\.0\.0\.4|internal/i);
+    const ingressRowStored = database.connection.prepare("SELECT failure_category FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-internal-reason") as { failure_category: string };
+    assert.doesNotMatch(ingressRowStored.failure_category, /stack trace|10\.0\.0\.4|internal/i);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006 (3.1): fax.delivered with a bounded page_count propagates to the canonical fax record", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-webhook-page-count-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpOutboundFax(database, "fax-1", { providerFaxId: "provider-fax-1" });
+    assert.equal(database.faxByLocalId("fax-1")!.page_count, null);
+    database.enqueueTelnyxFaxWebhookEvent(ingressRow({ event_id: "evt-delivered-pages", event_type: "fax.delivered", page_count: 7 }));
+    processTelnyxFaxWebhookEvent(database.pendingTelnyxFaxWebhookEvents()[0], database);
+    assert.equal(database.faxByLocalId("fax-1")!.state, "delivered");
+    assert.equal(database.faxByLocalId("fax-1")!.page_count, 7);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006 (3.1): a non-failure event never carries a stale prior failure category forward", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-webhook-no-stale-failure-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpOutboundFax(database, "fax-1", { providerFaxId: "provider-fax-1" });
+    // Ambiguous (not terminal) with a failure category recorded from an
+    // earlier network-error attempt -- a later authoritative observation
+    // must not let that stale category leak into the resolved fax.
+    database.applyFaxState("fax-1", "ambiguous", { failureCategory: "network_error" });
+    assert.equal(database.faxByLocalId("fax-1")!.failure_category, "network_error");
+    database.enqueueTelnyxFaxWebhookEvent(ingressRow({ event_id: "evt-fresh-accept", event_type: "fax.queued", failure_category: "" }));
+    processTelnyxFaxWebhookEvent(database.pendingTelnyxFaxWebhookEvents()[0], database);
+    assert.equal(database.faxByLocalId("fax-1")!.state, "accepted");
+    assert.equal(database.faxByLocalId("fax-1")!.failure_category, "", "a non-failure observation must clear, not preserve, a stale failure category");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006 (3.1): a stale earlier observation cannot overwrite the authoritative state, its page_count, or its failure category", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-webhook-stale-no-overwrite-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpOutboundFax(database, "fax-1", { providerFaxId: "provider-fax-1" });
+    database.enqueueTelnyxFaxWebhookEvent(ingressRow({ event_id: "evt-delivered-first", event_type: "fax.delivered", occurred_at: "2026-09-10T12:05:00.000Z", page_count: 3 }));
+    processTelnyxFaxWebhookEvent(database.pendingTelnyxFaxWebhookEvents()[0], database);
+    assert.equal(database.faxByLocalId("fax-1")!.state, "delivered");
+    assert.equal(database.faxByLocalId("fax-1")!.page_count, 3);
+
+    // An older fax.failed event (would-be regression) arrives late.
+    database.enqueueTelnyxFaxWebhookEvent(ingressRow({ event_id: "evt-failed-late", event_type: "fax.failed", occurred_at: "2026-09-10T12:00:00.000Z", failure_category: "user_busy", page_count: null }));
+    processTelnyxFaxWebhookEvent(database.pendingTelnyxFaxWebhookEvents()[0], database);
+
+    const fax = database.faxByLocalId("fax-1")!;
+    assert.equal(fax.state, "delivered", "a stale earlier event must never regress an already-delivered fax");
+    assert.equal(fax.page_count, 3, "a stale event's page_count must never overwrite the authoritative page_count");
+    assert.equal(fax.failure_category, "", "a stale event's failure category must never be applied to an authoritative non-failed state");
+    const ledgerRow = database.connection.prepare("SELECT failure_category FROM fax_events WHERE provider=? AND event_id=?").get("telnyx", "evt-failed-late") as { failure_category: string };
+    assert.equal(ledgerRow.failure_category, "user_busy", "the stale event is still durably recorded in the ledger for evidence, even though it did not apply");
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 

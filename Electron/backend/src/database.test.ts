@@ -1093,6 +1093,7 @@ test("upgrades the v26 device registry through the current schema without losing
       DROP TABLE IF EXISTS fax_events;
       DROP TABLE IF EXISTS fax_documents;
       DROP TABLE IF EXISTS faxes;
+      DROP TABLE IF EXISTS telnyx_fax_webhook_events;
       PRAGMA user_version=26;
     `);
     legacy.close();
@@ -1811,12 +1812,12 @@ test("TXE-002: Telnyx webhook ledger deduplicates, orders, and clears processed 
 // reconciliation, provider-scoped identity, and idempotency-vs-conflict
 // behavior, in isolation.
 
-test("FAX-003/FAX-005/FAX-006: fresh schema reaches v32 and includes fax tables plus the Telnyx Fax webhook ingress queue", () => {
+test("FAX-003/FAX-005/FAX-006: fresh schema reaches v33 and includes fax tables plus the Telnyx Fax webhook ingress queue with its transient-media expiry column", () => {
   const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-fresh-"));
   const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
   try {
-    assert.equal(CURRENT_SCHEMA_VERSION, 32);
-    assert.equal(database.state.schemaVersion, 32);
+    assert.equal(CURRENT_SCHEMA_VERSION, 33);
+    assert.equal(database.state.schemaVersion, 33);
     const tables = new Set((database.connection.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
     assert.equal(tables.has("faxes"), true);
     assert.equal(tables.has("fax_documents"), true);
@@ -1826,6 +1827,8 @@ test("FAX-003/FAX-005/FAX-006: fresh schema reaches v32 and includes fax tables 
     assert.equal(eventColumns.has("provider"), true);
     const faxColumns = new Set((database.connection.prepare("PRAGMA table_info(faxes)").all() as Array<{ name: string }>).map((c) => c.name));
     assert.equal(faxColumns.has("provider_correlation_token"), true);
+    const webhookEventColumns = new Set((database.connection.prepare("PRAGMA table_info(telnyx_fax_webhook_events)").all() as Array<{ name: string }>).map((c) => c.name));
+    assert.equal(webhookEventColumns.has("transient_media_expires_at"), true);
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -1845,6 +1848,7 @@ test("FAX-003: migrates a v28 database through v29/v30/v31 to v32, adding provid
     DROP TABLE IF EXISTS fax_events;
     DROP TABLE IF EXISTS fax_documents;
     DROP TABLE IF EXISTS faxes;
+    DROP TABLE IF EXISTS telnyx_fax_webhook_events;
     PRAGMA user_version=28;
   `);
   legacy.close();
@@ -1938,6 +1942,7 @@ test("FAX-003: migrates a v29 database through v30 to v31 preserving existing fa
     ALTER TABLE fax_events_v29 RENAME TO fax_events;
     CREATE TABLE fax_documents AS SELECT * FROM fax_documents_holdover;
     DROP TABLE fax_documents_holdover;
+    DROP TABLE IF EXISTS telnyx_fax_webhook_events;
     PRAGMA user_version=29;
   `);
   legacy.close();
@@ -2005,6 +2010,7 @@ test("FAX-005: migrates a v30 database to v31, adding the provider correlation t
     FROM faxes;
     DROP TABLE faxes;
     ALTER TABLE faxes_v30 RENAME TO faxes;
+    DROP TABLE IF EXISTS telnyx_fax_webhook_events;
     PRAGMA user_version=30;
   `);
   legacy.close();
@@ -2046,6 +2052,77 @@ test("FAX-006: migrates a v31 database to v32, adding the Telnyx Fax webhook ing
     assert.equal(tables.has("telnyx_fax_webhook_events"), true);
     assert.equal(database.faxByLocalId("fax-v31-survivor")!.to_number, "+15557654321", "the fax row survives the v31 -> v32 migration");
     assert.equal(database.faxByProviderFaxId("telnyx", "provider-fax-v31")!.local_fax_id, "fax-v31-survivor");
+  } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006: migrates a v32 database to v33, adding the transient-media expiry column without losing existing ingress rows", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-v32-upgrade-"));
+  const path = join(directory, "phone.sqlite3");
+  let database: PhoneDatabase | undefined = new PhoneDatabase(path);
+  database.createFax({ local_fax_id: "fax-v32-survivor", direction: "outbound", to_number: "+15557654321", provider: "telnyx", provider_fax_id: "provider-fax-v32" });
+  database.enqueueTelnyxFaxWebhookEvent({
+    event_id: "evt-v32-survivor", event_type: "fax.queued", occurred_at: "2026-09-10T12:00:00.000Z",
+    received_at: "2026-09-10T12:00:01.000Z", signed_at: "2026-09-10T12:00:00.000Z", attempt: 1,
+    provider_fax_id: "provider-fax-v32", direction: "outbound", client_state: "", page_count: null,
+    failure_category: "", transient_media_url: "", transient_media_expires_at: "", delivery_target_hash: "", payload_sha256: "hash-v32"
+  });
+  database.close();
+
+  // v32 -> v33 is a pure additive ALTER TABLE ADD COLUMN on the existing
+  // ingress table, so downgrading only needs to drop that one new column --
+  // recreate the table in its exact v32 shape and copy the surviving row.
+  const legacy = new DatabaseSync(path);
+  legacy.exec(`
+    CREATE TABLE telnyx_fax_webhook_events_v32 (
+      event_id TEXT PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      received_at TEXT NOT NULL,
+      signed_at TEXT NOT NULL,
+      attempt INTEGER NOT NULL DEFAULT 0,
+      provider_fax_id TEXT NOT NULL DEFAULT '',
+      direction TEXT NOT NULL DEFAULT '',
+      client_state TEXT NOT NULL DEFAULT '',
+      page_count INTEGER,
+      failure_category TEXT NOT NULL DEFAULT '',
+      transient_media_url TEXT NOT NULL DEFAULT '',
+      delivery_target_hash TEXT NOT NULL DEFAULT '',
+      payload_sha256 TEXT NOT NULL DEFAULT '',
+      local_fax_id TEXT,
+      processing_status TEXT NOT NULL DEFAULT 'pending',
+      bounded_error TEXT NOT NULL DEFAULT '',
+      processed_at TEXT,
+      created_at TEXT NOT NULL
+    );
+    INSERT INTO telnyx_fax_webhook_events_v32(
+      event_id, event_type, occurred_at, received_at, signed_at, attempt, provider_fax_id,
+      direction, client_state, page_count, failure_category, transient_media_url,
+      delivery_target_hash, payload_sha256, local_fax_id, processing_status, bounded_error,
+      processed_at, created_at
+    )
+    SELECT
+      event_id, event_type, occurred_at, received_at, signed_at, attempt, provider_fax_id,
+      direction, client_state, page_count, failure_category, transient_media_url,
+      delivery_target_hash, payload_sha256, local_fax_id, processing_status, bounded_error,
+      processed_at, created_at
+    FROM telnyx_fax_webhook_events;
+    DROP TABLE telnyx_fax_webhook_events;
+    ALTER TABLE telnyx_fax_webhook_events_v32 RENAME TO telnyx_fax_webhook_events;
+    PRAGMA user_version=32;
+  `);
+  legacy.close();
+
+  database = new PhoneDatabase(path);
+  try {
+    assert.equal(database.state.schemaVersion, CURRENT_SCHEMA_VERSION);
+    assert.ok(database.state.migrationBackup && existsSync(database.state.migrationBackup));
+    const columns = new Set((database.connection.prepare("PRAGMA table_info(telnyx_fax_webhook_events)").all() as Array<{ name: string }>).map((c) => c.name));
+    assert.equal(columns.has("transient_media_expires_at"), true);
+    const row = database.connection.prepare("SELECT * FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-v32-survivor") as { transient_media_expires_at: string; event_type: string };
+    assert.ok(row, "the ingress row survives the v32 -> v33 migration");
+    assert.equal(row.transient_media_expires_at, "", "the new column defaults to '' for a pre-existing row, never NULL");
+    assert.equal(row.event_type, "fax.queued");
+    assert.equal(database.faxByLocalId("fax-v32-survivor")!.to_number, "+15557654321");
   } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -2567,7 +2644,7 @@ test("FAX-006: the ingress queue enqueues once, dedupes by event id, and separat
       event_id: "evt-fax-1", event_type: "fax.queued", occurred_at: "2026-09-11T12:00:00.000Z",
       received_at: "2026-09-11T12:00:01.000Z", signed_at: "2026-09-11T12:00:00.000Z", attempt: 1,
       provider_fax_id: "provider-fax-1", direction: "outbound", client_state: "", page_count: null,
-      failure_category: "", transient_media_url: "", delivery_target_hash: "", payload_sha256: "hash-1"
+      failure_category: "", transient_media_url: "", transient_media_expires_at: "", delivery_target_hash: "", payload_sha256: "hash-1"
     };
     assert.equal(database.enqueueTelnyxFaxWebhookEvent(baseEvent), true);
     assert.equal(database.enqueueTelnyxFaxWebhookEvent(baseEvent), false, "a duplicate event id must not enqueue a second row");
@@ -2583,5 +2660,131 @@ test("FAX-006: the ingress queue enqueues once, dedupes by event id, and separat
     database.completeTelnyxFaxWebhookEvent("evt-fax-1", "resolved", "fax-1");
     assert.equal(database.unresolvedTelnyxFaxWebhookEvents().length, 0);
     assert.equal(database.pendingTelnyxFaxWebhookEvents().length, 0, "a resolved event must never be redrained");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// --- Phase 3.1 correction: bounded retention for the transient inbound ----
+// media URL (FAX-006). Telnyx documents fax.received's media_url as a
+// signed link valid for roughly 10 minutes; clearExpiredTelnyxFaxTransientMedia
+// clears only the URL/expiry fields on rows past their recorded expiry,
+// never touching anything else on the row or any fax/document table.
+
+function transientMediaIngressEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    event_id: "evt-media-1", event_type: "fax.received", occurred_at: "2026-09-10T12:00:00.000Z",
+    received_at: "2026-09-10T12:00:01.000Z", signed_at: "2026-09-10T12:00:00.000Z", attempt: 1,
+    provider_fax_id: "provider-fax-inbound-1", direction: "inbound", client_state: "", page_count: 3,
+    failure_category: "", transient_media_url: "https://telnyx.example/fax/media/abc123",
+    transient_media_expires_at: "2026-09-10T12:10:00.000Z",
+    delivery_target_hash: "", payload_sha256: "hash-media-1",
+    ...overrides
+  };
+}
+
+test("FAX-006 (3.1): a fresh (unexpired) transient media URL remains available", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-media-fresh-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    database.enqueueTelnyxFaxWebhookEvent(transientMediaIngressEvent());
+    const cleared = database.clearExpiredTelnyxFaxTransientMedia("2026-09-10T12:05:00.000Z");
+    assert.equal(cleared, 0);
+    const row = database.connection.prepare("SELECT transient_media_url, transient_media_expires_at FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-media-1") as { transient_media_url: string; transient_media_expires_at: string };
+    assert.equal(row.transient_media_url, "https://telnyx.example/fax/media/abc123");
+    assert.equal(row.transient_media_expires_at, "2026-09-10T12:10:00.000Z");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006 (3.1): an expired transient media URL is cleared, preserving the rest of the ingress record and its deferred_inbound state", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-media-expired-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    database.enqueueTelnyxFaxWebhookEvent(transientMediaIngressEvent());
+    database.completeTelnyxFaxWebhookEvent("evt-media-1", "deferred_inbound");
+    const cleared = database.clearExpiredTelnyxFaxTransientMedia("2026-09-10T12:15:00.000Z");
+    assert.equal(cleared, 1);
+    const row = database.connection.prepare("SELECT * FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-media-1") as Record<string, unknown>;
+    assert.equal(row.transient_media_url, "", "the expired URL itself must be cleared");
+    assert.equal(row.transient_media_expires_at, "", "the expiry marker is cleared alongside the URL");
+    // Everything else on the row survives untouched.
+    assert.equal(row.processing_status, "deferred_inbound", "clearing the media URL must never disturb the deferred_inbound processing state");
+    assert.equal(row.event_type, "fax.received");
+    assert.equal(row.provider_fax_id, "provider-fax-inbound-1");
+    assert.equal(row.page_count, 3, "non-secret lifecycle evidence like page_count is preserved");
+    assert.equal(row.payload_sha256, "hash-media-1");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006 (3.1): clearing an expired transient media URL never affects outbound fax rows or documents", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-media-outbound-unaffected-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    database.createFax({ local_fax_id: "fax-outbound-1", direction: "outbound", to_number: "+15557654321" });
+    database.createFaxDocument({ fax_id: "fax-outbound-1", local_ref: "synthetic-fax.pdf", content_type: "application/pdf" });
+    database.applyFaxState("fax-outbound-1", "prepared");
+    database.enqueueTelnyxFaxWebhookEvent(transientMediaIngressEvent());
+    database.clearExpiredTelnyxFaxTransientMedia("2026-09-10T12:15:00.000Z");
+    assert.equal(database.faxByLocalId("fax-outbound-1")!.state, "prepared", "outbound fax state must be untouched by inbound transient-media cleanup");
+    assert.equal(database.faxDocumentsByFaxId("fax-outbound-1").length, 1, "the managed local document must never be deleted by transient-media cleanup");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-006 (3.1): restart cleanup removes an already-expired transient media URL", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-media-restart-"));
+  const path = join(directory, "phone.sqlite3");
+  let database: PhoneDatabase | undefined = new PhoneDatabase(path);
+  try {
+    database.enqueueTelnyxFaxWebhookEvent(transientMediaIngressEvent());
+    database.completeTelnyxFaxWebhookEvent("evt-media-1", "deferred_inbound");
+    database.close();
+
+    // Simulates an app restart well after the signed URL's ~10 minute window.
+    database = new PhoneDatabase(path);
+    const cleared = database.clearExpiredTelnyxFaxTransientMedia("2026-09-11T00:00:00.000Z");
+    assert.equal(cleared, 1);
+    const row = database.connection.prepare("SELECT transient_media_url, transient_media_expires_at, processing_status FROM telnyx_fax_webhook_events WHERE event_id=?").get("evt-media-1") as { transient_media_url: string; transient_media_expires_at: string; processing_status: string };
+    assert.equal(row.transient_media_url, "");
+    assert.equal(row.transient_media_expires_at, "");
+    assert.equal(row.processing_status, "deferred_inbound");
+  } finally { database?.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// --- Phase 3.1 correction: multi-page unresolved restart sweep (FAX-006) ---
+// A single unresolvedTelnyxFaxWebhookEvents(100) call only ever visited the
+// first page -- a backlog beyond 100 rows was permanently unvisited during
+// a given startup, since a still-unresolved row keeps reappearing on that
+// same first page. unresolvedTelnyxFaxWebhookEventsPage's rowid cursor lets
+// a caller walk the entire backlog in one bounded pass instead.
+
+test("FAX-006 (3.1): unresolvedTelnyxFaxWebhookEventsPage walks a backlog larger than one page exactly once via a stable rowid cursor", () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-unresolved-page-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    const total = 130;
+    for (let i = 0; i < total; i++) {
+      const eventId = `evt-unresolved-${i}`;
+      database.enqueueTelnyxFaxWebhookEvent({
+        event_id: eventId, event_type: "fax.queued", occurred_at: `2026-09-10T12:00:${String(i % 60).padStart(2, "0")}.000Z`,
+        received_at: "2026-09-10T12:00:00.000Z", signed_at: "2026-09-10T12:00:00.000Z", attempt: 1,
+        provider_fax_id: `provider-fax-${i}`, direction: "outbound", client_state: "", page_count: null,
+        failure_category: "", transient_media_url: "", transient_media_expires_at: "", delivery_target_hash: "", payload_sha256: `hash-${i}`
+      });
+      database.completeTelnyxFaxWebhookEvent(eventId, "unresolved");
+    }
+    const visited = new Set<string>();
+    let cursor = 0;
+    let iterations = 0;
+    for (;;) {
+      iterations += 1;
+      assert.ok(iterations <= Math.ceil(total / 100) + 1, "the sweep must terminate in a bounded number of pages, never loop indefinitely");
+      const page = database.unresolvedTelnyxFaxWebhookEventsPage(cursor, 100);
+      if (page.length === 0) break;
+      for (const row of page) {
+        assert.equal(visited.has(row.event_id), false, "each row must be visited exactly once in a single pass");
+        visited.add(row.event_id);
+        assert.ok(row.rowid > cursor, "the cursor must strictly advance for every row, including one that remains unresolved");
+        cursor = row.rowid;
+      }
+    }
+    assert.equal(visited.size, total, "every row in the backlog must be visited across pages");
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });

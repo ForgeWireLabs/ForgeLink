@@ -79,7 +79,8 @@
       "text": "Add a dedicated signed Telnyx fax webhook route reusing hardened signature/freshness primitives while keeping fax event parsing/lifecycle separate from SMS/MMS; prove enqueue-before-ack, deduplication, ordering, restart drain, and unsupported-event handling.",
       "state": "satisfied",
       "evidence": [
-        "20260910-fax-phase3-telnyx-fax-webhook-ingress"
+        "20260910-fax-phase3-telnyx-fax-webhook-ingress",
+        "20260910-fax-phase3-1-webhook-correctness-hardening"
       ]
     },
     {

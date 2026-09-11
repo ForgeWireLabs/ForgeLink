@@ -466,10 +466,40 @@ export function createBackend(options: BackendOptions): { server: Server; databa
   // arrived before its provider fax id was ever bound) are not part of the
   // immediate drain trigger above, so they are swept once here on backend
   // startup in case the binding has since become available by any means.
+  //
+  // Phase 3.1 correction (FAX-006): a single unresolvedTelnyxFaxWebhookEvents(100)
+  // call only ever visited the first page -- a backlog larger than 100 rows
+  // left everything beyond that page permanently unvisited during a given
+  // startup, since a still-unresolved row keeps appearing on that same
+  // first page rather than being skipped. This walks the full backlog with
+  // a stable rowid cursor instead: each page is fetched strictly after the
+  // previous page's last row, the cursor advances to every row's own rowid
+  // regardless of whether it resolves, and the loop terminates as soon as a
+  // page comes back empty -- a single pass over what was unresolved when
+  // the sweep began, never a continuous poll of the same page.
   const drainUnresolvedTelnyxFaxWebhookEvents = (): void => {
     try {
-      for (const row of database.unresolvedTelnyxFaxWebhookEvents(100)) processTelnyxFaxWebhookEvent(row, database);
+      let cursor = 0;
+      for (;;) {
+        const page = database.unresolvedTelnyxFaxWebhookEventsPage(cursor, 100);
+        if (page.length === 0) break;
+        for (const row of page) {
+          processTelnyxFaxWebhookEvent(row, database);
+          cursor = row.rowid;
+        }
+      }
     } catch { /* a later startup can recover remaining unresolved events */ }
+  };
+  // Bounded retention for the transient inbound media URL (Phase 3.1,
+  // FAX-006 correction): Telnyx's fax.received media_url is a signed link
+  // valid for only about 10 minutes (see telnyx-fax-webhook.ts's
+  // TELNYX_FAX_TRANSIENT_MEDIA_URL_VALIDITY_MS). An already-expired URL is
+  // never left sitting in the ingress table indefinitely; this clears only
+  // the URL/expiry fields on expired rows, leaving every other field
+  // (including the deferred_inbound processing status) untouched, and never
+  // touches faxes/fax_documents.
+  const clearExpiredTelnyxFaxTransientMedia = (): void => {
+    try { database.clearExpiredTelnyxFaxTransientMedia(utcNow()); } catch { /* a later startup can retry */ }
   };
   // Email internet channel (work item 018, EMAIL-003): registered only when SMTP is
   // configured. Provider-neutral; a fallback/long-form channel, never the default
@@ -1844,6 +1874,7 @@ export function createBackend(options: BackendOptions): { server: Server; databa
             page_count: envelope.pageCount,
             failure_category: envelope.failureCategory,
             transient_media_url: envelope.transientMediaUrl,
+            transient_media_expires_at: envelope.transientMediaExpiresAt,
             delivery_target_hash: envelope.deliveredTo ? sha256(envelope.deliveredTo) : "",
             payload_sha256: sha256(raw)
           });
@@ -1902,6 +1933,7 @@ export function createBackend(options: BackendOptions): { server: Server; databa
   scheduleTelnyxWebhookDrain();
   scheduleTelnyxFaxWebhookDrain();
   drainUnresolvedTelnyxFaxWebhookEvents();
+  clearExpiredTelnyxFaxTransientMedia();
   server.on("close", () => {
     backendClosing = true;
     database.close();

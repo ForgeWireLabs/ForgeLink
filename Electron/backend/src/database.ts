@@ -32,7 +32,7 @@ import {
 } from "./signals";
 import { CLOUD_SUMMARY_DISABLED, SUMMARY_CONTENT_TRUST, SUMMARY_NOTICE, SUMMARY_PROVENANCE, summarizeThread, ThreadSummary } from "./summary";
 
-export const CURRENT_SCHEMA_VERSION = 32;
+export const CURRENT_SCHEMA_VERSION = 33;
 
 // --- Fax (work item 041, Phase 1: FAX-003; Phase 1.1 hardening) -------------
 // Durable fax state is its own domain -- not a disguised SMS row. `faxes` is
@@ -141,6 +141,14 @@ export interface FaxEventInput {
   received_at?: string;
   attempt?: number;
   payload_sha256?: string;
+  // Phase 3.1 (FAX-006 correction): the provider-safe failure category
+  // (already bounded/allow-listed by the caller -- see
+  // safeTelnyxFaxFailureCategory) and any provider-supplied page count for
+  // this specific normalized observation. Flows through to both the
+  // fax_events ledger row and, via applyFaxObservation, the canonical
+  // faxes record. Never internal_failure_reason or raw provider text.
+  failure_category?: string;
+  page_count?: number | null;
 }
 
 export interface FaxEventRow {
@@ -203,6 +211,10 @@ export interface TelnyxFaxWebhookEventInput {
   page_count: number | null;
   failure_category: string;
   transient_media_url: string;
+  // Bounded expiry for `transient_media_url` (Phase 3.1, FAX-006 correction):
+  // '' means no expiry recorded (no media URL, or not yet computed). Never
+  // NULL -- see the sibling transient_media_url column's own convention.
+  transient_media_expires_at: string;
   delivery_target_hash: string;
   payload_sha256: string;
 }
@@ -213,6 +225,15 @@ export interface TelnyxFaxWebhookEventRow extends TelnyxFaxWebhookEventInput {
   bounded_error: string;
   processed_at: string | null;
   created_at: string;
+}
+
+// A row from the cursor-paginated unresolved sweep (Phase 3.1, FAX-006
+// correction): carries SQLite's own implicit `rowid` as a stable,
+// monotonically increasing cursor so a restart recovery sweep visits every
+// row that was unresolved at the start of the sweep exactly once, even
+// across more than one page -- see unresolvedTelnyxFaxWebhookEventsPage.
+export interface TelnyxFaxWebhookEventPageRow extends TelnyxFaxWebhookEventRow {
+  rowid: number;
 }
 
 export type FaxProviderBindingOutcome = "bound" | "already_bound" | "conflict" | "not_found";
@@ -2000,6 +2021,21 @@ export class PhoneDatabase {
         version = 32;
         this.connection.exec("PRAGMA user_version=32");
       }
+      if (version === 32) {
+        // Bounded expiry for the transient inbound media URL (work item 041,
+        // Phase 3.1 correction to FAX-006). Telnyx documents the
+        // fax.received media_url as a signed link valid for roughly 10
+        // minutes; this phase never downloads it, but retaining an expired
+        // signed URL indefinitely would be misleading persisted state.
+        // Additive column only -- '' (matching the sibling
+        // transient_media_url column's own empty-string convention) means
+        // "no expiry recorded", not NULL.
+        this.connection.exec(`
+          ALTER TABLE telnyx_fax_webhook_events ADD COLUMN transient_media_expires_at TEXT NOT NULL DEFAULT '';
+        `);
+        version = 33;
+        this.connection.exec("PRAGMA user_version=33");
+      }
       this.connection.exec("COMMIT");
     } catch (error) {
       this.connection.exec("ROLLBACK");
@@ -2780,9 +2816,9 @@ export class PhoneDatabase {
       INSERT OR IGNORE INTO telnyx_fax_webhook_events(
         event_id, event_type, occurred_at, received_at, signed_at, attempt,
         provider_fax_id, direction, client_state, page_count, failure_category,
-        transient_media_url, delivery_target_hash, payload_sha256,
+        transient_media_url, transient_media_expires_at, delivery_target_hash, payload_sha256,
         processing_status, created_at
-      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
     `).run(
       String(input.event_id),
       String(input.event_type),
@@ -2796,6 +2832,7 @@ export class PhoneDatabase {
       input.page_count ?? null,
       String(input.failure_category || ""),
       String(input.transient_media_url || ""),
+      String(input.transient_media_expires_at || ""),
       String(input.delivery_target_hash || ""),
       String(input.payload_sha256 || ""),
       now
@@ -2815,9 +2852,36 @@ export class PhoneDatabase {
   // identity not bound at the time). Used only by startup recovery drain and
   // by the explicit post-binding re-trigger -- never by the immediate
   // "keep draining" loop, so an unresolved event never causes a hot loop.
+  //
+  // NOTE (Phase 3.1, FAX-006 correction): this single-page form is retained
+  // for the targeted post-binding re-trigger, where at most a handful of
+  // rows for one specific provider fax id are ever relevant. Startup
+  // recovery must not rely on this alone -- see
+  // unresolvedTelnyxFaxWebhookEventsPage, which paginates through the
+  // entire unresolved backlog rather than silently truncating at the first
+  // 100 rows.
   unresolvedTelnyxFaxWebhookEvents(limit = 100): TelnyxFaxWebhookEventRow[] {
     const bounded = Math.max(1, Math.min(Number(limit) || 100, 500));
     return this.connection.prepare("SELECT * FROM telnyx_fax_webhook_events WHERE processing_status='unresolved' ORDER BY occurred_at ASC, received_at ASC LIMIT ?").all(bounded) as unknown as TelnyxFaxWebhookEventRow[];
+  }
+
+  // Cursor-paginated unresolved sweep (Phase 3.1, FAX-006 correction): a
+  // single call to unresolvedTelnyxFaxWebhookEvents(100) silently stopped
+  // at the first 100 rows, permanently missing any backlog beyond that
+  // during a given startup. `rowid` (SQLite's own implicit, stable,
+  // monotonically increasing per-row identity) is used as the cursor
+  // instead of `occurred_at`/`received_at`, which can collide across many
+  // rows and are not guaranteed unique. Ordered strictly by `rowid > ?` so
+  // a caller can walk the entire unresolved backlog as it existed when the
+  // sweep began, one page at a time, visiting each row exactly once --
+  // including a row that remains unresolved after this attempt, since the
+  // cursor still advances past it. This must never be called in a tight
+  // loop against the *same* cursor value; callers advance the cursor with
+  // each row's own `rowid` (see server.ts's drainUnresolvedTelnyxFaxWebhookEvents).
+  unresolvedTelnyxFaxWebhookEventsPage(afterRowId: number, limit = 100): TelnyxFaxWebhookEventPageRow[] {
+    const bounded = Math.max(1, Math.min(Number(limit) || 100, 500));
+    return this.connection.prepare("SELECT rowid AS rowid, * FROM telnyx_fax_webhook_events WHERE processing_status='unresolved' AND rowid > ? ORDER BY rowid ASC LIMIT ?")
+      .all(Number(afterRowId) || 0, bounded) as unknown as TelnyxFaxWebhookEventPageRow[];
   }
 
   // Targeted lookup for the explicit re-trigger immediately after a
@@ -2831,6 +2895,24 @@ export class PhoneDatabase {
   completeTelnyxFaxWebhookEvent(eventId: string, status: TelnyxFaxWebhookEventStatus, localFaxId?: string, boundedError = ""): void {
     this.connection.prepare("UPDATE telnyx_fax_webhook_events SET processing_status=?, local_fax_id=COALESCE(?, local_fax_id), bounded_error=?, processed_at=? WHERE event_id=?")
       .run(status, localFaxId || null, boundedError.slice(0, 120), utcNow(), String(eventId));
+  }
+
+  // Bounded retention for the transient inbound media URL (Phase 3.1,
+  // FAX-006 correction): clears only `transient_media_url` and
+  // `transient_media_expires_at` on rows whose recorded expiry has passed,
+  // leaving the ingress event identity, timestamps, processing disposition,
+  // page count, local fax binding, and every other field untouched. Never
+  // touches `faxes`/`fax_documents` -- an expired signed URL is not itself
+  // an inbound-fax failure, and this method never mutates outbound fax
+  // state or deletes a managed local document. Returns the number of rows
+  // cleared, for observability only.
+  clearExpiredTelnyxFaxTransientMedia(now: string): number {
+    const changes = this.connection.prepare(`
+      UPDATE telnyx_fax_webhook_events
+      SET transient_media_url='', transient_media_expires_at=''
+      WHERE transient_media_expires_at != '' AND transient_media_expires_at <= ?
+    `).run(String(now)).changes;
+    return Number(changes) || 0;
   }
 
   createFaxDocument(input: FaxDocumentInput): { id: string; created: boolean } {
@@ -2877,9 +2959,16 @@ export class PhoneDatabase {
     if (!this.faxByLocalId(input.fax_id)) throw new Error("Fax not found.");
     const now = utcNow();
     const provider = String(input.provider);
+    // Bounded, already allow-listed by the caller (e.g.
+    // safeTelnyxFaxFailureCategory) -- never internal_failure_reason or raw
+    // provider text. Recorded here regardless of normalized_state: a
+    // non-failure observation legitimately carries '', which is also what
+    // applyFaxObservation uses below to correctly clear (not preserve) any
+    // stale prior failure category once a fax moves past "failed".
+    const failureCategory = String(input.failure_category || "");
     const changes = this.connection.prepare(`
       INSERT OR IGNORE INTO fax_events(provider, event_id, fax_id, provider_fax_id, event_type, normalized_state, occurred_at, received_at, attempt, processing_status, failure_category, payload_sha256, created_at)
-      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?)
+      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
     `).run(
       provider,
       String(input.event_id),
@@ -2890,13 +2979,16 @@ export class PhoneDatabase {
       String(input.occurred_at),
       String(input.received_at || now),
       Number(input.attempt || 0),
+      failureCategory,
       String(input.payload_sha256 || ""),
       now
     ).changes;
     if (Number(changes) !== 1) return { recorded: false, applied: false };
     const outcome = this.applyFaxObservation(input.fax_id, input.normalized_state, {
       occurredAt: input.occurred_at,
-      providerFaxId: input.provider_fax_id
+      providerFaxId: input.provider_fax_id,
+      failureCategory,
+      pageCount: input.page_count ?? undefined
     });
     const applied = outcome === "advanced";
     this.connection.prepare("UPDATE fax_events SET processing_status=? WHERE provider=? AND event_id=?").run(applied ? "applied" : "ignored", provider, String(input.event_id));

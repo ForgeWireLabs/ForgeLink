@@ -1322,3 +1322,106 @@ That is the product boundary this work item must preserve.
     Telnyx resource was mutated. No inbound provider document was
     downloaded. FAX-016 was not attempted.**
   - Evidence: `evidence/runs/20260910-fax-phase3-telnyx-fax-webhook-ingress.json`.
+
+- **2026-09-10 — Phase 3.1: webhook correctness and retention hardening
+  correction (FAX-006 reopened and re-satisfied), schema v32 → v33.**
+  Following a GPT-5.6 Sol High review of the actual Phase 3 implementation
+  (not merely the contract document), five issues were found and fixed:
+  - **Finding 1 (inbound `fax.failed` routed through outbound resolution),
+    fixed:** `isTelnyxFaxInboundEventType()` never listed `fax.failed`
+    (correctly -- it is not inbound-*only*), but
+    `processTelnyxFaxWebhookEvent()` routed on that same set alone rather
+    than on the envelope's own validated `direction`, so an authentic
+    inbound `fax.failed` event incorrectly fell through into outbound
+    local-fax resolution instead of `deferred_inbound`. Fixed with an
+    explicit event-type/direction compatibility classifier
+    (`telnyxFaxEventDirectionScope`/`isTelnyxFaxEventDirectionCompatible`
+    in `telnyx-fax-webhook.ts`): every supported event type is
+    outbound-only, inbound-only, or shared (`fax.failed` is the only
+    shared type), and routing compares that scope against the row's
+    validated direction *before* any local fax lookup. A mismatched
+    pairing (e.g. an outbound-only type claiming inbound direction) now
+    fails closed as `event_direction_mismatch` with zero local lookup in
+    either direction. The original test that exercised the local
+    `direction_mismatch` guard using an inbound `fax.failed` event was
+    replaced with tests matching the corrected semantics (inbound
+    `fax.failed` deferred with zero lookup even when its
+    `provider_fax_id` matches an existing outbound fax; the local guard
+    itself retested with an outbound-routable event pointed at a local
+    fax of the wrong direction).
+  - **Finding 2 (failure category and page count dropped at the ledger
+    handoff), fixed:** `parseTelnyxFaxWebhookEnvelope` and the ingress
+    queue already carried the bounded `failure_category`/`page_count`
+    correctly, but `processTelnyxFaxWebhookEvent` never forwarded either
+    into `recordFaxEvent`, which itself hardcoded an empty
+    `failure_category` into the `fax_events` insert and never called
+    `applyFaxObservation` with either field. `FaxEventInput` gained
+    optional `failure_category`/`page_count`; both now flow through to
+    the canonical `faxes` record and the `fax_events` ledger row, with a
+    non-failure observation's category always explicitly `''` (clearing,
+    never preserving, a stale prior category) and a stale/non-advancing
+    observation never reaching the write path at all (so it can never
+    overwrite the authoritative state, page count, or category, while
+    still being durably ledgered for evidence). `internal_failure_reason`
+    remains unread throughout.
+  - **Finding 3 (no retention bound on the transient inbound media URL),
+    fixed:** added schema v33's additive
+    `telnyx_fax_webhook_events.transient_media_expires_at` column,
+    computed conservatively from the event's own `occurred_at` plus a
+    cited `TELNYX_FAX_TRANSIENT_MEDIA_URL_VALIDITY_MS` constant (~10
+    minutes, per Telnyx's own `fax.received` documentation), and a new
+    `clearExpiredTelnyxFaxTransientMedia(now)` database method that
+    clears only the URL/expiry pair on expired rows -- never the rest of
+    the ingress record, never any fax/document table -- run once at
+    backend startup.
+  - **Finding 4 (restart sweep only ever visited the first 100 unresolved
+    rows), fixed:** added a cursor-paginated
+    `unresolvedTelnyxFaxWebhookEventsPage(afterRowId, limit)` using
+    SQLite's own implicit `rowid` as a stable cursor; `server.ts`'s
+    `drainUnresolvedTelnyxFaxWebhookEvents` now walks the entire backlog
+    in a bounded one-pass loop (cursor advances past every row visited,
+    resolved or not), never re-querying the same page and never becoming
+    a continuous poll.
+  - **Finding 5 (evidence timestamp claimed UTC but was local clock time),
+    fixed:** corrected
+    `evidence/runs/20260910-fax-phase3-telnyx-fax-webhook-ingress.json`'s
+    `timestamp` from `2026-09-10T20:30:00Z` to the Phase 3 commit's actual
+    UTC timestamp, `2026-09-11T01:05:28Z` (commit `7e65d20`), with an
+    explicit `date_correction` note preserving the original error --
+    mirroring the precedent set by the Phase 1 evidence date correction.
+  - **FAX-006 reopen/re-satisfy:** reopened for this review (the inbound
+    `fax.failed` routing bug meant the claim that the fax-specific event
+    parser/lifecycle correctly handles the frozen event contract was not
+    fully true), and re-satisfied by this correction together with the
+    original Phase 3 evidence, both retained per the ledger's
+    evidence-preservation rule. FAX-001 through FAX-005 are unaffected;
+    FAX-007, FAX-009, FAX-015, and FAX-016 remain pending and untouched --
+    no inbound document download, camera scanning, cloud acquisition, Fax
+    UI, MCP fax tools, agent governance, or Tauri parity work was
+    attempted.
+  - **Schema:** v32 -> v33 (additive; `transient_media_expires_at` only).
+    Recorded in `decisions/0011-schema-migration-coordination.md`.
+  - **Tests:** 21 new (4 in `database.test.ts`'s transient-media-expiry
+    and cursor-pagination coverage plus a new v32->v33 migration test; 12
+    in `telnyx-fax-webhook.test.ts` for the corrected event/direction
+    routing (5), failure-category/page-count propagation (5), and
+    transient-media-expiry envelope parsing (2); 1 new HTTP-boundary
+    integration test in `server.test.ts` proving the multi-page restart
+    sweep against a 150-row backlog). Also corrected four pre-existing
+    migration-test fixtures (v26 device-registry, v28, v29, v30 downgrade
+    paths) to drop `telnyx_fax_webhook_events` before rolling back their
+    `PRAGMA user_version`, fixing a latent "duplicate column name" bug the
+    new non-idempotent `ALTER TABLE ADD COLUMN` surfaced in those
+    fixtures. 265 total in the focused
+    fax/database/channels/telnyx/telnyx-fax-webhook/fax-submission/server/migration
+    run. Full suite: 413 node:test cases, 412 passed, 1 skipped (opt-in
+    live Twilio, unrelated), 0 failed; `npm run backend:build`,
+    `npm run renderer:build`, and vitest (228 cases) all pass;
+    `python .local/validate_system.py` passes.
+  - **No live fax was sent. No operator Telnyx credential was used. No
+    live Telnyx resource was mutated. No inbound provider document was
+    downloaded. FAX-007 was not attempted. FAX-009 document acquisition
+    was not implemented. FAX-016 was not attempted.**
+  - Evidence: `evidence/runs/20260910-fax-phase3-1-webhook-correctness-hardening.json`
+    (together with the retained, timestamp-corrected original,
+    `evidence/runs/20260910-fax-phase3-telnyx-fax-webhook-ingress.json`).
