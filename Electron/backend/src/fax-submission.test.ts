@@ -184,12 +184,12 @@ test("FAX-005: GET reconciliation advances state on a valid observation and leav
     database.applyFaxState("fax-1", "submitting");
     database.applyFaxState("fax-1", "accepted", { providerFaxId: "provider-fax-1" });
 
-    const provider = fakeProvider({ getFax: async () => ({ providerFaxId: "provider-fax-1", normalizedState: "delivered", occurredAt: "2026-09-10T22:10:00Z" }) });
+    const provider = fakeProvider({ getFax: async () => ({ providerFaxId: "provider-fax-1", direction: "outbound" as const, normalizedState: "delivered", occurredAt: "2026-09-10T22:10:00Z" }) });
     const advanced = await reconcileFax("fax-1", { database, provider });
     assert.deepEqual(advanced, { outcome: "advanced", state: "delivered" });
     assert.equal(database.faxByLocalId("fax-1")!.state, "delivered");
 
-    const staleProvider = fakeProvider({ getFax: async () => ({ providerFaxId: "provider-fax-1", normalizedState: "accepted", occurredAt: "2026-09-10T21:00:00Z" }) });
+    const staleProvider = fakeProvider({ getFax: async () => ({ providerFaxId: "provider-fax-1", direction: "outbound" as const, normalizedState: "accepted", occurredAt: "2026-09-10T21:00:00Z" }) });
     const stale = await reconcileFax("fax-1", { database, provider: staleProvider });
     assert.deepEqual(stale, { outcome: "unchanged" });
     assert.equal(database.faxByLocalId("fax-1")!.state, "delivered", "a stale observation must not regress the delivered state");
@@ -266,9 +266,196 @@ test("FAX-005: a cancellation race can still converge to an authoritative delive
     await requestFaxCancellation("fax-1", { database, provider: cancelProvider });
     assert.equal(database.faxByLocalId("fax-1")!.state, "cancel_pending");
 
-    const reconcileProvider = fakeProvider({ getFax: async () => ({ providerFaxId: "provider-fax-1", normalizedState: "delivered", occurredAt: "2026-09-10T22:20:00Z" }) });
+    const reconcileProvider = fakeProvider({ getFax: async () => ({ providerFaxId: "provider-fax-1", direction: "outbound" as const, normalizedState: "delivered", occurredAt: "2026-09-10T22:20:00Z" }) });
     const outcome = await reconcileFax("fax-1", { database, provider: reconcileProvider });
     assert.deepEqual(outcome, { outcome: "advanced", state: "delivered" });
     assert.equal(database.faxByLocalId("fax-1")!.state, "delivered");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// --- Phase 2.1 finding 1: cancellation claim/rollback correctness ---
+
+test("FAX-005 (2.1): cancellation without a known provider fax id never enters cancel_pending", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-cancel-noid-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpFax(database);
+    database.applyFaxState("fax-1", "submitting");
+    database.applyFaxState("fax-1", "ambiguous"); // no provider_fax_id was ever captured
+    let cancelCalled = false;
+    const provider = fakeProvider({ cancelFax: async (id) => { cancelCalled = true; return { providerFaxId: id, normalizedState: "cancel_pending" }; } });
+    const outcome = await requestFaxCancellation("fax-1", { database, provider });
+    assert.deepEqual(outcome, { outcome: "unsupported" });
+    assert.equal(cancelCalled, false);
+    assert.equal(database.faxByLocalId("fax-1")!.state, "ambiguous", "the fax must not be mutated into cancel_pending");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-005 (2.1): cancellation against a provider that does not implement cancelFax never enters cancel_pending", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-cancel-unsupported-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpFax(database);
+    database.applyFaxState("fax-1", "submitting");
+    database.applyFaxState("fax-1", "accepted", { providerFaxId: "provider-fax-1" });
+    const provider = fakeProvider({ cancelFax: undefined });
+    const outcome = await requestFaxCancellation("fax-1", { database, provider });
+    assert.deepEqual(outcome, { outcome: "unsupported" });
+    assert.equal(database.faxByLocalId("fax-1")!.state, "accepted", "the fax must not be mutated into cancel_pending");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-005 (2.1): an ambiguous cancel outcome leaves the fax in cancel_pending because provider acceptance is unknown", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-cancel-ambiguous-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpFax(database);
+    database.applyFaxState("fax-1", "submitting");
+    database.applyFaxState("fax-1", "accepted", { providerFaxId: "provider-fax-1" });
+    const provider = fakeProvider({ cancelFax: async () => { throw new FaxProviderAmbiguousError("network_error", "timeout"); } });
+    const outcome = await requestFaxCancellation("fax-1", { database, provider });
+    assert.deepEqual(outcome, { outcome: "ambiguous" });
+    assert.equal(database.faxByLocalId("fax-1")!.state, "cancel_pending", "acceptance cannot be excluded, so the claim must stand");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-005 (2.1): an explicit 404 cancel rejection safely restores the prior accepted state", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-cancel-404-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpFax(database);
+    database.applyFaxState("fax-1", "submitting");
+    database.applyFaxState("fax-1", "accepted", { providerFaxId: "provider-fax-1" });
+    const provider = fakeProvider({ cancelFax: async () => { throw new FaxProviderRejectionError("not_found", "Telnyx has no record of this fax to cancel."); } });
+    const outcome = await requestFaxCancellation("fax-1", { database, provider });
+    assert.deepEqual(outcome, { outcome: "rejected", category: "not_found" });
+    assert.equal(database.faxByLocalId("fax-1")!.state, "accepted", "the prior state must be restored, not left in cancel_pending");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-005 (2.1): an explicit 422 (no-longer-cancellable) rejection safely restores the prior sending state", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-cancel-422-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpFax(database);
+    database.applyFaxState("fax-1", "submitting");
+    database.applyFaxState("fax-1", "accepted", { providerFaxId: "provider-fax-1" });
+    database.applyFaxState("fax-1", "sending");
+    const provider = fakeProvider({ cancelFax: async () => { throw new FaxProviderRejectionError("90000", "Telnyx rejected the cancel request; the fax may no longer be cancellable."); } });
+    const outcome = await requestFaxCancellation("fax-1", { database, provider });
+    assert.deepEqual(outcome, { outcome: "rejected", category: "90000" });
+    assert.equal(database.faxByLocalId("fax-1")!.state, "sending", "the prior state (sending) must be restored");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-005 (2.1): the cancellation rollback CAS cannot overwrite a concurrently advanced terminal state", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-cancel-race-terminal-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpFax(database);
+    database.applyFaxState("fax-1", "submitting");
+    database.applyFaxState("fax-1", "accepted", { providerFaxId: "provider-fax-1" });
+    database.applyFaxState("fax-1", "cancel_pending");
+    // Simulates a provider observation racing in and resolving the fax to a
+    // terminal state (e.g. a webhook/GET reconciliation) before the pending
+    // cancel rejection is processed.
+    database.applyFaxObservation("fax-1", "delivered", { providerFaxId: "provider-fax-1" });
+    assert.equal(database.faxByLocalId("fax-1")!.state, "delivered");
+
+    // The rollback attempt (as requestFaxCancellation would perform on a
+    // rejection) must be a harmless no-op now that the row is no longer
+    // cancel_pending.
+    const restored = database.restoreCancelClaim("fax-1", "accepted");
+    assert.equal(restored, false, "the CAS rollback must fail harmlessly, not overwrite the terminal state");
+    assert.equal(database.faxByLocalId("fax-1")!.state, "delivered", "the terminal state must be preserved");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-005 (2.1): duplicate cancellation callers still issue at most one provider cancel command", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-cancel-dup-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpFax(database);
+    database.applyFaxState("fax-1", "submitting");
+    database.applyFaxState("fax-1", "accepted", { providerFaxId: "provider-fax-1" });
+    let cancelCount = 0;
+    const provider = fakeProvider({ cancelFax: async (id) => { cancelCount += 1; return { providerFaxId: id, normalizedState: "cancel_pending" }; } });
+    const [first, second] = await Promise.all([
+      requestFaxCancellation("fax-1", { database, provider }),
+      requestFaxCancellation("fax-1", { database, provider })
+    ]);
+    const outcomes = [first.outcome, second.outcome].sort();
+    assert.deepEqual(outcomes, ["claimed", "not_claimed"]);
+    assert.equal(cancelCount, 1);
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// --- Phase 2.1 finding 2: reconciliation direction verification ---
+
+test("FAX-005 (2.1): a provider observation reporting the wrong direction cannot mutate the local fax, including into failed", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-reconcile-direction-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpFax(database); // outbound
+    database.applyFaxState("fax-1", "submitting");
+    database.applyFaxState("fax-1", "accepted", { providerFaxId: "provider-fax-1" });
+    // The provider claims this provider fax id is actually an inbound fax
+    // reporting "failed" -- "failed" is legal in both graphs, so state
+    // compatibility alone would not catch this.
+    const provider = fakeProvider({ getFax: async () => ({ providerFaxId: "provider-fax-1", direction: "inbound" as const, normalizedState: "failed", occurredAt: "2026-09-10T22:30:00Z" }) });
+    const outcome = await reconcileFax("fax-1", { database, provider });
+    assert.deepEqual(outcome, { outcome: "direction_mismatch" });
+    assert.equal(database.faxByLocalId("fax-1")!.state, "accepted", "the local outbound fax must not become failed from a mismatched-direction observation");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-005 (2.1): the inverse direction mismatch (local inbound, provider reports outbound) also cannot mutate state", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-reconcile-direction-inverse-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    database.createFax({ local_fax_id: "fax-in-1", direction: "inbound", to_number: "+15550001111", from_number: "+15557654321", provider: "telnyx", provider_fax_id: "provider-fax-in-1" });
+    const provider = fakeProvider({ getFax: async () => ({ providerFaxId: "provider-fax-in-1", direction: "outbound" as const, normalizedState: "failed", occurredAt: "2026-09-10T22:31:00Z" }) });
+    const outcome = await reconcileFax("fax-in-1", { database, provider });
+    assert.deepEqual(outcome, { outcome: "direction_mismatch" });
+    assert.equal(database.faxByLocalId("fax-in-1")!.state, "receiving", "the local inbound fax must not be mutated from a mismatched-direction observation");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-005 (2.1): a correctly-matching direction still reconciles normally", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-reconcile-direction-ok-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpFax(database);
+    database.applyFaxState("fax-1", "submitting");
+    database.applyFaxState("fax-1", "accepted", { providerFaxId: "provider-fax-1" });
+    const provider = fakeProvider({ getFax: async () => ({ providerFaxId: "provider-fax-1", direction: "outbound" as const, normalizedState: "delivered", occurredAt: "2026-09-10T22:32:00Z" }) });
+    const outcome = await reconcileFax("fax-1", { database, provider });
+    assert.deepEqual(outcome, { outcome: "advanced", state: "delivered" });
+    assert.equal(database.faxByLocalId("fax-1")!.state, "delivered");
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// --- Phase 2.1 finding 5: correlation token persistence must succeed before any provider call ---
+
+test("FAX-005 (2.1): a correlation token persistence failure prevents the provider from being invoked and produces a definite failed outcome, not ambiguous", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-submission-token-fail-"));
+  const database = new PhoneDatabase(join(directory, "phone.sqlite3"));
+  try {
+    setUpFax(database);
+    let sendCalled = false;
+    const provider = fakeProvider({ sendFax: async () => { sendCalled = true; return { providerFaxId: "provider-fax-1", normalizedState: "accepted" }; } });
+    // Wrap the real database so setFaxProviderCorrelationToken reports failure
+    // (simulates a token collision or a durability failure), while every
+    // other method delegates to the real PhoneDatabase.
+    const flaky: typeof database = new Proxy(database, {
+      get(target, prop, receiver) {
+        if (prop === "setFaxProviderCorrelationToken") return () => false;
+        return Reflect.get(target, prop, receiver);
+      }
+    });
+    const outcome = await submitFax("fax-1", { database: flaky, provider });
+    assert.deepEqual(outcome, { outcome: "failed", category: "correlation_token_unavailable" });
+    assert.equal(sendCalled, false, "the provider must never be invoked when the correlation token cannot be durably established");
+    assert.equal(database.faxByLocalId("fax-1")!.state, "failed");
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });

@@ -7,8 +7,9 @@
 // work/active/041-first-class-fax-communications-and-telnyx-fax-edge/local-artifacts/phase2-telnyx-fax-contract.md;
 // re-read it before changing request/response field handling here.
 
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { readFile, realpath, stat } from "node:fs/promises";
+import { extname, isAbsolute, join, relative } from "node:path";
 import { ChannelCapabilities, CredentialValidation } from "./channels";
 import { FaxDirection, FaxDocumentRef, FaxProviderAmbiguousError, FaxProviderPreflightError, FaxProviderRejectionError, FaxProvider, FaxRequest, FaxResult, FaxState, FaxStatusUpdate } from "./fax";
 import { FaxDocumentRow, PhoneDatabase } from "./database";
@@ -123,14 +124,55 @@ export interface TelnyxFaxDocumentResolver {
   resolve(documentRef: FaxDocumentRef): Promise<TelnyxFaxMediaSource>;
 }
 
+// Provider-boundary limits/allow-list (frozen contract; Phase 2.1 finding 4).
+// 20 MB is the documented multipart `contents` limit. The extension map is
+// both the supported-format allow-list and the canonical content-type used
+// on the wire -- a database content_type is trusted only when it does not
+// materially disagree with the extension (different top-level media type,
+// e.g. "image/..." claimed for a ".pdf" file).
+export const TELNYX_MULTIPART_MAX_BYTES = 20 * 1024 * 1024;
+
+const TELNYX_SUPPORTED_EXTENSIONS: Readonly<Record<string, string>> = {
+  ".pdf": "application/pdf",
+  ".tif": "image/tiff",
+  ".tiff": "image/tiff",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".rtf": "application/rtf",
+  ".txt": "text/plain"
+};
+
+function topLevelMediaType(contentType: string): string {
+  return contentType.split(";")[0]!.trim().toLowerCase().split("/")[0] || "";
+}
+
+export interface LocalFileFaxDocumentResolverFs {
+  stat: typeof stat;
+  realpath: typeof realpath;
+  readFile: typeof readFile;
+}
+
+const DEFAULT_RESOLVER_FS: LocalFileFaxDocumentResolverFs = { stat, realpath, readFile };
+
 // Production resolver: reads a ForgeLink-managed fax document from the same
 // `<dataDir>/uploads/` directory server.ts already uses for MMS media.
 // `fax_documents.local_ref` is treated as a filename within that directory,
-// never an absolute/external path, and never a public URL.
+// never an absolute/external path, and never a public URL. Before a file
+// crosses the provider boundary this enforces, in order: basename-only
+// reference safety, symlink/reparse-point containment under `uploadsDir`
+// (via realpath, portable across platforms -- no Windows-only special
+// case), file-size limit checked via `stat` before any full read, a
+// supported-format allow-list, content-type/extension agreement, and (when
+// `fax_documents.content_sha256` is non-empty) a byte-for-byte hash match
+// so a document that changed after preparation is never silently sent as
+// though it were the prepared one.
 export function createLocalFileFaxDocumentResolver(
   database: Pick<PhoneDatabase, "faxDocumentById">,
   uploadsDir: string,
-  readFileImpl: typeof readFile = readFile
+  fsImpl: LocalFileFaxDocumentResolverFs = DEFAULT_RESOLVER_FS
 ): TelnyxFaxDocumentResolver {
   return {
     async resolve(documentRef: FaxDocumentRef): Promise<TelnyxFaxMediaSource> {
@@ -138,14 +180,48 @@ export function createLocalFileFaxDocumentResolver(
       if (!row) throw new FaxProviderPreflightError("document_unavailable", "The fax document could not be found.");
       if (row.retention_state !== "active") throw new FaxProviderPreflightError("document_unavailable", "The fax document is no longer available.");
       const safeName = row.local_ref.replace(/[\\/]/g, "");
-      if (!safeName || safeName !== row.local_ref) throw new FaxProviderPreflightError("document_unavailable", "The fax document reference is invalid.");
-      let buffer: Buffer;
-      try {
-        buffer = await readFileImpl(join(uploadsDir, safeName));
-      } catch {
-        throw new FaxProviderPreflightError("document_unavailable", "The fax document could not be read.");
+      if (!safeName || safeName !== row.local_ref || safeName === "." || safeName === "..") {
+        throw new FaxProviderPreflightError("document_unavailable", "The fax document reference is invalid.");
       }
-      return { kind: "contents", buffer, filename: row.display_name || safeName, contentType: row.content_type || "application/pdf" };
+
+      const resolvedUploadsDir = await fsImpl.realpath(uploadsDir).catch(() => null);
+      if (!resolvedUploadsDir) throw new FaxProviderPreflightError("document_unavailable", "The fax document store could not be resolved.");
+      const resolvedPath = await fsImpl.realpath(join(uploadsDir, safeName)).catch(() => null);
+      if (!resolvedPath) throw new FaxProviderPreflightError("document_unavailable", "The fax document could not be found.");
+      const relativePath = relative(resolvedUploadsDir, resolvedPath);
+      if (relativePath === "" || relativePath.startsWith("..") || isAbsolute(relativePath)) {
+        // A symlink/reparse point resolved outside the managed uploads
+        // directory. Never follow it to an arbitrary local file.
+        throw new FaxProviderPreflightError("document_unsafe_path", "The fax document reference resolves outside the managed document store.");
+      }
+
+      const stats = await fsImpl.stat(resolvedPath).catch(() => null);
+      if (!stats || !stats.isFile()) throw new FaxProviderPreflightError("document_unavailable", "The fax document could not be found.");
+      if (stats.size === 0) throw new FaxProviderPreflightError("document_unavailable", "The fax document is empty.");
+      if (stats.size > TELNYX_MULTIPART_MAX_BYTES) {
+        throw new FaxProviderPreflightError("document_too_large", `The fax document exceeds Telnyx's ${TELNYX_MULTIPART_MAX_BYTES / (1024 * 1024)}MB multipart upload limit.`);
+      }
+
+      const extension = extname(safeName).toLowerCase();
+      const canonicalContentType = TELNYX_SUPPORTED_EXTENSIONS[extension];
+      if (!canonicalContentType) throw new FaxProviderPreflightError("unsupported_media_type", "The fax document format is not supported by Telnyx Programmable Fax.");
+      const declaredContentType = (row.content_type || "").trim().toLowerCase();
+      if (declaredContentType && topLevelMediaType(declaredContentType) !== topLevelMediaType(canonicalContentType)) {
+        // The stored content_type and the file extension materially
+        // disagree (different top-level media type) -- fail closed rather
+        // than guess which one is honest.
+        throw new FaxProviderPreflightError("media_type_mismatch", "The fax document's recorded content type does not match its file extension.");
+      }
+
+      const buffer = await fsImpl.readFile(resolvedPath);
+      if (row.content_sha256) {
+        const actual = createHash("sha256").update(buffer).digest("hex");
+        if (actual.toLowerCase() !== row.content_sha256.trim().toLowerCase()) {
+          throw new FaxProviderPreflightError("document_hash_mismatch", "The fax document's content no longer matches its recorded hash.");
+        }
+      }
+
+      return { kind: "contents", buffer, filename: row.display_name || safeName, contentType: canonicalContentType };
     }
   };
 }
@@ -230,20 +306,41 @@ export function createTelnyxFaxProvider(options: CreateTelnyxFaxProviderOptions)
   return {
     capabilities: () => TELNYX_CAPABILITIES,
 
+    // Phase 2.1 finding 3: `ok` must not be true when outbound fax is not
+    // actually ready. `readiness.ok` (structurally valid, resolvable
+    // configuration) is necessary but not sufficient for a send-gating
+    // credential check -- a Fax Application with no Outbound Voice Profile
+    // is exactly the case the review flagged. Richer readiness
+    // (configured/outbound_ready/inbound_webhook_ready) remains available
+    // separately via validateTelnyxFaxConfig for settings/status UI, which
+    // must still be able to show configured=true, outbound_ready=false
+    // truthfully rather than a single collapsed boolean.
     validateCredentials: async (): Promise<CredentialValidation> => {
       const readiness = await validateTelnyxFaxConfig(configOf(), fetchImpl);
-      return { ok: readiness.ok, phoneNumber: readiness.phoneNumber, error: readiness.error };
+      const ok = readiness.ok && readiness.outboundReady;
+      return { ok, phoneNumber: readiness.phoneNumber, error: ok ? undefined : (readiness.error || "Telnyx Fax outbound is not ready.") };
     },
 
+    // Phase 2.1 finding 5: build/validate the request (local, no side
+    // effect) is fully separated from invoking network transport. Only a
+    // failure of the fetch() call itself becomes FaxProviderAmbiguousError;
+    // every failure above that line -- missing config, missing sending
+    // number, an unresolvable/invalid document, a request-construction
+    // error -- is a FaxProviderPreflightError and never reaches fetch().
     sendFax: async (request: FaxRequest): Promise<FaxResult> => {
       const config = configOf();
       if (!config.apiKey || !config.connectionId) throw new FaxProviderPreflightError("not_configured", "Telnyx Fax is not configured.");
+      const from = request.from || config.phoneNumber;
+      if (!from) throw new FaxProviderPreflightError("missing_from_number", "No sending fax number is configured or provided.");
 
+      // Document resolution (including all Phase 2.1 finding 4 provider-
+      // boundary checks: size, format, path safety, hash) is a preflight
+      // concern -- its own errors are already FaxProviderPreflightError and
+      // are never caught by the network try/catch below.
       const media = await documentResolver.resolve(request.documentRef);
       const quality = normalizeTelnyxQuality(request.quality);
-      const from = request.from || config.phoneNumber;
 
-      let response: Response;
+      let transport: { init: RequestInit; timeoutMs: number };
       try {
         if (media.kind === "contents") {
           // The multipart schema does not include client_state (frozen
@@ -255,24 +352,29 @@ export function createTelnyxFaxProvider(options: CreateTelnyxFaxProviderOptions)
           form.set("to", request.to);
           if (quality) form.set("quality", quality);
           form.set("contents", new Blob([new Uint8Array(media.buffer)], { type: media.contentType || "application/octet-stream" }), media.filename || "fax-document");
-          response = await fetchImpl("https://api.telnyx.com/v2/faxes", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${config.apiKey}`, Accept: "application/json" },
-            body: form,
-            signal: AbortSignal.timeout(60_000)
-          });
+          transport = {
+            init: { method: "POST", headers: { Authorization: `Bearer ${config.apiKey}`, Accept: "application/json" }, body: form },
+            timeoutMs: 60_000
+          };
         } else {
           const body: Record<string, unknown> = { connection_id: config.connectionId, from, to: request.to };
           if (media.kind === "media_url") body.media_url = media.url; else body.media_name = media.name;
           if (quality) body.quality = quality;
           if (request.correlation) body.client_state = Buffer.from(request.correlation, "utf8").toString("base64");
-          response = await fetchImpl("https://api.telnyx.com/v2/faxes", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${config.apiKey}`, Accept: "application/json", "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-            signal: AbortSignal.timeout(30_000)
-          });
+          transport = {
+            init: { method: "POST", headers: { Authorization: `Bearer ${config.apiKey}`, Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify(body) },
+            timeoutMs: 30_000
+          };
         }
+      } catch {
+        // FormData/Blob/JSON construction failed before any network
+        // attempt. This provably happened before fetch() -- never ambiguous.
+        throw new FaxProviderPreflightError("request_construction_failed", "The fax request could not be constructed.");
+      }
+
+      let response: Response;
+      try {
+        response = await fetchImpl("https://api.telnyx.com/v2/faxes", { ...transport.init, signal: AbortSignal.timeout(transport.timeoutMs) });
       } catch {
         // fetch() itself threw: DNS failure, connection reset, or our own
         // AbortSignal timeout. ForgeLink cannot prove Telnyx never received
@@ -293,7 +395,14 @@ export function createTelnyxFaxProvider(options: CreateTelnyxFaxProviderOptions)
       if (response.status >= 500) {
         throw new FaxProviderAmbiguousError("server_error", `Telnyx returned a server error (${response.status}); acceptance cannot be excluded.`);
       }
-      if (response.status === 400 || response.status === 403 || response.status === 404 || response.status === 422) {
+      // Phase 2.1 finding 6: 401 (authentication rejected before any fax
+      // processing) and 429 (rate-limited, never processed) are definite
+      // rejections, not left ambiguous forever -- Telnyx did not accept the
+      // request in either case. Automatic retry remains prohibited
+      // regardless of this classification; a 429 may become an
+      // operator-visible retry-eligible failed state later, never an
+      // automatic duplicate send here.
+      if (response.status === 400 || response.status === 401 || response.status === 403 || response.status === 404 || response.status === 422 || response.status === 429) {
         const category = await safeTelnyxErrorCategory(response);
         throw new FaxProviderRejectionError(category, `Telnyx rejected the fax request (${response.status}).`);
       }
@@ -303,6 +412,11 @@ export function createTelnyxFaxProvider(options: CreateTelnyxFaxProviderOptions)
       throw new FaxProviderAmbiguousError("unexpected_status", `Telnyx returned an unexpected response (${response.status}).`);
     },
 
+    // Phase 2.1 finding 1: this method only ever reports what Telnyx said
+    // about the *command* (accepted/rejected/uncertain). It is the
+    // orchestrator's (FaxSubmissionService) job to decide what that means
+    // for local cancel_pending/rollback state -- this adapter never mutates
+    // local state and never fabricates a terminal "cancelled" result.
     cancelFax: async (providerFaxId: string): Promise<FaxResult> => {
       const config = configOf();
       if (!config.apiKey) throw new FaxProviderPreflightError("not_configured", "Telnyx Fax is not configured.");
@@ -330,6 +444,11 @@ export function createTelnyxFaxProvider(options: CreateTelnyxFaxProviderOptions)
       return { providerFaxId, normalizedState: "cancel_pending" };
     },
 
+    // Phase 2.1 finding 2: direction is now an explicit, required property
+    // of the returned observation. A missing/malformed Telnyx `direction`
+    // is never defaulted to "outbound" -- it becomes a bounded ambiguous
+    // error so the caller (FaxSubmissionService.reconcileFax) cannot
+    // mutate local state from an unverifiable observation.
     getFax: async (providerFaxId: string): Promise<FaxStatusUpdate> => {
       const config = configOf();
       let response: Response;
@@ -341,12 +460,15 @@ export function createTelnyxFaxProvider(options: CreateTelnyxFaxProviderOptions)
       if (response.status === 404) throw new FaxProviderRejectionError("not_found", "Telnyx has no record of this fax.");
       if (!response.ok) throw new FaxProviderAmbiguousError("reconciliation_error", `Telnyx reconciliation request failed (${response.status}).`);
       const json = await response.json().catch(() => null) as { data?: { status?: string; direction?: string; updated_at?: string } } | null;
+      const rawDirection = json?.data?.direction;
+      const direction: FaxDirection | null = rawDirection === "outbound" ? "outbound" : rawDirection === "inbound" ? "inbound" : null;
+      if (!direction) throw new FaxProviderAmbiguousError("malformed_direction", "Telnyx reported no recognizable fax direction.");
       const status = typeof json?.data?.status === "string" ? json.data.status : "";
-      const direction: FaxDirection = json?.data?.direction === "inbound" ? "inbound" : "outbound";
       const mapped = status ? mapTelnyxFaxStatus(status, direction) : null;
       if (!mapped) throw new FaxProviderAmbiguousError("unknown_status", "Telnyx reported an unrecognized fax status.");
       return {
         providerFaxId,
+        direction,
         normalizedState: mapped,
         occurredAt: typeof json?.data?.updated_at === "string" ? json.data.updated_at : new Date().toISOString(),
         safeProviderCode: status.slice(0, 40)

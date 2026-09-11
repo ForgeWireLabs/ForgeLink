@@ -1,6 +1,6 @@
 # Work Item 041 — First-Class Fax Communications and Telnyx Fax Edge
 
-**Status:** Active (Phase 1/1.1 fax domain/persistence landed; Phase 2 Telnyx outbound edge landed; inbound/webhook/UI/MCP not yet started)  
+**Status:** Active (Phase 1/1.1 fax domain/persistence landed; Phase 2/2.1 Telnyx outbound edge landed and hardened; inbound/webhook/UI/MCP not yet started)  
 **Priority:** High product expansion  
 **Created:** 2026-09-10  
 **Primary product:** ForgeLink  
@@ -1086,3 +1086,102 @@ That is the product boundary this work item must preserve.
     camera scanning, OCR, cover-page rendering, and the live acceptance
     gate. FAX-006 through FAX-016 remain pending.
   - Evidence: `evidence/runs/20260910-fax-phase2-telnyx-outbound-edge.json`.
+
+- **2026-09-10 — Phase 2.1: outbound-edge hardening correction following
+  architectural review (FAX-005 reopened, then re-satisfied).** No live
+  Telnyx network call, credential, or provider side effect at any point.
+  - **Why FAX-005 was reopened:** the review found the cancellation claim
+    could leave a fax falsely in `cancel_pending` (entered unconditionally,
+    even with no provider fax id, no provider `cancelFax` support, or after
+    an explicit Telnyx rejection), and that reconciliation could not verify
+    provider-observed direction against the local fax's own direction
+    before mutating it -- a real gap, since `failed` is legal in both the
+    outbound and inbound graphs. Both are genuine FAX-005 correctness
+    defects, not cosmetic ones. The original Phase 2 evidence
+    (`20260910-fax-phase2-telnyx-outbound-edge`) is retained as historical
+    evidence of what Phase 2 actually did, not deleted.
+  - **Finding 1 (false `cancel_pending`), fixed:** `requestFaxCancellation`
+    no longer claims `cancel_pending` unconditionally. No provider fax id or
+    no provider `cancelFax` support now returns `"unsupported"` without any
+    state mutation. An accepted (`202`) or ambiguous (network/5xx/timeout)
+    provider outcome leaves the fax `cancel_pending` (`"claimed"`/
+    `"ambiguous"` respectively -- acceptance cannot be excluded in the
+    ambiguous case). An explicit rejection (`404`/`422`) rolls the claim
+    back to the fax's prior state via a new dedicated database method,
+    `restoreCancelClaim(localFaxId, priorState)`, scoped to
+    `WHERE state = cancel_pending` -- never added as a general
+    reconciliation-graph edge, so ordinary provider-observation monotonicity
+    is unweakened. If a provider observation races the rejection and has
+    already advanced the fax to a terminal state, the rollback is a
+    harmless no-op (proven by a dedicated test). The atomic claim itself
+    (still the sole concurrency guard against two cancel commands) is
+    unchanged.
+  - **Finding 2 (lost provider direction), fixed:** `FaxStatusUpdate` now
+    carries an explicit, required `direction` field.
+    `TelnyxFaxProvider.getFax` no longer defaults an unrecognized Telnyx
+    `direction` to `"outbound"` -- a missing/malformed value is a bounded
+    `FaxProviderAmbiguousError("malformed_direction", ...)`.
+    `FaxSubmissionService.reconcileFax` now compares the provider's reported
+    direction against the local fax's own direction *before* calling
+    `applyFaxObservation` at all, returning `"direction_mismatch"` (no
+    mutation) rather than trusting state-shape compatibility as an implicit
+    direction check.
+  - **Finding 3 (contradictory `ok: true` on unready outbound), fixed:**
+    `TelnyxFaxProvider.validateCredentials()` now reports `ok: false` when
+    `outbound_ready` is false, even though the configuration itself resolves
+    cleanly (e.g. no Outbound Voice Profile attached) -- richer readiness
+    (`configured`/`outbound_ready`/`inbound_webhook_ready`) remains
+    available separately for settings/status UI via
+    `validateTelnyxFaxConfig`. `sendFax` also now fails closed with
+    `missing_from_number` before any network attempt when neither the
+    request nor the configuration supplies a sending number.
+  - **Finding 4 (unvalidated document at the provider boundary), fixed:**
+    the production local-file resolver now enforces, before any network
+    call: basename-only `local_ref` plus `fs.realpath`-based containment
+    under the uploads directory (rejecting symlink/reparse-point escape,
+    proven where creatable on this platform); a `fs.stat`-based size check
+    against the documented 20MB limit *before* any full read; a supported-
+    format extension allow-list; content-type/extension agreement (fails
+    closed on a top-level media-type mismatch); and, when
+    `fax_documents.content_sha256` is non-empty, a SHA-256 verification of
+    the bytes actually read.
+  - **Finding 5 (pre-network failures misclassified as ambiguous), fixed:**
+    `sendFax` now separates building the request (JSON body or
+    `FormData`/`Blob` construction) from invoking `fetch()`; only a failure
+    of the network call itself becomes `FaxProviderAmbiguousError`.
+    `FaxSubmissionService.submitFax` now checks the return value of
+    `setFaxProviderCorrelationToken` -- a persistence failure produces a
+    definite `failed` outcome and the provider is never called.
+  - **Finding 6 (401/429 classification), resolved:** recorded in the
+    frozen contract that `401` (authentication failure) and `429` (rate
+    limited) are definite rejections -- Telnyx never begins processing
+    either -- and added both to `telnyx-fax.ts`'s rejection set. Automatic
+    retry remains prohibited regardless.
+  - **Preserved unchanged** (no concrete contradiction found): `FaxProvider`
+    stays separate from `ChannelAdapter`; Telnyx Fax settings stay separate
+    from SMS/MMS; `TELNYX_FAX_*` stays a separate env family; the CAS
+    submission claim remains the durable send authority; no `command_id` is
+    sent; the provider correlation token remains non-sensitive; multipart
+    `contents` remains the production media transport; `client_state`
+    remains JSON-mode only; no automatic resend of `ambiguous`; a `202`
+    still requires a usable provider fax id; cancel `202` still never
+    fabricates terminal `cancelled`; provider raw bodies still never escape
+    the adapter; Telnyx status strings still stay inside the adapter.
+  - **Schema:** unchanged (still v31) -- this correction needed no new
+    persisted column.
+  - **Tests:** 27 new/updated (13 in `telnyx-fax.test.ts`: readiness
+    gating x3, missing-from-number preflight x2, request-construction
+    failure, 401/429, direction handling x3, media hardening x6; 14 in
+    `fax-submission.test.ts`: cancellation unsupported/ambiguous/rejected+
+    rollback/rollback-race-safety/duplicate-caller x7, direction-mismatch
+    reconciliation x3, correlation-token-persistence-failure x1, plus 3
+    pre-existing `getFax` mocks updated for the new required `direction`
+    field). 187 total in the focused fax/database/channels/telnyx/settings
+    run (up from 166 at the end of Phase 2). Full suite: 358 tests, 357 passed, 1 skipped (opt-in
+    live Twilio, unrelated), 0 failed; `npm run backend:build`,
+    `npm run renderer:build`, and vitest (228 cases) all pass.
+  - **No live fax was sent. No operator Telnyx credential was used. No live
+    Telnyx resource was mutated. FAX-016 was not attempted.**
+  - Evidence: `evidence/runs/20260910-fax-phase2-1-outbound-hardening-correction.json`
+    (together with the retained original,
+    `evidence/runs/20260910-fax-phase2-telnyx-outbound-edge.json`).

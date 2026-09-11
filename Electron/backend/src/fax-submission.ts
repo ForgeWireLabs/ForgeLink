@@ -39,7 +39,7 @@ export type FaxSubmissionOutcome =
 
 export type FaxSubmissionDatabase = Pick<
   PhoneDatabase,
-  "faxByLocalId" | "applyFaxState" | "applyFaxObservation" | "faxDocumentsByFaxId" | "setFaxProviderCorrelationToken"
+  "faxByLocalId" | "applyFaxState" | "applyFaxObservation" | "faxDocumentsByFaxId" | "setFaxProviderCorrelationToken" | "restoreCancelClaim"
 >;
 
 export interface FaxSubmissionDeps {
@@ -71,7 +71,14 @@ export async function submitFax(localFaxId: string, deps: FaxSubmissionDeps): Pr
     if (!primary) throw new FaxProviderPreflightError("missing_document", "No document is attached to this fax.");
 
     const token = (deps.generateCorrelationToken || generateProviderCorrelationToken)();
-    deps.database.setFaxProviderCorrelationToken(localFaxId, token);
+    // If the token cannot be durably established first, the provider must
+    // never be called -- this is a definite local failure, not an ambiguous
+    // one (nothing was sent to the network).
+    const tokenPersisted = deps.database.setFaxProviderCorrelationToken(localFaxId, token);
+    if (!tokenPersisted) {
+      deps.database.applyFaxState(localFaxId, "failed", { failureCategory: "correlation_token_unavailable" });
+      return { outcome: "failed", category: "correlation_token_unavailable" };
+    }
 
     const result = await deps.provider.sendFax({
       localFaxId,
@@ -115,6 +122,7 @@ export type FaxReconciliationOutcome =
   | { outcome: "advanced"; state: FaxState }
   | { outcome: "unchanged" }
   | { outcome: "no_provider_id" }
+  | { outcome: "direction_mismatch" }
   | { outcome: "error"; category: string };
 
 // GET-based reconciliation (FAX-005). Only usable once a provider fax id is
@@ -122,14 +130,22 @@ export type FaxReconciliationOutcome =
 // frozen contract's note on the contents-mode client_state gap. Every
 // observation is fed through applyFaxObservation (Phase 1.1's monotonic,
 // direction-aware, skip-ahead-safe reconciliation), never the strict local
-// command path, so a stale/out-of-order GET never regresses local state and
-// a cross-direction observation is safely refused.
+// command path, so a stale/out-of-order GET never regresses local state.
+//
+// Phase 2.1 finding 2: a provider-observed state alone is not a safe
+// direction check -- "failed" is legal in both the outbound and inbound
+// graphs. The provider's own reported direction (FaxStatusUpdate.direction)
+// is compared against the local fax's direction *before* calling
+// applyFaxObservation at all, so a genuinely mismatched observation (e.g. a
+// stale/incorrect provider fax id pointing at someone else's inbound fax)
+// can never mutate this fax's state, including into "failed".
 export async function reconcileFax(localFaxId: string, deps: FaxSubmissionDeps): Promise<FaxReconciliationOutcome> {
   const fax = deps.database.faxByLocalId(localFaxId);
   if (!fax || !fax.provider_fax_id) return { outcome: "no_provider_id" };
   if (!deps.provider.getFax) return { outcome: "unchanged" };
   try {
     const update = await deps.provider.getFax(fax.provider_fax_id);
+    if (update.direction !== fax.direction) return { outcome: "direction_mismatch" };
     const applied = deps.database.applyFaxObservation(localFaxId, update.normalizedState, { occurredAt: update.occurredAt, providerFaxId: fax.provider_fax_id });
     return applied ? { outcome: "advanced", state: update.normalizedState } : { outcome: "unchanged" };
   } catch (error) {
@@ -141,26 +157,55 @@ export async function reconcileFax(localFaxId: string, deps: FaxSubmissionDeps):
 
 export type FaxCancellationOutcome =
   | { outcome: "claimed" }
-  | { outcome: "not_claimed" }
-  | { outcome: "error"; category: string };
+  | { outcome: "ambiguous" }
+  | { outcome: "rejected"; category: string }
+  | { outcome: "unsupported" }
+  | { outcome: "not_claimed" };
 
-// Requests cancellation (FAX-005). Entering cancel_pending is a local
-// command claim, independent of whether the provider command itself
-// succeeds -- Telnyx's cancel acknowledgment is not proof of a terminal
-// cancelled outcome (see the frozen contract), so this never sets a
-// terminal state itself. Later reconciliation/observation remains
-// authoritative for the actual transmission outcome.
+// Requests cancellation (FAX-005). Phase 2.1 finding 1: entering
+// cancel_pending is no longer unconditional. If there is no known provider
+// fax id, or the provider does not implement cancelFax at all, ForgeLink
+// cannot issue a cancellation command -- the fax must not be mutated into
+// cancel_pending merely because cancellation was requested ("unsupported").
+//
+// When cancellation *can* be attempted, the local claim
+// (accepted/sending -> cancel_pending) is still atomic and still the
+// concurrency guard against two callers issuing two cancel commands -- but
+// its outcome is now reconciled against what Telnyx actually said:
+//
+//   provider explicitly accepted (202)        -> remain cancel_pending ("claimed")
+//   provider outcome unknown (network/5xx/...) -> remain cancel_pending ("ambiguous";
+//                                                  acceptance cannot be excluded)
+//   provider explicitly rejected (404/422)     -> roll the claim back to the
+//                                                  fax's prior state via a
+//                                                  dedicated CAS restore,
+//                                                  scoped to cancel_pending
+//                                                  only -- never a general
+//                                                  reconciliation-graph edge
+//
+// If a provider observation races the rejection and has already advanced
+// the fax to a terminal state, restoreCancelClaim's own
+// `WHERE state = cancel_pending` guard makes the rollback a harmless no-op.
 export async function requestFaxCancellation(localFaxId: string, deps: FaxSubmissionDeps): Promise<FaxCancellationOutcome> {
   const fax = deps.database.faxByLocalId(localFaxId);
   if (!fax) return { outcome: "not_claimed" };
+  if (!fax.provider_fax_id || !deps.provider.cancelFax) return { outcome: "unsupported" };
+
+  const priorState = fax.state;
   const claimed = deps.database.applyFaxState(localFaxId, "cancel_pending");
   if (!claimed) return { outcome: "not_claimed" };
-  if (!fax.provider_fax_id || !deps.provider.cancelFax) return { outcome: "claimed" };
+
   try {
     await deps.provider.cancelFax(fax.provider_fax_id);
     return { outcome: "claimed" };
   } catch (error) {
-    if (error instanceof FaxProviderRejectionError) return { outcome: "error", category: error.category };
-    return { outcome: "claimed" };
+    if (error instanceof FaxProviderRejectionError) {
+      deps.database.restoreCancelClaim(localFaxId, priorState);
+      return { outcome: "rejected", category: error.category };
+    }
+    // Ambiguous/unknown cancel outcome: Telnyx's acceptance cannot be
+    // excluded, so the local claim stands -- it is not safe to assume the
+    // command was rejected and roll back.
+    return { outcome: "ambiguous" };
   }
 }

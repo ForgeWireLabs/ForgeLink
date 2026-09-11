@@ -63,6 +63,17 @@ fax-capable" the way SMS exposes `features.sms` — assignment to a Fax
 Application connection is the strongest signal Telnyx's API exposes, and is
 what ForgeLink checks.
 
+`TelnyxFaxProvider.validateCredentials()` — the check used to gate whether a
+send should even be attempted — collapses this to a single `ok` boolean, and
+`ok` is `true` only when `outbound_ready` is also `true`. A structurally
+valid configuration (correct API key, a retrievable, active Fax Application,
+a correctly assigned active phone number) that nonetheless has no Outbound
+Voice Profile attached reports `ok: false` here, even though the same
+configuration is truthfully reported as `configured: true` by the richer
+readiness object above. Settings/status UI should use the richer
+`configured`/`outbound_ready`/`inbound_webhook_ready` object; send-gating
+code should use `validateCredentials()`.
+
 ## `command_id` is not part of the send-fax contract
 
 Telnyx's prose "Sending Commands" documentation mentions a `command_id`
@@ -95,6 +106,31 @@ rely on other reconciliation (a later `GET` once a provider fax ID becomes
 known some other way) or operator judgment. This is a real, recorded
 production gap for that narrow case — not a blocking defect.
 
+### Provider-boundary document validation
+
+Before a local file crosses into a Telnyx request, the production resolver
+validates, in this order, all before any network call:
+
+1. `local_ref` is a bare filename (no path traversal); the resolved real
+   path must remain contained under the managed uploads directory (a
+   `fs.realpath`-based check that also rejects a symlink/reparse point
+   pointing outside it — one portable check, not a Windows-specific rule).
+2. File size, checked via `fs.stat` *before* any full read, against
+   Telnyx's documented 20MB multipart limit.
+3. File format, via an extension allow-list (`.pdf`, `.tif`/`.tiff`,
+   `.jpg`/`.jpeg`, `.png`, `.doc`, `.docx`, `.rtf`, `.txt`).
+4. Content-type agreement: the extension's canonical content type is what
+   is actually sent to Telnyx; a recorded `content_type` that disagrees at
+   the top-level media type (e.g. `image/...` for a `.pdf` file) fails
+   closed.
+5. When `fax_documents.content_sha256` is non-empty, a SHA-256 check of the
+   bytes actually read against that recorded hash — a document that changed
+   after preparation is never silently sent as though it were the prepared
+   one.
+
+Every failure here is a `FaxProviderPreflightError`, never
+`FaxProviderAmbiguousError` — none of it involved a network call.
+
 ## Provider status normalization
 
 ForgeLink never exposes Telnyx's own status strings outside
@@ -126,10 +162,27 @@ connection reset, 5xx response, malformed "successful" response, or any
 other response it cannot classify as a definite rejection. All of those
 land the fax in the `ambiguous` local state (never `failed`, which would
 look safe to retry, and never left `submitting`, which would look like it
-is still in flight). Only an explicit, documented Telnyx rejection response
-(a recognized 4xx) becomes `failed`. A fax in `ambiguous` is never
-auto-resent by any ForgeLink code path, including after an application
-restart.
+is still in flight). A fax in `ambiguous` is never auto-resent by any
+ForgeLink code path, including after an application restart.
+
+Only an explicit, documented Telnyx rejection response becomes `failed`:
+`400`, `401` (authentication failure — Telnyx never began processing an
+unauthenticated request, so no fax could have been created), `403`, `404`,
+`422`, and `429` (rate limited — likewise never processed). Automatic retry
+remains prohibited regardless of this classification; a `429` may become an
+operator-visible, retry-eligible failure later, never an automatic duplicate
+send.
+
+This classification only ever applies to the network call itself. Building
+the request (resolving the document, constructing the JSON body or
+`FormData`) is fully separated from invoking `fetch()`: a failure while
+building the request — including every provider-boundary document check
+above — is a `FaxProviderPreflightError`, because it provably happened
+before any network attempt. Only a failure of `fetch()` itself (or an
+unrecognized/malformed response) becomes `FaxProviderAmbiguousError`.
+Persisting the opaque provider correlation token (below) is checked the
+same way: if it cannot be durably established, the provider is never
+called, and the fax is marked `failed`, not `ambiguous`.
 
 ## Reconciliation
 
@@ -145,19 +198,46 @@ ForgeLink deliberately does not match on recipient, sender, timestamp, page
 count, or filename to "probably" identify the same transmission, because
 that is not safe enough to resolve duplicate-send ambiguity.
 
-## Cancellation — known limitation
+## Cancellation — claim, provider outcome, and a known limitation
+
+Telnyx documents cancellation as eligible only while a fax is `queued`,
+`media.processed`, `originated`, or `sending` — ForgeLink's neutral
+`accepted`/`sending` states, exactly the two states
+`FaxSubmissionService.requestFaxCancellation`'s local claim already
+requires.
 
 `POST /v2/faxes/{id}/actions/cancel` returns `202` with
 `{ "data": { "result": "ok" } }` — **no fax status is returned, and Telnyx's
 own fax `status` enum has no `cancelled` value.** A `202` acknowledgment is
 therefore proof only that Telnyx accepted the cancel *command*, never that
-the fax is terminally cancelled. ForgeLink enters the local `cancel_pending`
-state on a successful cancel command and leaves the actual outcome to a
-later `GET`/observation — which, given Telnyx's status enum, will resolve as
-`delivered` (the cancellation lost the race) or `failed` (Telnyx stopped the
-transmission), not as a distinct `cancelled` state from Telnyx's side.
-**FAX-005's cancel criterion is satisfied for correctly-modeled, honest
-request construction and local nonterminal state — not for a terminal
+the fax is terminally cancelled.
+
+`requestFaxCancellation` reconciles the local claim against what Telnyx
+actually said:
+
+- **No known provider fax id, or the configured provider has no `cancelFax`
+  support** — the fax is never mutated into `cancel_pending` at all
+  (`"unsupported"`). Cancellation was never attempted.
+- **Telnyx explicitly accepts (`202`)** — the fax remains `cancel_pending`
+  (`"claimed"`).
+- **Telnyx's acceptance is unknown** (network error, timeout, 5xx,
+  unrecognized response) — the fax remains `cancel_pending` (`"ambiguous"`):
+  acceptance cannot be excluded, so it is not safe to assume the command was
+  rejected.
+- **Telnyx explicitly rejects** (`404` not found, `422` no longer eligible)
+  — the local claim is rolled back to the fax's prior state
+  (`"rejected"`) via a dedicated CAS restore scoped to
+  `WHERE state = cancel_pending`, so a provider observation that has
+  already raced the rejection and advanced the fax to a terminal state is
+  never overwritten by the rollback.
+
+The actual transmission outcome, once the command is accepted, is still
+learned only from a later `GET`/observation — which, given Telnyx's status
+enum, resolves as `delivered` (the cancellation lost the race) or `failed`
+(Telnyx stopped the transmission), never a distinct `cancelled` state from
+Telnyx's side. **FAX-005's cancel criterion is satisfied for correctly-
+modeled, honest cancel *command* construction, an atomic non-duplicating
+claim, and safe rollback on definite rejection — not for a terminal
 Telnyx-confirmed cancellation, which no Telnyx API ForgeLink has inspected
 currently proves.**
 

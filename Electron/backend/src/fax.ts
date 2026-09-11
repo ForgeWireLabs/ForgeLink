@@ -241,8 +241,16 @@ export interface FaxResult {
 // assert a contradictory pair such as { normalizedState: "sending", terminal:
 // true }. ForgeLink's normalized lifecycle -- not a provider adapter --
 // remains the sole authority on what counts as terminal.
+// `direction` is an explicit, required observation property (Phase 2.1
+// correction): a provider status string alone is not a safe direction proxy
+// (e.g. "failed" is legal in both the outbound and inbound graphs), so
+// callers reconciling this update must be able to verify the provider's
+// observed direction against the local fax's own direction before ever
+// calling applyFaxObservation. A missing/malformed provider direction must
+// never be defaulted to "outbound" -- see FaxDirection callers.
 export interface FaxStatusUpdate {
   providerFaxId: string;
+  direction: FaxDirection;
   normalizedState: FaxState;
   occurredAt: string;
   safeProviderCode?: string;

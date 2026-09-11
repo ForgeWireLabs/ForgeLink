@@ -2597,6 +2597,21 @@ export class PhoneDatabase {
     return Number(changes) === 1;
   }
 
+  // Dedicated cancellation-claim rollback (work item 041, Phase 2.1 finding
+  // 1). Deliberately NOT a general reconciliation-graph edge -- adding
+  // cancel_pending -> accepted/sending to reconcileFaxObservation would
+  // weaken monotonic provider-state semantics for every other caller. This
+  // is a narrow, cancellation-specific correction: only fires when the row
+  // is still exactly `cancel_pending` (the CAS guard), so if a provider
+  // observation has already raced the cancel rejection and advanced the fax
+  // to a terminal state, this update affects zero rows and is a harmless
+  // no-op rather than clobbering that more-authoritative state.
+  restoreCancelClaim(localFaxId: string, priorState: FaxState): boolean {
+    const changes = this.connection.prepare("UPDATE faxes SET state=?, updated_at=? WHERE local_fax_id=? AND state='cancel_pending'")
+      .run(priorState, utcNow(), String(localFaxId)).changes;
+    return Number(changes) === 1;
+  }
+
   createFaxDocument(input: FaxDocumentInput): { id: string; created: boolean } {
     if (!this.faxByLocalId(input.fax_id)) throw new Error("Fax not found.");
     const id = String(input.id || `fax-doc-${randomUUID()}`).slice(0, 120);

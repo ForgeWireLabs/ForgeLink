@@ -1,0 +1,53 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260910-fax-phase2-1-outbound-hardening-correction",
+  "timestamp": "2026-09-11T00:15:00Z",
+  "work_item": "041",
+  "result": "passed",
+  "commands": [
+    {
+      "command": "cd Electron && npm run backend:build",
+      "exit_code": 0,
+      "summary": "Backend TypeScript build passed with the cancellation rollback (restoreCancelClaim), explicit FaxStatusUpdate.direction, validateCredentials outbound-ready gating, media-resolver hardening, and pre-network/ambiguous separation changes to database.ts, fax.ts, fax-submission.ts, and telnyx-fax.ts."
+    },
+    {
+      "command": "cd Electron && node --test backend-dist/telnyx-fax.test.js backend-dist/fax-submission.test.js",
+      "exit_code": 0,
+      "summary": "65 tests passed: adapter-level readiness gating, missing-from-number preflight, request-construction-failure-not-ambiguous, 401/429 rejection classification, provider-direction handling (correct/missing/malformed/inbound), and media-boundary hardening (20MB size-via-stat, unsupported format, content-type/extension mismatch, path traversal, symlink escape, content hash mismatch/match); orchestration-level cancellation unsupported/claimed/ambiguous/rejected-with-rollback/rollback-race-safety/duplicate-caller-single-command, reconciliation direction-mismatch (both directions) and correct-direction, and correlation-token-persistence-failure-prevents-send."
+    },
+    {
+      "command": "cd Electron && node --test backend-dist/fax.test.js backend-dist/database.test.js backend-dist/channels.test.js backend-dist/telnyx.test.js backend-dist/telnyx-fax.test.js backend-dist/fax-submission.test.js telnyxFaxSettings.test.js",
+      "exit_code": 0,
+      "summary": "187 tests passed (up from 166 at the end of Phase 2), all pre-existing fax/database/channels/telnyx/settings tests unchanged and passing alongside the new/updated ones."
+    },
+    {
+      "command": "cd Electron && npm test",
+      "exit_code": 0,
+      "summary": "Full suite: 358 node:test cases, 357 passed, 1 skipped (opt-in live Twilio, unrelated), 0 failed; vitest App.test.tsx (228 cases) and npm run renderer:build both passed cleanly. No Telnyx network call occurred anywhere in this phase."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact 2.2.0 validation, LIE-003 schema-ladder invariants, and markdown link/last_verified checks all passed after the WI041 ledger updates. No schema version change in this correction."
+    }
+  ],
+  "artifacts": [
+    "Electron/backend/src/database.ts",
+    "Electron/backend/src/fax.ts",
+    "Electron/backend/src/fax-submission.ts",
+    "Electron/backend/src/fax-submission.test.ts",
+    "Electron/backend/src/telnyx-fax.ts",
+    "Electron/backend/src/telnyx-fax.test.ts",
+    "docs/telnyx-fax.md",
+    "work/active/041-first-class-fax-communications-and-telnyx-fax-edge/README.md",
+    "work/active/041-first-class-fax-communications-and-telnyx-fax-edge/work-item.json",
+    "work/active/041-first-class-fax-communications-and-telnyx-fax-edge/local-artifacts/phase2-telnyx-fax-contract.md",
+    "evidence/runs/20260910-fax-phase2-telnyx-outbound-edge.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "main",
+    "platform": "Windows",
+    "process_note": "WI041 Phase 2.1: fixed seven Phase 2 correctness gaps found in architectural review. (1) requestFaxCancellation no longer claims cancel_pending unconditionally -- no provider fax id or no cancelFax support returns 'unsupported' without mutation; an explicit provider rejection (404/422) rolls the claim back to the fax's prior state via a new dedicated database method restoreCancelClaim(localFaxId, priorState) scoped to WHERE state=cancel_pending (not a general reconciliation-graph edge), which is a harmless no-op if a provider observation has already raced the fax to a terminal state; an ambiguous provider outcome leaves the fax cancel_pending since acceptance cannot be excluded. (2) FaxStatusUpdate now carries an explicit required direction field; TelnyxFaxProvider.getFax no longer defaults an unrecognized Telnyx direction to outbound (a missing/malformed value is a bounded FaxProviderAmbiguousError); FaxSubmissionService.reconcileFax compares the provider's reported direction against the local fax's direction before calling applyFaxObservation, since 'failed' is legal in both the outbound and inbound graphs and state compatibility alone was not a safe check. (3) TelnyxFaxProvider.validateCredentials() now reports ok=false when outbound_ready is false even though the configuration itself resolves cleanly; richer configured/outbound_ready/inbound_webhook_ready readiness remains available separately for settings/status UI; sendFax also fails closed with missing_from_number before any network attempt. (4) the production local-file media resolver now enforces basename-only local_ref plus fs.realpath-based containment under the uploads directory (rejecting symlink/reparse-point escape), a fs.stat-based 20MB size check before any full read, a supported-format extension allow-list, content-type/extension agreement (fails closed on a top-level media-type mismatch), and a SHA-256 verification against fax_documents.content_sha256 when present. (5) sendFax now separates request construction (JSON body or FormData/Blob) from invoking fetch(), so only a genuine network-transport failure becomes FaxProviderAmbiguousError; submitFax checks setFaxProviderCorrelationToken's return value and fails closed (definite failed, not ambiguous, no provider call) if the token cannot be durably persisted first. (6) recorded that Telnyx's 401 and 429 responses are definite rejections (Telnyx never begins processing either) and added both to the adapter's rejection status set; automatic retry remains prohibited regardless. FAX-005 was reopened for this review (original evidence 20260910-fax-phase2-telnyx-outbound-edge retained as historical) and is re-satisfied by this correction together with the original. FAX-001 and FAX-004 are unaffected. FAX-006 onward remain pending. No schema change; no new column was needed. No live fax was sent, no operator Telnyx credential was used, no live Telnyx resource was mutated, and FAX-016 was not attempted."
+  }
+}

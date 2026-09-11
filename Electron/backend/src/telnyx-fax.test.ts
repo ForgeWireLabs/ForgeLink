@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { FaxDocumentRow } from "./database";
 import { FaxProviderAmbiguousError, FaxProviderPreflightError, FaxProviderRejectionError } from "./fax";
 import {
   createLocalFileFaxDocumentResolver,
   createTelnyxFaxProvider,
   loadTelnyxFaxConfig,
+  LocalFileFaxDocumentResolverFs,
   mapTelnyxFaxStatus,
+  TELNYX_MULTIPART_MAX_BYTES,
   TelnyxFaxConfig,
   validateTelnyxFaxConfig
 } from "./telnyx-fax";
@@ -275,4 +279,277 @@ test("FAX-005: no live network request is possible in this suite -- every call g
   // loadTelnyxFaxConfig reads only TELNYX_FAX_* env vars; confirm the
   // process environment used by this test run carries no real credential.
   assert.equal(loadTelnyxFaxConfig().apiKey, "");
+});
+
+// --- Phase 2.1 finding 3: validateCredentials must not report ok=true when outbound is not ready ---
+
+test("FAX-004 (2.1): provider.validateCredentials() reports ok=false when the Fax Application has no Outbound Voice Profile, even though the configuration itself resolves", async () => {
+  const fetchImpl = async (url: string | URL | Request) => {
+    if (String(url).includes("/fax_applications/")) return jsonResponse({ data: { id: "app-1", active: true, outbound: {} } });
+    return jsonResponse({ data: [{ phone_number: "+15557654321", status: "active", connection_id: "app-1" }] });
+  };
+  const provider = createTelnyxFaxProvider({ config: CONFIG, fetchImpl: fetchImpl as typeof fetch, documentResolver: syntheticResolver() });
+  const result = await provider.validateCredentials();
+  assert.equal(result.ok, false);
+  assert.match(result.error!, /Outbound Voice Profile|not ready/);
+});
+
+test("FAX-004 (2.1): settings/status readiness (validateTelnyxFaxConfig) still truthfully reports configured=true, outbound_ready=false separately from the collapsed send-gating check", async () => {
+  const fetchImpl = async (url: string | URL | Request) => {
+    if (String(url).includes("/fax_applications/")) return jsonResponse({ data: { id: "app-1", active: true, outbound: {} } });
+    return jsonResponse({ data: [{ phone_number: "+15557654321", status: "active", connection_id: "app-1" }] });
+  };
+  const readiness = await validateTelnyxFaxConfig(CONFIG, fetchImpl as typeof fetch);
+  assert.equal(readiness.configured, true);
+  assert.equal(readiness.outboundReady, false);
+  // validateCredentials() collapses this to a single ok=false for send-gating,
+  // but the richer readiness object (used by settings/status UI) is unaffected.
+  const provider = createTelnyxFaxProvider({ config: CONFIG, fetchImpl: fetchImpl as typeof fetch, documentResolver: syntheticResolver() });
+  assert.equal((await provider.validateCredentials()).ok, false);
+});
+
+test("FAX-004 (2.1): provider.validateCredentials() reports ok=true only when outbound is genuinely ready", async () => {
+  const fetchImpl = async (url: string | URL | Request) => {
+    if (String(url).includes("/fax_applications/")) return jsonResponse({ data: { id: "app-1", active: true, outbound: { outbound_voice_profile_id: "ovp-1" } } });
+    return jsonResponse({ data: [{ phone_number: "+15557654321", status: "active", connection_id: "app-1" }] });
+  };
+  const provider = createTelnyxFaxProvider({ config: CONFIG, fetchImpl: fetchImpl as typeof fetch, documentResolver: syntheticResolver() });
+  assert.equal((await provider.validateCredentials()).ok, true);
+});
+
+// --- Phase 2.1 finding 5: incomplete local config fails before any fetch ---
+
+test("FAX-005 (2.1): sendFax fails closed with no sending number configured or provided, before any fetch", async () => {
+  let fetchCalled = false;
+  const fetchImpl = async () => { fetchCalled = true; return jsonResponse({}, 202); };
+  const provider = createTelnyxFaxProvider({ config: { ...CONFIG, phoneNumber: "" }, fetchImpl: fetchImpl as typeof fetch, documentResolver: syntheticResolver() });
+  await assert.rejects(
+    () => provider.sendFax({ localFaxId: "fax-from-1", to: "+15551112222", documentRef: { id: "doc-1" } }),
+    (error: unknown) => error instanceof FaxProviderPreflightError && error.category === "missing_from_number"
+  );
+  assert.equal(fetchCalled, false);
+});
+
+test("FAX-005 (2.1): an explicit FaxRequest.from is used even when the configured phone number is blank", async () => {
+  let captured: Record<string, unknown> | null = null;
+  const fetchImpl = async (_url: string | URL | Request, init?: RequestInit) => {
+    captured = JSON.parse(String(init!.body));
+    return jsonResponse({ data: { id: "fax_provider_from", status: "queued" } }, 202);
+  };
+  const provider = createTelnyxFaxProvider({ config: { ...CONFIG, phoneNumber: "" }, fetchImpl: fetchImpl as typeof fetch, documentResolver: syntheticResolver() });
+  await provider.sendFax({ localFaxId: "fax-from-2", from: "+15550009999", to: "+15551112222", documentRef: { id: "doc-1" } });
+  assert.equal(captured!.from, "+15550009999");
+});
+
+test("FAX-005 (2.1): a request-construction failure before fetch is a preflight error, never ambiguous", async () => {
+  let fetchCalled = false;
+  const fetchImpl = async () => { fetchCalled = true; return jsonResponse({ data: { id: "should-not-be-reached" } }, 202); };
+  // A media source with a buffer that throws when the adapter tries to build
+  // a Blob from it (simulates a FormData/Blob construction failure) --
+  // achieved here via a resolver returning a media_url so we instead force
+  // the failure through an unsupported media kind at the type boundary.
+  // Simpler and equally valid: a resolver whose resolve() itself throws a
+  // plain (non-Fax) Error to simulate an unexpected local construction bug
+  // upstream of the network call -- this must surface as-is (uncaught by the
+  // network try/catch) rather than being reclassified as ambiguous.
+  const throwingResolver = { resolve: async () => { throw new Error("unexpected local construction bug"); } };
+  const provider = createTelnyxFaxProvider({ config: CONFIG, fetchImpl: fetchImpl as typeof fetch, documentResolver: throwingResolver });
+  await assert.rejects(
+    () => provider.sendFax({ localFaxId: "fax-construct-1", to: "+15551112222", documentRef: { id: "doc-1" } }),
+    (error: unknown) => !(error instanceof FaxProviderAmbiguousError)
+  );
+  assert.equal(fetchCalled, false, "a pre-network construction/resolution failure must never reach fetch()");
+});
+
+// --- Phase 2.1 finding 6: 401/429 are definite rejections, not ambiguous ---
+
+test("FAX-005 (2.1): a 401 authentication failure is a definite rejection, not left ambiguous", async () => {
+  const fetchImpl = async () => jsonResponse({ errors: [{ code: "10009" }] }, 401);
+  const provider = createTelnyxFaxProvider({ config: CONFIG, fetchImpl: fetchImpl as typeof fetch, documentResolver: syntheticResolver() });
+  await assert.rejects(
+    () => provider.sendFax({ localFaxId: "fax-401", to: "+15551112222", documentRef: { id: "doc-1" } }),
+    (error: unknown) => error instanceof FaxProviderRejectionError && error.category === "10009"
+  );
+});
+
+test("FAX-005 (2.1): a 429 rate-limit rejection is a definite rejection, and no automatic retry occurs", async () => {
+  let attempts = 0;
+  const fetchImpl = async () => { attempts += 1; return jsonResponse({ errors: [{ code: "42900" }] }, 429); };
+  const provider = createTelnyxFaxProvider({ config: CONFIG, fetchImpl: fetchImpl as typeof fetch, documentResolver: syntheticResolver() });
+  await assert.rejects(
+    () => provider.sendFax({ localFaxId: "fax-429", to: "+15551112222", documentRef: { id: "doc-1" } }),
+    (error: unknown) => error instanceof FaxProviderRejectionError && error.category === "42900"
+  );
+  assert.equal(attempts, 1, "a rate-limit rejection must never trigger an automatic duplicate send");
+});
+
+// --- Phase 2.1 finding 2: provider direction is an explicit, verifiable property ---
+
+test("FAX-005 (2.1): GET reconciliation returns the provider's observed direction alongside the mapped state", async () => {
+  const fetchImpl = async () => jsonResponse({ data: { status: "delivered", direction: "outbound", updated_at: "2026-09-10T22:05:00Z" } });
+  const provider = createTelnyxFaxProvider({ config: CONFIG, fetchImpl: fetchImpl as typeof fetch, documentResolver: syntheticResolver() });
+  const update = await provider.getFax!("fax_provider_1");
+  assert.equal(update.direction, "outbound");
+});
+
+test("FAX-005 (2.1): a missing/malformed provider direction is a bounded ambiguous error, never defaulted to outbound", async () => {
+  const fetchImpl = async () => jsonResponse({ data: { status: "delivered", direction: "sideways", updated_at: "2026-09-10T22:05:00Z" } });
+  const provider = createTelnyxFaxProvider({ config: CONFIG, fetchImpl: fetchImpl as typeof fetch, documentResolver: syntheticResolver() });
+  await assert.rejects(() => provider.getFax!("fax_provider_1"), (error: unknown) => error instanceof FaxProviderAmbiguousError && error.category === "malformed_direction");
+
+  const missingFetch = async () => jsonResponse({ data: { status: "delivered", updated_at: "2026-09-10T22:05:00Z" } });
+  const provider2 = createTelnyxFaxProvider({ config: CONFIG, fetchImpl: missingFetch as typeof fetch, documentResolver: syntheticResolver() });
+  await assert.rejects(() => provider2.getFax!("fax_provider_1"), (error: unknown) => error instanceof FaxProviderAmbiguousError && error.category === "malformed_direction");
+});
+
+test("FAX-005 (2.1): an inbound provider observation is correctly reported as inbound", async () => {
+  const fetchImpl = async () => jsonResponse({ data: { status: "received", direction: "inbound", updated_at: "2026-09-10T22:05:00Z" } });
+  const provider = createTelnyxFaxProvider({ config: CONFIG, fetchImpl: fetchImpl as typeof fetch, documentResolver: syntheticResolver() });
+  const update = await provider.getFax!("fax_provider_inbound_1");
+  assert.equal(update.direction, "inbound");
+  assert.equal(update.normalizedState, "received");
+});
+
+// --- Phase 2.1 finding 4: production media resolver provider-boundary hardening ---
+
+function fakeFaxDocumentRow(overrides: Partial<FaxDocumentRow> = {}): FaxDocumentRow {
+  return {
+    id: "doc-1",
+    fax_id: "fax-1",
+    role: "primary",
+    local_ref: "synthetic-fax.pdf",
+    content_type: "application/pdf",
+    content_sha256: "",
+    display_name: "synthetic-fax.pdf",
+    page_count: 1,
+    byte_size: 20,
+    retention_state: "active",
+    created_at: "",
+    deleted_at: null,
+    ...overrides
+  };
+}
+
+test("FAX-005 (2.1): a document exceeding the 20MB multipart limit is rejected via stat before any full read or fetch", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-media-size-"));
+  try {
+    const path = join(directory, "too-big.pdf");
+    writeFileSync(path, "x");
+    let readCalled = false;
+    let fetchCalled = false;
+    const { realpath: realRealpath } = await import("node:fs/promises");
+    const fsImpl = {
+      stat: (async () => ({ isFile: () => true, size: TELNYX_MULTIPART_MAX_BYTES + 1 })) as unknown as LocalFileFaxDocumentResolverFs["stat"],
+      realpath: realRealpath,
+      readFile: (async () => { readCalled = true; return Buffer.from(""); }) as unknown as LocalFileFaxDocumentResolverFs["readFile"]
+    };
+    const database = { faxDocumentById: () => fakeFaxDocumentRow({ local_ref: "too-big.pdf" }) };
+    const resolver = createLocalFileFaxDocumentResolver(database, directory, fsImpl);
+    const fetchImpl = async () => { fetchCalled = true; return jsonResponse({}, 202); };
+    const provider = createTelnyxFaxProvider({ config: CONFIG, fetchImpl: fetchImpl as typeof fetch, documentResolver: resolver });
+    await assert.rejects(
+      () => provider.sendFax({ localFaxId: "fax-big-1", to: "+15551112222", documentRef: { id: "doc-1" } }),
+      (error: unknown) => error instanceof FaxProviderPreflightError && error.category === "document_too_large"
+    );
+    assert.equal(readCalled, false, "an oversized file must be rejected via stat before a full read");
+    assert.equal(fetchCalled, false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-005 (2.1): an unsupported file format is rejected before any fetch", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-media-type-"));
+  try {
+    writeFileSync(join(directory, "synthetic-fax.exe"), "not a real executable");
+    const database = { faxDocumentById: () => fakeFaxDocumentRow({ local_ref: "synthetic-fax.exe", content_type: "application/octet-stream" }) };
+    const resolver = createLocalFileFaxDocumentResolver(database, directory);
+    let fetchCalled = false;
+    const fetchImpl = async () => { fetchCalled = true; return jsonResponse({}, 202); };
+    const provider = createTelnyxFaxProvider({ config: CONFIG, fetchImpl: fetchImpl as typeof fetch, documentResolver: resolver });
+    await assert.rejects(
+      () => provider.sendFax({ localFaxId: "fax-type-1", to: "+15551112222", documentRef: { id: "doc-1" } }),
+      (error: unknown) => error instanceof FaxProviderPreflightError && error.category === "unsupported_media_type"
+    );
+    assert.equal(fetchCalled, false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-005 (2.1): a content_type that materially disagrees with the file extension is rejected", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-media-mismatch-"));
+  try {
+    writeFileSync(join(directory, "synthetic-fax.pdf"), "synthetic pdf bytes");
+    // Declares an image content type for a .pdf file -- different top-level media type.
+    const database = { faxDocumentById: () => fakeFaxDocumentRow({ local_ref: "synthetic-fax.pdf", content_type: "image/png" }) };
+    const resolver = createLocalFileFaxDocumentResolver(database, directory);
+    const provider = createTelnyxFaxProvider({ config: CONFIG, fetchImpl: (async () => jsonResponse({}, 202)) as unknown as typeof fetch, documentResolver: resolver });
+    await assert.rejects(
+      () => provider.sendFax({ localFaxId: "fax-mismatch-1", to: "+15551112222", documentRef: { id: "doc-1" } }),
+      (error: unknown) => error instanceof FaxProviderPreflightError && error.category === "media_type_mismatch"
+    );
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-005 (2.1): path traversal in local_ref is rejected", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-media-traversal-"));
+  try {
+    const database = { faxDocumentById: () => fakeFaxDocumentRow({ local_ref: "../outside.pdf" }) };
+    const resolver = createLocalFileFaxDocumentResolver(database, directory);
+    await assert.rejects(
+      () => resolver.resolve({ id: "doc-1" }),
+      (error: unknown) => error instanceof FaxProviderPreflightError && error.category === "document_unavailable"
+    );
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("FAX-005 (2.1): a symlink escaping the uploads directory is rejected where symlinks are safely testable on this platform", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-media-symlink-"));
+  const outsideDirectory = mkdtempSync(join(tmpdir(), "forgelink-fax-media-outside-"));
+  try {
+    const outsideFile = join(outsideDirectory, "secret.pdf");
+    writeFileSync(outsideFile, "secret contents that must never reach Telnyx");
+    const linkPath = join(directory, "synthetic-fax.pdf");
+    try {
+      symlinkSync(outsideFile, linkPath, "file");
+    } catch {
+      // Creating a symlink can require elevated privileges on some Windows
+      // configurations. Skip only the platform-specific mechanics; the
+      // containment check itself is exercised by the traversal test above.
+      return;
+    }
+    const database = { faxDocumentById: () => fakeFaxDocumentRow({ local_ref: "synthetic-fax.pdf" }) };
+    const resolver = createLocalFileFaxDocumentResolver(database, directory);
+    await assert.rejects(
+      () => resolver.resolve({ id: "doc-1" }),
+      (error: unknown) => error instanceof FaxProviderPreflightError && error.category === "document_unsafe_path"
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+    rmSync(outsideDirectory, { recursive: true, force: true });
+  }
+});
+
+test("FAX-005 (2.1): a content hash mismatch is rejected before fetch; a correct hash succeeds", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "forgelink-fax-media-hash-"));
+  try {
+    const bytes = "synthetic pdf bytes for hashing";
+    writeFileSync(join(directory, "synthetic-fax.pdf"), bytes);
+    const correctHash = createHash("sha256").update(bytes).digest("hex");
+
+    const staleDatabase = { faxDocumentById: () => fakeFaxDocumentRow({ content_sha256: "0".repeat(64) }) };
+    const staleResolver = createLocalFileFaxDocumentResolver(staleDatabase, directory);
+    let fetchCalled = false;
+    const fetchImpl = async () => { fetchCalled = true; return jsonResponse({}, 202); };
+    const provider = createTelnyxFaxProvider({ config: CONFIG, fetchImpl: fetchImpl as typeof fetch, documentResolver: staleResolver });
+    await assert.rejects(
+      () => provider.sendFax({ localFaxId: "fax-hash-1", to: "+15551112222", documentRef: { id: "doc-1" } }),
+      (error: unknown) => error instanceof FaxProviderPreflightError && error.category === "document_hash_mismatch"
+    );
+    assert.equal(fetchCalled, false);
+
+    const okDatabase = { faxDocumentById: () => fakeFaxDocumentRow({ content_sha256: correctHash }) };
+    const okResolver = createLocalFileFaxDocumentResolver(okDatabase, directory);
+    const okFetch = async () => jsonResponse({ data: { id: "fax_provider_hash_ok", status: "queued" } }, 202);
+    const okProvider = createTelnyxFaxProvider({ config: CONFIG, fetchImpl: okFetch as typeof fetch, documentResolver: okResolver });
+    const result = await okProvider.sendFax({ localFaxId: "fax-hash-2", to: "+15551112222", documentRef: { id: "doc-1" } });
+    assert.equal(result.providerFaxId, "fax_provider_hash_ok");
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

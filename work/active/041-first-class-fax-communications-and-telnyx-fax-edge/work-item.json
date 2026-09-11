@@ -70,7 +70,8 @@
       "text": "Implement outbound Telnyx fax submission, provider ID/status normalization, bounded safe errors, cancellation/reconciliation where supported, and duplicate-safe retry policy.",
       "state": "satisfied",
       "evidence": [
-        "20260910-fax-phase2-telnyx-outbound-edge"
+        "20260910-fax-phase2-telnyx-outbound-edge",
+        "20260910-fax-phase2-1-outbound-hardening-correction"
       ]
     },
     {
