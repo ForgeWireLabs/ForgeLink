@@ -93,7 +93,7 @@
     },
     {
       "id": "FAX-009",
-      "text": "Implement local document preparation sufficient for common PDFs/images and define the Tauri/mobile camera-scan path without creating hidden cloud/LLM egress requirements or a fax-specific shell fork.",
+      "text": "Implement a managed document-acquisition and preparation path for outbound fax that supports multi-page camera scanning, local/device and native document-provider selection, Google Drive, OneDrive/SharePoint, Dropbox, and future providers through an extensible source contract; every source must materialize into the same ForgeLink-owned hashed local managed document before fax preparation/submission, with common PDF/image conversion, page ordering/preview, bounded import/cleanup, secure cloud-auth handling, and no hidden cloud/LLM/OCR requirement or fax-specific shell fork.",
       "state": "pending",
       "evidence": []
     },
