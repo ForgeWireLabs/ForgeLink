@@ -19,86 +19,26 @@
   "preflight": {
     "created_before_work_started": true,
     "created_at": "2026-06-17T00:00:00Z",
-    "note": "Migrated the pre-ledger production-readiness plan into the work ledger as item 011. Closed phases PR-001 through PR-005 are recorded as history in README.md and _audit/. The acceptance criteria below cover only the remaining unstarted work (PR-006 through PR-016), which this entry is created before resuming."
+    "note": "Migrated the pre-ledger production-readiness plan into the work ledger as item 011. Closed phases PR-001 through PR-005 are recorded as history in README.md. The acceptance criteria preserve that original readiness work and, as of 2026-09-11, add explicit pre-release parity gates for cryptographic human-decision identity, federated/local identity coexistence, scoped authority, cross-device decision integrity, and reliability/chaos evidence. Those additions coordinate with WI031/WI032/WI039 rather than replacing their implementation ownership."
   },
   "acceptance_criteria": [
-    {
-      "id": "PR-006",
-      "text": "Harden backend lifecycle: detect port conflicts, dynamic ports where appropriate, bounded crash restarts, diagnostics, clean shutdown, with process lifecycle tests and user-facing recovery instructions.",
-      "state": "satisfied",
-      "evidence": [
-        "20260618-pr006-backend-lifecycle"
-      ]
-    },
-    {
-      "id": "PR-007",
-      "text": "Complete contacts: edit/delete confirmation, duplicate merge, CSV import/export, and contact selection during composition.",
-      "state": "waived",
-      "evidence": []
-    },
-    {
-      "id": "PR-008",
-      "text": "Complete media: previews, upload progress, cancellation, validation errors, download/open controls, and retention cleanup.",
-      "state": "waived",
-      "evidence": []
-    },
-    {
-      "id": "PR-009",
-      "text": "Complete notifications and deep links: clicking a notification opens the correct conversation; background and focus behavior are tested.",
-      "state": "waived",
-      "evidence": []
-    },
-    {
-      "id": "PR-010",
-      "text": "Add single-instance behavior: a second launch focuses the first app and cannot start a competing backend.",
-      "state": "satisfied",
-      "evidence": [
-        "20260618-011-baseline-hardening"
-      ]
-    },
-    {
-      "id": "PR-011",
-      "text": "Expand security verification: proxy-aware webhook signature tests, local API threat tests, secret scanning, dependency scanning, and diagnostic redaction tests.",
-      "state": "satisfied",
-      "evidence": [
-        "20260618-pr011-security-verification"
-      ]
-    },
-    {
-      "id": "PR-012",
-      "text": "Complete accessibility: keyboard-only navigation, focus restoration, screen-reader labels, WCAG AA contrast, zoom, reduced motion, and high-contrast behavior.",
-      "state": "waived",
-      "evidence": []
-    },
-    {
-      "id": "PR-013",
-      "text": "Build the test pyramid: backend HTTP integration tests, renderer interaction tests, Electron lifecycle tests, installer tests, and opt-in Twilio sandbox/live tests.",
-      "state": "satisfied",
-      "evidence": [
-        "20260618-pr013-test-pyramid"
-      ]
-    },
-    {
-      "id": "PR-014",
-      "text": "Establish Tauri-first releases for the current desktop baseline: real icon, version metadata, release notes, checksums, update strategy, rollback, and a reproducible release checklist. Tauri is the primary release target; Electron packaging is maintenance-only until retirement under work item 032. Unsigned development and test artifacts are valid evidence, while signed public distribution remains gated on an operator-provided certificate.",
-      "state": "pending",
-      "evidence": []
-    },
-    {
-      "id": "PR-015",
-      "text": "Add support diagnostics: user-triggered health report with versions and status while excluding credentials, messages, contacts, and media by default.",
-      "state": "satisfied",
-      "evidence": [
-        "20260618-011-baseline-hardening"
-      ]
-    },
-    {
-      "id": "PR-016",
-      "text": "Decide Voice scope: design and implement Twilio Voice as a separately tested surface or explicitly reject it from the roadmap. Do not restore the legacy iframe implementation.",
-      "state": "waived",
-      "evidence": []
-    }
+    {"id":"PR-006","text":"Harden backend lifecycle: detect port conflicts, dynamic ports where appropriate, bounded crash restarts, diagnostics, clean shutdown, with process lifecycle tests and user-facing recovery instructions.","state":"satisfied","evidence":["20260618-pr006-backend-lifecycle"]},
+    {"id":"PR-007","text":"Complete contacts: edit/delete confirmation, duplicate merge, CSV import/export, and contact selection during composition.","state":"waived","evidence":[]},
+    {"id":"PR-008","text":"Complete media: previews, upload progress, cancellation, validation errors, download/open controls, and retention cleanup.","state":"waived","evidence":[]},
+    {"id":"PR-009","text":"Complete notifications and deep links: clicking a notification opens the correct conversation; background and focus behavior are tested.","state":"waived","evidence":[]},
+    {"id":"PR-010","text":"Add single-instance behavior: a second launch focuses the first app and cannot start a competing backend.","state":"satisfied","evidence":["20260618-011-baseline-hardening"]},
+    {"id":"PR-011","text":"Expand security verification: proxy-aware webhook signature tests, local API threat tests, secret scanning, dependency scanning, and diagnostic redaction tests.","state":"satisfied","evidence":["20260618-pr011-security-verification"]},
+    {"id":"PR-012","text":"Complete accessibility: keyboard-only navigation, focus restoration, screen-reader labels, WCAG AA contrast, zoom, reduced motion, and high-contrast behavior.","state":"waived","evidence":[]},
+    {"id":"PR-013","text":"Build the test pyramid: backend HTTP integration tests, renderer interaction tests, Electron lifecycle tests, installer tests, and opt-in Twilio sandbox/live tests.","state":"satisfied","evidence":["20260618-pr013-test-pyramid"]},
+    {"id":"PR-014","text":"Establish Tauri-first releases for the current desktop baseline: real icon, version metadata, release notes, checksums, update strategy, rollback, and a reproducible release checklist. Tauri is the primary release target; Electron packaging is maintenance-only until retirement under work item 032. Unsigned development and test artifacts are valid evidence, while signed public distribution remains gated on an operator-provided certificate.","state":"pending","evidence":[]},
+    {"id":"PR-015","text":"Add support diagnostics: user-triggered health report with versions and status while excluding credentials, messages, contacts, and media by default.","state":"satisfied","evidence":["20260618-011-baseline-hardening"]},
+    {"id":"PR-016","text":"Decide Voice scope: design and implement Twilio Voice as a separately tested surface or explicitly reject it from the roadmap. Do not restore the legacy iframe implementation.","state":"waived","evidence":[]},
+    {"id":"PR-017","text":"Upgrade operator decision provenance from local hash-chain linkage to a cryptographically verifiable decision-identity contract. A high-value approval/denial record must bind the canonical request identity, evidence digest/set, decision, authority scope, expiry/conditions, outcome linkage, operator principal, credential/device identity where applicable, and signing/key version. Key creation, protected storage, rotation, revocation, recovery/device-loss behavior, replay detection, and verification are specified and tested. Documentation must distinguish tamper evidence, signature verification, and legal non-repudiation rather than treating them as synonyms.","state":"pending","evidence":[]},
+    {"id":"PR-018","text":"Provide one coherent human-principal and authorization model that preserves ForgeLink's account-free/local-first single-operator mode while allowing optional federated enterprise identity through replaceable adapters such as OIDC where deployment requires it. Roles/scopes for operator, reviewer/approver, administrator, communication-only user, and service/agent principals are least-privilege, auditable, revocable, and cannot be inferred merely from possession of a communication channel or agent token.","state":"pending","evidence":[]},
+    {"id":"PR-019","text":"Require step-up/authentication-freshness and explicit authority evaluation for high-risk agent decisions. Risk tier, requested authority, affected resources, source/agent trust, operator role, credential assurance, approval expiry, and prior decision state are evaluated independently of urgency/notification policy. Quiet hours and attention policy may control interruption but can never grant authority or weaken a required approval.","state":"pending","evidence":[]},
+    {"id":"PR-020","text":"Prove cross-device desktop/mobile decision integrity before claiming a shared cockpit as production-ready. The contract covers device enrollment and removal, offline-created or offline-viewed state, request expiry while disconnected, duplicate or conflicting actions, clock skew, replay, revoked credentials, reconnect synchronization, authoritative decision selection, and audit provenance. No device may manufacture authority from stale cached state.","state":"pending","evidence":[]},
+    {"id":"PR-021","text":"Run release-grade reliability and chaos drills across direct human communication and governed agent requests: provider delay/duplicate/out-of-order callbacks, local restart during send/approval, backend/client restart, database busy/corruption recovery, network loss/reconnect, expired approvals, callback delivery failure/retry, linked-node loss, and notification failure. Prove user-visible recovery, idempotent state transitions, no duplicate external send/decision side effect, and complete audit outcome. Record exact measured coverage and residual single-device/provider limits rather than making a blanket availability claim.","state":"pending","evidence":[]}
   ],
   "created": "2026-06-17",
-  "updated": "2026-07-10"
+  "updated": "2026-09-11"
 }
