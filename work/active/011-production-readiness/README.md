@@ -128,6 +128,11 @@ in [`work-item.json`](work-item.json); this is the human summary.
 ## Deferred product decision
 
 - [ ] **PR-016 Decide Voice scope.** Either design and implement Twilio Voice as a separately tested product surface or explicitly reject it from the roadmap. Do not restore the legacy iframe implementation.
+- [ ] **PR-017 Upgrade operator decision provenance.** Define and test cryptographically verifiable decision identity, protected key lifecycle, replay detection, and the distinction between tamper evidence, signature verification, and legal non-repudiation.
+- [ ] **PR-018 Define one least-privilege human-principal and authorization model.** Preserve account-free/local-first operation while supporting optional federated enterprise identity through replaceable adapters.
+- [ ] **PR-019 Require explicit authority and authentication freshness for high-risk agent decisions.** Attention policy and urgency must never grant authority or weaken approval requirements.
+- [ ] **PR-020 Prove cross-device desktop/mobile decision integrity.** Cover enrollment, offline state, expiry, conflicts, clock skew, replay, revocation, reconnect, and authoritative decision selection.
+- [ ] **PR-021 Run release-grade reliability and chaos drills.** Cover direct human communication and governed agent requests, record measured coverage and residual limits, and prove recovery, idempotency, and complete audit outcomes.
 
 ## Cross-cutting definition of done
 

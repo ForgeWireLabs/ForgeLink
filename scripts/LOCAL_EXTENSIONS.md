@@ -2,7 +2,7 @@
 
 > **Current model (decision [0015](../decisions/0015-consume-repopact-from-pypi.md)):**
 > ForgeLink **no longer vendors** the RepoPact validator. It is consumed from PyPI
-> (`2.2.0`, pinned in [`requirements-repopact.txt`](../requirements-repopact.txt))
+> (`3.0.2`, pinned in [`requirements-repopact.txt`](../requirements-repopact.txt))
 > and invoked through `.local/validate_system.py`. **There are zero carried code
 > patches** — every former local extension has graduated upstream (see the table
 > below). Two things still live in-repo by design:
@@ -20,7 +20,7 @@ ForgeLink originally **vendored** RepoPact under `scripts/` and `schemas/` (deci
 local patches inside the vendored files. That model ended with decision 0015; the
 notes below document what was carried and where it went.
 
-Pinned RepoPact version: [`REPOPACT_VERSION`](REPOPACT_VERSION) / `requirements-repopact.txt` (currently 2.2.0).
+Pinned RepoPact version: [`REPOPACT_VERSION`](REPOPACT_VERSION) / `requirements-repopact.txt` (currently 3.0.2).
 
 ## Carried local patches
 

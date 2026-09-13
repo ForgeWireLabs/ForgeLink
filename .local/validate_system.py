@@ -51,7 +51,7 @@ def run_repopact(errors: list[str]) -> None:
     and decision 0015), so this invokes the installed CLI rather than a vendored
     script. Run `pip install -r requirements-repopact.txt` if the import fails."""
     result = subprocess.run(
-        [sys.executable, "-m", "repopact_cli", "validate", "--root", str(ROOT)],
+        [sys.executable, "-m", "repopact.cli", "validate", "--root", str(ROOT)],
         capture_output=True,
         text=True,
     )

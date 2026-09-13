@@ -1,0 +1,54 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260913-wi037-repopact-3-0-2",
+  "timestamp": "2026-09-13T21:10:00Z",
+  "work_item": "037",
+  "result": "passed",
+  "provenance": "concrete",
+  "criteria": ["AC4"],
+  "summary": "Migrated ForgeLink from the obsolete RepoPact 2.2.0 package boundary to the exact public repopact==3.0.2 pin, retained ForgeLink's schema-ladder and markdown link/date checks, reconciled the current work-item checkbox projection exposed by 3.0.2, and verified the native validation and JavaScript test suites.",
+  "commands": [
+    {
+      "command": "python -m pip install -r requirements-repopact.txt",
+      "exit_code": 0,
+      "summary": "Installed or confirmed the exact public repopact==3.0.2 dependency."
+    },
+    {
+      "command": "repopact dashboard --root .",
+      "exit_code": 0,
+      "summary": "Regenerated the canonical dashboard with the 3.0.2 package boundary."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "Passed RepoPact governance validation plus ForgeLink schema-ladder and markdown link/date checks."
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "summary": "Passed the full native suite: 228 renderer tests and 452 Node tests passed; one opt-in live Twilio test was skipped because no live provider credentials were supplied."
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "summary": "No whitespace errors in the migration changes."
+    }
+  ],
+  "artifacts": [
+    "requirements-repopact.txt",
+    ".local/validate_system.py",
+    "scripts/LOCAL_EXTENSIONS.md",
+    "scripts/REPOPACT_VERSION",
+    "work/active/011-production-readiness/README.md",
+    "work/active/011-production-readiness/_audit/inventory.md",
+    "work/active/011-production-readiness/_audit/alignment-report.md",
+    "audits/reports/dashboard.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "codex/wi037-forgelink",
+    "platform": "Windows",
+    "repopact_version": "3.0.2",
+    "live_providers": "not used; opt-in live Twilio test skipped"
+  }
+}

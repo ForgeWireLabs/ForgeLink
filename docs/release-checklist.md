@@ -5,8 +5,8 @@ Steps marked **[blocked: signing]** require a code-signing certificate and stay
 pending until one is provisioned.
 
 ## 1. Pre-flight
-- [ ] Working tree clean on `main`; `python scripts/validate_repo.py` and
-      `python scripts/repopact_cli.py doctor` are green.
+- [ ] Working tree clean on `main`; `python .local/validate_system.py` and
+      `repopact doctor --root .` are green.
 - [ ] Decide the new version (semver). Update **both** `VERSION` and
       `Electron/package.json` `version` so they match (the dashboard and
       diagnostics read these).

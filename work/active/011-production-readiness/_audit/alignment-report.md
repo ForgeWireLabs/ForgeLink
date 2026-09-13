@@ -1,7 +1,7 @@
 ---
 audience: planning agents and reviewers
 status: active
-last_verified: 2026-06-24
+last_verified: 2026-09-13
 source_of_truth: work/active/011-production-readiness/README.md; work/active/011-production-readiness/work-item.json
 ---
 
@@ -22,7 +22,16 @@ Authoritative state is in [`work-item.json`](../work-item.json). Summary:
 
 - **Satisfied:** PR-001/001A/001B, PR-002, PR-003, PR-004, PR-005, PR-006, PR-010, PR-011, PR-013, PR-015.
 - **Waived into the 015/017 roadmap (decision 0005):** PR-007 (contacts), PR-008 (media), PR-009 (notifications/deep links), PR-012 (accessibility), PR-016 (voice; voice accepted, legacy iframe rejected).
-- **Pending:** PR-014 (releases) — partially landed (icon, installer, checksums, version metadata, CHANGELOG, reproducible checklist, auto-update wiring with electron-updater bundled). Blocked on an operator-provided code-signing certificate and a published `latest.yml` feed (held until signing so the channel is not unauthenticated). A manual-download release is fine now.
+- **Pending:** PR-014 (releases) — partially landed (icon, installer, checksums, version metadata, CHANGELOG, reproducible checklist, auto-update wiring with electron-updater bundled). Blocked on an operator-provided code-signing certificate and a published `latest.yml` feed (held until signing so the channel is not unauthenticated). A manual-download release is fine now. PR-017 through PR-021 are newly recorded future gates for decision identity, authorization, risk-sensitive approval, cross-device integrity, and release-grade reliability evidence; they remain pending and are not claimed by this migration.
+
+## RepoPact 3.x reconciliation (2026-09-13)
+
+ForgeLink now consumes the public `repopact==3.0.2` package through
+`requirements-repopact.txt`. The authoritative installed CLI runs first through
+`.local/validate_system.py`; ForgeLink's schema-ladder and markdown link/date
+checks remain layered on top. RepoPact 3.0.2 exposed missing README checklist
+entries for the already-recorded PR-017..PR-021 criteria. Those entries were
+added without changing their pending manifest state or implementation ownership.
 
 ## Sequencing risks
 
