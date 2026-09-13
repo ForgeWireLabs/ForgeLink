@@ -16,7 +16,9 @@ and does not authorize removal:
   policy, MCP credentials, agent channels, email settings, and push settings.
 - Onboarding and local-only startup work from a clean profile.
 - Credential import, save, remove, and provider-optional local mode preserve the
-  existing encrypted-storage behavior.
+  protected-settings boundary. Electron safeStorage migration is an explicit
+  manual re-entry path with legacy files preserved; automatic decryption is not
+  assumed and silent credential loss is not allowed.
 - Decisions, People, Agents, Channels, Settings, mobile cockpit, outbox, calls,
   signals, and data-safety workflows pass renderer parity tests.
 - Data backup, export, restore-latest, retention, migration, and damaged-database
@@ -51,11 +53,37 @@ old scaffold:
 - `Electron/tauri-lifecycle.test.js` and the Tauri Rust tests guard the lifecycle
   boundary and confirm Electron remains present.
 
+TPR-003 is now satisfied by the Tauri protected-settings slice:
+
+- `Tauri/src-tauri/src/secure_store.rs` provides the shared AES-256-GCM encrypted
+  record store with an OS-keyring wrapping key, opaque hashed references, random
+  nonce/AAD binding, atomic writes, private directories, and zeroizing reads.
+- `Tauri/src-tauri/src/protected_settings.rs` separates provider metadata from
+  secret references for Twilio, Telnyx SMS, email, push, MCP, agent channels,
+  local integrations, and linked-node lifecycle credentials.
+- Tauri launches the backend with a cleared, allow-listed environment and only
+  transient protected values; child output and status/debug surfaces are redacted.
+  Shared renderer tests prove secret inputs clear after save and synthetic canaries
+  do not remain in the rendered document.
+- MCP, agent-channel, and local-integration token files are bounded 0600 desktop
+  compatibility artifacts for external consumers. The encrypted vault is the
+  source of truth; these files are not created on mobile or returned as secret
+  contents through the bridge.
+
+### Migration decision
+
+The migration strategy is `manual_reentry`. Tauri detects likely legacy Electron
+settings files and presents an explicit re-entry notice, but it does not attempt to
+decrypt Electron `safeStorage` blobs with a different shell/keyring boundary. The
+legacy files are preserved and never overwritten, so the operator can re-enter
+credentials without silent loss. Automatic conversion remains a future, separately
+reviewable migration slice if it is ever required.
+
 TPR-001 and TPR-002 are tracked in
 `work/active/032-tauri-production-parity-and-electron-retirement/README.md`, with
 the exhaustive deletion checklist at
 `work/active/032-tauri-production-parity-and-electron-retirement/local-artifacts/electron-tauri-parity-inventory.md`.
-Credential stores, native notifications/deep links/single-instance behavior,
+Native notifications/deep links/single-instance behavior, Tauri-specific
 data-safety smoke, signed distribution, and packaged clean-machine validation
 remain later criteria. This slice does not remove Electron or claim production
 release readiness.

@@ -1,0 +1,104 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260913-wi032-tpr003-secure-storage",
+  "timestamp": "2026-09-13T23:50:49Z",
+  "work_item": "032",
+  "result": "passed",
+  "criteria": ["TPR-003"],
+  "summary": "Tauri protected-settings parity slice with a shared OS-keyring-wrapped encrypted store, renderer write-only secret handling, bounded backend injection, and explicit manual Electron credential re-entry.",
+  "before_sha": "e7e0a69",
+  "implementation_sha": "f9e2a4d",
+  "reconciled_origin_main_sha": "e7e0a69",
+  "commands": [
+    {
+      "command": "cargo fmt --manifest-path Tauri/src-tauri/Cargo.toml --check",
+      "exit_code": 0,
+      "summary": "Rust formatting check passed."
+    },
+    {
+      "command": "cargo check --manifest-path Tauri/src-tauri/Cargo.toml --lib",
+      "exit_code": 0,
+      "summary": "Tauri desktop library compiled successfully."
+    },
+    {
+      "command": "cargo test --manifest-path Tauri/src-tauri/Cargo.toml --lib",
+      "exit_code": 0,
+      "summary": "43 passed, 0 failed; secure-store encryption, corruption, opaque-reference, metadata-redaction, migration-preservation, compatibility-path, provider-boundary, and lifecycle coverage passed."
+    },
+    {
+      "command": "npm run backend:build (from Electron)",
+      "exit_code": 0,
+      "summary": "Backend TypeScript compiled successfully."
+    },
+    {
+      "command": "npm run renderer:build (from Electron)",
+      "exit_code": 0,
+      "summary": "Shared renderer TypeScript and browser bundle built successfully."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx (from Electron)",
+      "exit_code": 0,
+      "summary": "229 passed, 0 failed; migration notice and write-only email/push secret canaries passed."
+    },
+    {
+      "command": "npm test (from Electron)",
+      "exit_code": 0,
+      "summary": "456 tests total: 455 passed, 0 failed, 1 skipped opt-in live Twilio test. Includes backend, security, renderer, migration, export, provider, packaging, Tauri scaffold/lifecycle/distribution, and syntax checks."
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "summary": "No whitespace errors in the implementation or documentation changes."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact and ForgeLink governance validation passed after the evidence and ledger update."
+    }
+  ],
+  "artifacts": [
+    "Tauri/src-tauri/src/secure_store.rs",
+    "Tauri/src-tauri/src/protected_settings.rs",
+    "Tauri/src-tauri/src/local_service.rs",
+    "Tauri/src-tauri/src/node_identity.rs",
+    "Tauri/src-tauri/src/node_identity_lifecycle.rs",
+    "Electron/renderer/src/shell.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/renderer/app.js",
+    "docs/tauri-shared-shell.md",
+    "docs/electron-retirement-gate.md",
+    "work/active/032-tauri-production-parity-and-electron-retirement/README.md",
+    "work/active/032-tauri-production-parity-and-electron-retirement/work-item.json",
+    "work/active/032-tauri-production-parity-and-electron-retirement/local-artifacts/electron-tauri-parity-inventory.md"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "codex/wi032-tauri-secure-storage",
+    "platform": "Windows",
+    "os_build": "Windows 10.0.26200 x86_64",
+    "node": "24.19.0",
+    "npm": "11.17.0",
+    "rust": "1.98.0",
+    "tauri_cli": "2.11.4",
+    "tauri": "2.11.5",
+    "process_note": "Build and test environment only. No credentials, tokens, private messages, contacts, provider payloads, or secret canary values were included in evidence."
+  },
+  "parity_summary": {
+    "storage": "Protected metadata is separate from FLPSV001 encrypted secret records. The OS keyring stores only the wrapping key; records use opaque namespaced references, hashed filenames, random nonces, reference AAD, atomic writes, private directories, and zeroizing reads.",
+    "credential_classes": "The boundary covers Twilio, Telnyx SMS, email, push, MCP, agent-channel, local-integration, and linked-node lifecycle credentials. Telnyx Fax metadata/env support remains separate from the TPR-003 renderer scope.",
+    "runtime_boundary": "Tauri clears inherited environment variables, restores a small OS/runtime allow-list, injects only required protected values into the child backend, suppresses child stdout/stderr, and exposes only bounded errors and redacted status/debug shapes.",
+    "renderer_boundary": "The shared shell bridge returns presence flags and redacted metadata only. Secret entry fields clear after save; synthetic canary assertions found no secret values in rendered document text.",
+    "external_compatibility": "MCP, agent-channel, and local-integration consumers may receive atomic 0600 plaintext compatibility token files on desktop. The encrypted vault is the source of truth; these files are not created on mobile and their contents are never returned through the renderer bridge.",
+    "migration": "Electron safeStorage blobs are not automatically decrypted. Legacy candidate files are detected and preserved, and the Settings surface requires manual re-entry. This is an explicit no-silent-loss strategy, not an automatic conversion claim.",
+    "mobile": "Desktop protected storage and secret material are excluded from Android/iOS cfg paths; mobile remains metadata-only/remote-only with no private database replication."
+  },
+  "known_gaps": [
+    "TPR-004 native notifications, deep links, single-instance behavior, and full activation restoration remain open.",
+    "TPR-005 Tauri-specific backup/restore, diagnostics/support-report, retention, and corruption-recovery smoke remains open.",
+    "TPR-006 through TPR-008 public signing, update feed, clean-machine installation, uninstall, rollback drill, and Linux/macOS posture remain open.",
+    "TPR-009 through TPR-011 remain open; Electron is intentionally retained as the compatibility shell.",
+    "No Tauri renderer command claims Telnyx Fax provider parity in this slice."
+  ],
+  "rollback_boundary": "Electron remains available and legacy Electron settings are preserved. Revert the TPR-003 implementation/docs/evidence commits to return to the lifecycle-integrated state at e7e0a69; no database schema, private-data, or automatic credential migration is introduced."
+}

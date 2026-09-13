@@ -36,7 +36,7 @@ item owns the remaining parity evidence and the eventual removal.
 
 - [x] **TPR-001** Inventory every Electron-only API, workflow, lifecycle assumption, packaging path, and operator dependency that must be replaced or explicitly retired.
 - [x] **TPR-002** Prove onboarding and local-service lifecycle parity in Tauri, including startup, authenticated discovery, port conflicts, bounded restart, clean shutdown, and operator recovery.
-- [ ] **TPR-003** Prove secure-storage parity for credentials and protected settings without exposing secrets to renderer state, logs, diagnostics, exports, or screenshots.
+- [x] **TPR-003** Prove secure-storage parity for credentials and protected settings without exposing secrets to renderer state, logs, diagnostics, exports, or screenshots.
 - [ ] **TPR-004** Prove notifications, deep links, navigation restoration, and single-instance behavior or document platform-specific replacements and limits.
 - [ ] **TPR-005** Prove backup, restore, retention, diagnostics, corruption recovery, and data-safety parity without copying the private desktop database to mobile nodes.
 - [ ] **TPR-006** Produce reproducible Tauri release artifacts with version metadata, release notes, checksums, update and rollback contracts, and certificate-gated public signing.
@@ -83,6 +83,14 @@ The removal must be a distinct, reviewable slice with a documented rollback poin
   timeout, spawn failure, port conflict safety, bounded restart/exhaustion, stop,
   shutdown, recovery, and redaction. A Windows Tauri release build produced MSI
   and NSIS bundles, but clean-machine installation and public signing remain open.
+- `20260913-wi032-tpr003-secure-storage` — TPR-003 protected-settings parity.
+  Tauri now separates redacted metadata from secret references, stores provider,
+  email, push, MCP, agent-channel, local-integration, and linked-node secrets in
+  the AES-GCM `FLPSV001` vault wrapped by the OS keyring, and injects only the
+  required child-process environment. Renderer tests cover write-only secret
+  clearing and canary absence. Electron safeStorage files are preserved and the
+  migration conclusion is explicit manual re-entry; no silent credential loss or
+  automatic decryption is claimed.
 - Existing WI030 Android evidence remains historical foundation input. It proves
   emulator/operator-status inspection only, not packaged mobile app authentication
   or private database replication.

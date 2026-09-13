@@ -41,8 +41,8 @@
     {
       "id": "TPR-003",
       "text": "Prove secure-storage parity for credentials and protected settings without exposing secrets to renderer state, logs, diagnostics, exports, or screenshots.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": ["20260913-wi032-tpr003-secure-storage"]
     },
     {
       "id": "TPR-004",

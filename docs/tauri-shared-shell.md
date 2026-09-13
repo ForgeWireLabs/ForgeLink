@@ -76,10 +76,42 @@ desktop backend, never receives the desktop data directory, and probes only an
 authenticated operator-owned API configured through `FORGELINK_LOCAL_API_URL` and
 `FORGELINK_LOCAL_API_TOKEN`. It does not replicate the private desktop database.
 
-Provider credential storage, native notifications/deep links/single-instance
-behavior, backup/restore diagnostics, and signed distribution remain later
-parity criteria. A real local API connection can be pointed at the mobile
-environment variables above.
+Native notifications/deep links/single-instance behavior, backup/restore
+diagnostics, and signed distribution remain later parity criteria. Protected
+settings and provider credential storage are now covered by TPR-003. A real local
+API connection can be pointed at the mobile environment variables above.
+
+## Protected settings and secret boundary
+
+`Tauri/src-tauri/src/protected_settings.rs` is the single desktop protected-settings
+boundary. It stores redacted metadata in `protected-settings.json` and secret
+material in a separate `protected-vault/` using the shared
+`Tauri/src-tauri/src/secure_store.rs` primitive. The `FLPSV001` vault uses
+AES-256-GCM records with random nonces and reference-bound AAD; references are
+namespaced and hashed before becoming filenames, writes are atomic, directories
+are private, and reads use zeroizing buffers. The OS keyring stores only the
+wrapping key under the protected-settings service/account. Linked-node identity
+private keys use the same primitive with the compatible `FLNIV001` format.
+
+The boundary covers Twilio, Telnyx SMS, email, push, MCP, agent-channel,
+local-integration, and linked-node lifecycle credentials. Renderer commands return
+presence flags, masked identifiers, and other redacted metadata only. Before the
+desktop backend starts, Tauri clears inherited environment variables, restores a
+small OS/runtime allow-list, injects only the required protected values for that
+child, suppresses child stdout/stderr, and uses bounded errors. Secret entry fields
+are write-only and cleared by the shared renderer after save. Tauri mobile builds
+do not create this desktop store or receive its secret material.
+
+MCP, agent-channel, and local-integration consumers that require a token file are
+given an atomic 0600 compatibility file under the desktop data directory. These
+files are plaintext because those external consumers require file access; the
+encrypted vault remains the source of truth, the files are never materialized on
+mobile, and their contents are never returned through the renderer bridge.
+
+Electron `safeStorage` blobs are not automatically decrypted by the Tauri store.
+Legacy Electron settings candidates are detected and preserved, while the shared
+Settings surface directs the operator through manual re-entry. This prevents
+silent credential loss without inventing an unsafe cross-shell decryption format.
 
 Desktop linked-node private keys are stored as authenticated encrypted blobs in the
 operator-owned local vault. `FORGELINK_IDENTITY_VAULT_DIR` selects the exact vault;
@@ -142,12 +174,14 @@ The explicit gate checklist is recorded in
 ## Validation And Rollback
 
 TAURI-001/002 are architecture and bridge-boundary closure. TAURI-003/004/005 add
-the first Tauri desktop/mobile scaffold and Electron-retirement guardrails. They
-do not yet claim signed public distribution, Android/iOS emulator/device smoke,
-or Electron removal; those belong to TAURI-006/007 and later parity evidence.
+the first Tauri desktop/mobile scaffold and Electron-retirement guardrails;
+TPR-003 now closes the protected-settings parity boundary. The work does not yet
+claim signed public distribution, Android/iOS emulator/device smoke, native
+notification/deep-link/single-instance parity, backup/diagnostics parity, or
+Electron removal; those belong to later WI032 evidence.
 
-Rollback for the current lifecycle slice is straightforward: keep Electron as the
-supported shell, stop using the Tauri runtime resource, and restore the previous
-work item state. No database schema, provider credential, or private data
-migration is introduced. Electron remains available until the WI032 retirement
-gate is satisfied.
+Rollback for the current WI032 slices is straightforward: keep Electron as the
+supported shell, stop using the Tauri runtime/protected-settings path, and restore
+the previous work-item state. No database schema, provider credential, or private
+data migration is introduced; legacy Electron settings remain preserved for manual
+re-entry. Electron remains available until the WI032 retirement gate is satisfied.
