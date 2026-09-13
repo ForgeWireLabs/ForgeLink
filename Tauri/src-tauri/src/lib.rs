@@ -1,37 +1,19 @@
 mod local_service;
 mod node_identity;
 mod node_identity_lifecycle;
+mod protected_settings;
+mod secure_store;
 
 use serde_json::{json, Value};
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{Manager, State};
 
-const DEFAULT_BASE_URL: &str = "http://127.0.0.1:5055";
 const MOBILE_STATE_DIR: &str = "mobile-runtime";
 const ATTENTION_POLICY_FILE: &str = "attention-policy.json";
-const AGENT_CHANNELS_FILE: &str = "agent-channels.json";
 const LOCAL_SERVICE_CONFIG_FILE: &str = "local-service.json";
-
-fn base_url() -> String {
-    std::env::var("FORGELINK_LOCAL_API_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string())
-}
-
-fn api_token() -> String {
-    std::env::var("FORGELINK_LOCAL_API_TOKEN")
-        .or_else(|_| std::env::var("FORGELINK_API_TOKEN"))
-        .unwrap_or_else(|_| "tauri-scaffold-token".to_string())
-}
-
-fn now_marker() -> String {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| format!("unix:{}", duration.as_secs()))
-        .unwrap_or_else(|_| "unix:0".to_string())
-}
 
 fn mobile_state_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     app.path()
@@ -178,9 +160,25 @@ fn save_attention_policy_to_dir(dir: Option<&Path>, payload: Value) -> Value {
         .unwrap_or(payload)
 }
 
-fn local_service_status(manager: &local_service::LocalServiceManager) -> Value {
+fn local_service_status(
+    manager: &local_service::LocalServiceManager,
+    protected: &protected_settings::ProtectedSettingsService,
+) -> Value {
     let config = manager.config();
     let snapshot = manager.snapshot();
+    let protected_status = protected.public_status();
+    let mut settings = protected.twilio_settings();
+    if !settings.is_object() {
+        settings = json!({
+            "account_sid": "",
+            "auth_token_configured": false,
+            "twilio_number": "",
+            "public_base_url": "",
+            "webhook_host": config.host,
+            "webhook_port": config.configured_port
+        });
+    }
+    settings["attention_policy"] = default_attention_policy();
     json!({
         "running": snapshot.running,
         "phase": snapshot.phase,
@@ -189,9 +187,9 @@ fn local_service_status(manager: &local_service::LocalServiceManager) -> Value {
         "runtime_available": snapshot.runtime_available,
         "mobile_runtime": snapshot.mobile_runtime,
         "baseUrl": snapshot.base_url,
-        "configured": false,
-        "credential_source": "none",
-        "environment_import_available": false,
+        "configured": protected_status["configured"],
+        "credential_source": protected_status["credential_source"],
+        "environment_import_available": protected_status["environment_import_available"],
         "onboarding_complete": config.onboarding_complete,
         "needs_onboarding": !config.onboarding_complete && !snapshot.mobile_runtime,
         "configured_port": snapshot.configured_port,
@@ -200,103 +198,13 @@ fn local_service_status(manager: &local_service::LocalServiceManager) -> Value {
         "last_exit_code": snapshot.last_exit_code,
         "recovery_message": snapshot.recovery_message,
         "port_note": snapshot.port_note,
-        "settings": {
-            "account_sid": "",
-            "auth_token_configured": false,
-            "twilio_number": "",
-            "public_base_url": "",
-            "webhook_host": config.host,
-            "webhook_port": config.configured_port,
-            "attention_policy": default_attention_policy()
-        }
+        "settings": settings,
+        "sms_provider_settings": protected_status["sms_provider_settings"],
+        "email_settings": protected_status["email_settings"],
+        "push_settings": protected_status["push_settings"],
+        "migration": protected_status["migration"],
+        "protected_storage": protected_status["protected_storage"]
     })
-}
-
-fn mcp_status() -> Value {
-    json!({
-        "configured": false,
-        "created_at": null,
-        "rotated_at": null,
-        "revoked_at": null,
-        "last_used_at": null,
-        "last_test_at": null,
-        "last_test_status": null,
-        "token_file": "",
-        "token_file_present": false,
-        "bridge_server": "",
-        "bridge_built": false,
-        "base_url": base_url(),
-        "install_commands": {}
-    })
-}
-
-fn agent_channel(channel_id: &str, label: &str) -> Value {
-    let now = now_marker();
-    json!({
-        "channel_id": channel_id,
-        "label": label,
-        "enabled": true,
-        "configured": true,
-        "created_at": now,
-        "rotated_at": now,
-        "revoked_at": null,
-        "last_used_at": null,
-        "last_rejected_at": null,
-        "rejection_count": 0,
-        "rate_limited_count": 0,
-        "token_file": "",
-        "token_file_present": false
-    })
-}
-
-fn channels_from_dir(dir: Option<&Path>) -> Vec<Value> {
-    let value = dir
-        .map(|state_dir| read_json(&state_dir.join(AGENT_CHANNELS_FILE), json!([])))
-        .unwrap_or_else(|| json!([]));
-    value.as_array().cloned().unwrap_or_default()
-}
-
-fn save_channels_to_dir(dir: Option<&Path>, channels: &[Value]) -> Vec<Value> {
-    if let Some(state_dir) = dir {
-        let _ = write_json(&state_dir.join(AGENT_CHANNELS_FILE), &json!(channels));
-    }
-    channels.to_vec()
-}
-
-fn upsert_channel(mut channels: Vec<Value>, channel: Value) -> Vec<Value> {
-    let channel_id = channel["channel_id"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
-    if let Some(existing) = channels
-        .iter_mut()
-        .find(|candidate| candidate["channel_id"].as_str() == Some(channel_id.as_str()))
-    {
-        *existing = channel;
-    } else {
-        channels.push(channel);
-    }
-    channels
-}
-
-fn update_channel(
-    mut channels: Vec<Value>,
-    channel_id: &str,
-    updater: impl FnOnce(&mut Value),
-) -> (Vec<Value>, Value) {
-    if let Some(existing) = channels
-        .iter_mut()
-        .find(|candidate| candidate["channel_id"].as_str() == Some(channel_id))
-    {
-        updater(existing);
-        let updated = existing.clone();
-        return (channels.clone(), updated);
-    }
-
-    let mut created = agent_channel(channel_id, channel_id);
-    updater(&mut created);
-    channels.push(created.clone());
-    (channels, created)
 }
 
 fn desktop_linked_node_status() -> Value {
@@ -344,32 +252,50 @@ fn desktop_linked_node_status() -> Value {
 
 #[tauri::command]
 fn forgelink_create_linked_node_identity(
+    manager: State<'_, local_service::LocalServiceManager>,
     payload: node_identity_lifecycle::CreateLinkedNodeIdentityRequest,
 ) -> Result<
     node_identity_lifecycle::LinkedNodeLifecycleResult,
     node_identity_lifecycle::LinkedNodeLifecycleFailure,
 > {
-    node_identity_lifecycle::create_with_local_backend(&base_url(), &api_token(), payload)
+    let connection = manager.backend_connection();
+    node_identity_lifecycle::create_with_local_backend(
+        &connection.base_url,
+        &connection.api_token,
+        payload,
+    )
 }
 
 #[tauri::command]
 fn forgelink_rotate_linked_node_identity(
+    manager: State<'_, local_service::LocalServiceManager>,
     payload: node_identity_lifecycle::RotateLinkedNodeIdentityRequest,
 ) -> Result<
     node_identity_lifecycle::LinkedNodeLifecycleResult,
     node_identity_lifecycle::LinkedNodeLifecycleFailure,
 > {
-    node_identity_lifecycle::rotate_with_local_backend(&base_url(), &api_token(), payload)
+    let connection = manager.backend_connection();
+    node_identity_lifecycle::rotate_with_local_backend(
+        &connection.base_url,
+        &connection.api_token,
+        payload,
+    )
 }
 
 #[tauri::command]
 fn forgelink_recover_linked_node_identity(
+    manager: State<'_, local_service::LocalServiceManager>,
     payload: node_identity_lifecycle::RecoverLinkedNodeIdentityRequest,
 ) -> Result<
     node_identity_lifecycle::LinkedNodeRecoveryResult,
     node_identity_lifecycle::LinkedNodeLifecycleFailure,
 > {
-    node_identity_lifecycle::recover_with_local_backend(&base_url(), &api_token(), payload)
+    let connection = manager.backend_connection();
+    node_identity_lifecycle::recover_with_local_backend(
+        &connection.base_url,
+        &connection.api_token,
+        payload,
+    )
 }
 
 #[tauri::command]
@@ -384,19 +310,23 @@ fn forgelink_backend_connection(manager: State<'_, local_service::LocalServiceMa
 }
 
 #[tauri::command]
-fn forgelink_get_status(manager: State<'_, local_service::LocalServiceManager>) -> Value {
-    local_service_status(&manager)
+fn forgelink_get_status(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+) -> Value {
+    local_service_status(&manager, &protected)
 }
 
 #[tauri::command]
 fn forgelink_start_local_only(
     app: tauri::AppHandle,
     manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
     payload: Value,
 ) -> Result<Value, String> {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
-        let _ = (app, manager, payload);
+        let _ = (app, manager, protected, payload);
         return Err("Mobile does not own the desktop local service. Pair or configure an authenticated operator node instead.".to_string());
     }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -404,94 +334,132 @@ fn forgelink_start_local_only(
         let config = local_service_config_from_payload(&manager.config(), &payload, true)?;
         save_local_service_config(&app, &config)?;
         manager.update_config(config)?;
-        manager.start().map(|_| local_service_status(&manager))
+        protected.start_local_only()?;
+        manager
+            .start()
+            .map(|_| local_service_status(&manager, &protected))
     }
 }
 
 #[tauri::command]
 fn forgelink_start_service(
     manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
 ) -> Result<Value, String> {
-    manager.start().map(|_| local_service_status(&manager))
+    manager
+        .start()
+        .map(|_| local_service_status(&manager, &protected))
 }
 
 #[tauri::command]
 fn forgelink_start_server(
     app: tauri::AppHandle,
     manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
     payload: Value,
 ) -> Result<Value, String> {
-    if payload["account_sid"].is_string()
-        || payload["auth_token"].is_string()
-        || payload["twilio_number"].is_string()
-    {
-        return Err("Tauri provider credential lifecycle remains a later WI032 slice; use local-only onboarding until TPR-003 is proven.".to_string());
-    }
-    forgelink_start_local_only(app, manager, payload)
+    let validation = protected.validate_twilio(&payload)?;
+    protected.save_twilio(&payload)?;
+    protected.select_sms_provider("twilio")?;
+    let config = local_service_config_from_payload(&manager.config(), &payload, true)?;
+    save_local_service_config(&app, &config)?;
+    manager.update_config(config)?;
+    manager.start()?;
+    let mut status = local_service_status(&manager, &protected);
+    status["validation"] = validation;
+    Ok(status)
 }
 
 #[tauri::command]
-fn forgelink_stop_server(manager: State<'_, local_service::LocalServiceManager>) -> Value {
+fn forgelink_stop_server(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+) -> Value {
     let _ = manager.stop();
-    local_service_status(&manager)
+    local_service_status(&manager, &protected)
 }
 
 #[tauri::command]
-fn forgelink_validate_settings(_payload: Value) -> Result<Value, String> {
-    Err("Tauri provider validation is not part of TPR-002; use local-only onboarding until TPR-003 is proven.".to_string())
+fn forgelink_validate_settings(
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+    payload: Value,
+) -> Result<Value, String> {
+    protected.validate_twilio(&payload)
 }
 
 #[tauri::command]
-fn forgelink_import_environment() -> Result<Value, String> {
-    Err("Tauri provider credential import is not part of TPR-002; use local-only onboarding until TPR-003 is proven.".to_string())
+fn forgelink_import_environment(
+    app: tauri::AppHandle,
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+) -> Result<Value, String> {
+    protected.import_environment()?;
+    let config = local_service_config_from_payload(&manager.config(), &json!({}), true)?;
+    save_local_service_config(&app, &config)?;
+    manager.update_config(config)?;
+    manager.start()?;
+    Ok(local_service_status(&manager, &protected))
 }
 
 #[tauri::command]
-fn forgelink_remove_credentials() -> Result<Value, String> {
-    Err("Tauri provider credential removal is not part of TPR-002; use local-only onboarding until TPR-003 is proven.".to_string())
-}
-
-fn telnyx_settings_status() -> Value {
-    json!({
-        "preferred_provider": "none",
-        "telnyx": {
-            "configured": false,
-            "inbound_configured": false,
-            "source": "none",
-            "environment_available": false,
-            "phone_number": "",
-            "messaging_profile_id": "",
-            "api_key_present": false,
-            "public_key_present": false,
-            "availability": "desktop_local_service_required"
-        }
-    })
+fn forgelink_remove_credentials(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+) -> Result<Value, String> {
+    protected.remove_twilio()?;
+    manager.start()?;
+    Ok(local_service_status(&manager, &protected))
 }
 
 #[tauri::command]
-fn forgelink_sms_provider_settings() -> Value {
-    telnyx_settings_status()
+fn forgelink_sms_provider_settings(
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+) -> Value {
+    protected.telnyx_status()
 }
 
 #[tauri::command]
-fn forgelink_validate_telnyx_settings(_payload: Value) -> Value {
-    json!({ "provider": "telnyx", "account_name": "Tauri parity pending", "account_status": "desktop_local_service_required", "phone_number": "", "messaging_profile_id": "", "messaging_profile_name": "", "webhook_configured": false, "public_key_valid": false })
+fn forgelink_validate_telnyx_settings(
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+    payload: Value,
+) -> Result<Value, String> {
+    protected.validate_telnyx(&payload)
 }
 
 #[tauri::command]
-fn forgelink_save_telnyx_settings(_payload: Value) -> Value {
-    telnyx_settings_status()
+fn forgelink_save_telnyx_settings(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+    payload: Value,
+) -> Result<Value, String> {
+    let validation = protected.validate_telnyx(&payload)?;
+    protected.save_telnyx(&payload)?;
+    protected.select_sms_provider("telnyx")?;
+    manager.start()?;
+    let mut result = protected.telnyx_status();
+    result["validation"] = validation;
+    Ok(result)
 }
 
 #[tauri::command]
-fn forgelink_select_sms_provider(provider: String) -> Value {
-    let _ = provider;
-    telnyx_settings_status()
+fn forgelink_select_sms_provider(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+    provider: String,
+) -> Result<Value, String> {
+    let result = protected.select_sms_provider(&provider)?;
+    manager.start()?;
+    Ok(result)
 }
 
 #[tauri::command]
-fn forgelink_remove_telnyx_settings() -> Value {
-    telnyx_settings_status()
+fn forgelink_remove_telnyx_settings(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+) -> Result<Value, String> {
+    let result = protected.remove_telnyx()?;
+    manager.start()?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -518,114 +486,231 @@ fn forgelink_save_attention_policy(app: tauri::AppHandle, payload: Value) -> Val
 }
 
 #[tauri::command]
-fn forgelink_mcp_status() -> Value {
-    mcp_status()
+fn forgelink_mcp_status(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+) -> Value {
+    let connection = manager.backend_connection();
+    protected.mcp_status(&connection.base_url, &connection.api_token)
 }
 
 #[tauri::command]
-fn forgelink_create_mcp_token() -> Value {
-    mcp_status()
+fn forgelink_create_mcp_token(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+) -> Result<Value, String> {
+    let connection = manager.backend_connection();
+    protected.create_mcp_token(&connection.base_url, &connection.api_token)
 }
 
 #[tauri::command]
-fn forgelink_revoke_mcp_token() -> Value {
-    mcp_status()
+fn forgelink_revoke_mcp_token(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+) -> Result<Value, String> {
+    let connection = manager.backend_connection();
+    protected.revoke_mcp_token(&connection.base_url, &connection.api_token)
 }
 
 #[tauri::command]
-fn forgelink_test_mcp_bridge() -> Value {
-    mcp_status()
+fn forgelink_test_mcp_bridge(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+) -> Result<Value, String> {
+    let connection = manager.backend_connection();
+    protected.test_mcp_bridge(&connection.base_url, &connection.api_token)
 }
 
 #[tauri::command]
-fn forgelink_agent_channels(app: tauri::AppHandle) -> Value {
-    let dir = mobile_state_dir(&app);
-    json!(channels_from_dir(dir.as_deref()))
+fn forgelink_agent_channels(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+) -> Result<Value, String> {
+    let connection = manager.backend_connection();
+    protected.agent_channels(&connection.base_url, &connection.api_token)
 }
 
 #[tauri::command]
-fn forgelink_create_agent_channel(app: tauri::AppHandle, payload: Value) -> Value {
-    let dir = mobile_state_dir(&app);
-    let channel = agent_channel(
-        payload["channel_id"].as_str().unwrap_or("forgewire"),
-        payload["label"].as_str().unwrap_or("ForgeWire Fabric"),
-    );
-    let channels = upsert_channel(channels_from_dir(dir.as_deref()), channel.clone());
-    let _ = save_channels_to_dir(dir.as_deref(), &channels);
-    channel
+fn forgelink_create_agent_channel(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+    payload: Value,
+) -> Result<Value, String> {
+    let connection = manager.backend_connection();
+    protected.create_agent_channel(&connection.base_url, &connection.api_token, &payload)
 }
 
 #[tauri::command]
-fn forgelink_rotate_agent_channel(app: tauri::AppHandle, channel_id: String) -> Value {
-    let dir = mobile_state_dir(&app);
-    let (channels, channel) =
-        update_channel(channels_from_dir(dir.as_deref()), &channel_id, |existing| {
-            existing["configured"] = json!(true);
-            existing["revoked_at"] = json!(null);
-            existing["rotated_at"] = json!(now_marker());
-            existing["token_file_present"] = json!(false);
-        });
-    let _ = save_channels_to_dir(dir.as_deref(), &channels);
-    channel
+fn forgelink_rotate_agent_channel(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+    channel_id: String,
+) -> Result<Value, String> {
+    let connection = manager.backend_connection();
+    protected.rotate_agent_channel(&connection.base_url, &connection.api_token, &channel_id)
 }
 
 #[tauri::command]
-fn forgelink_revoke_agent_channel(app: tauri::AppHandle, channel_id: String) -> Value {
-    let dir = mobile_state_dir(&app);
-    let (channels, channel) =
-        update_channel(channels_from_dir(dir.as_deref()), &channel_id, |existing| {
-            existing["enabled"] = json!(false);
-            existing["configured"] = json!(false);
-            existing["revoked_at"] = json!(now_marker());
-            existing["token_file_present"] = json!(false);
-        });
-    let _ = save_channels_to_dir(dir.as_deref(), &channels);
-    channel
+fn forgelink_revoke_agent_channel(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+    channel_id: String,
+) -> Result<Value, String> {
+    let connection = manager.backend_connection();
+    protected.revoke_agent_channel(&connection.base_url, &connection.api_token, &channel_id)
 }
 
 #[tauri::command]
 fn forgelink_set_agent_channel_enabled(
-    app: tauri::AppHandle,
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
     channel_id: String,
     enabled: bool,
+) -> Result<Value, String> {
+    let connection = manager.backend_connection();
+    protected.set_agent_channel_enabled(
+        &connection.base_url,
+        &connection.api_token,
+        &channel_id,
+        enabled,
+    )
+}
+
+#[tauri::command]
+fn forgelink_local_integrations(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+) -> Result<Value, String> {
+    let connection = manager.backend_connection();
+    protected.local_integrations(&connection.base_url, &connection.api_token)
+}
+
+#[tauri::command]
+fn forgelink_create_local_integration(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+    payload: Value,
+) -> Result<Value, String> {
+    let connection = manager.backend_connection();
+    protected.create_local_integration(&connection.base_url, &connection.api_token, &payload)
+}
+
+#[tauri::command]
+fn forgelink_update_local_integration(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+    integration_id: String,
+    payload: Value,
+) -> Result<Value, String> {
+    let connection = manager.backend_connection();
+    protected.update_local_integration(
+        &connection.base_url,
+        &connection.api_token,
+        &integration_id,
+        &payload,
+    )
+}
+
+#[tauri::command]
+fn forgelink_rotate_local_integration(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+    integration_id: String,
+) -> Result<Value, String> {
+    let connection = manager.backend_connection();
+    protected.rotate_local_integration(&connection.base_url, &connection.api_token, &integration_id)
+}
+
+#[tauri::command]
+fn forgelink_revoke_local_integration(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+    integration_id: String,
+) -> Result<Value, String> {
+    let connection = manager.backend_connection();
+    protected.revoke_local_integration(&connection.base_url, &connection.api_token, &integration_id)
+}
+
+#[tauri::command]
+fn forgelink_set_local_integration_enabled(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+    integration_id: String,
+    enabled: bool,
+) -> Result<Value, String> {
+    let connection = manager.backend_connection();
+    protected.set_local_integration_enabled(
+        &connection.base_url,
+        &connection.api_token,
+        &integration_id,
+        enabled,
+    )
+}
+
+#[tauri::command]
+fn forgelink_test_local_integration(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+    integration_id: String,
+) -> Result<Value, String> {
+    let connection = manager.backend_connection();
+    protected.test_local_integration(&connection.base_url, &connection.api_token, &integration_id)
+}
+
+#[tauri::command]
+fn forgelink_email_settings(
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
 ) -> Value {
-    let dir = mobile_state_dir(&app);
-    let (channels, channel) =
-        update_channel(channels_from_dir(dir.as_deref()), &channel_id, |existing| {
-            existing["enabled"] = json!(enabled);
-        });
-    let _ = save_channels_to_dir(dir.as_deref(), &channels);
-    channel
+    protected.email_status()
 }
 
 #[tauri::command]
-fn forgelink_email_settings() -> Value {
-    json!({ "configured": false, "host": "", "port": 465, "secure": true, "user": "", "from": "", "password_present": false, "inbound_secret_present": false, "action_secret_present": false })
+fn forgelink_save_email_settings(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+    payload: Value,
+) -> Result<Value, String> {
+    let result = protected.save_email(&payload)?;
+    manager.start()?;
+    Ok(result)
 }
 
 #[tauri::command]
-fn forgelink_save_email_settings(_payload: Value) -> Value {
-    forgelink_email_settings()
+fn forgelink_remove_email_settings(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+) -> Result<Value, String> {
+    let result = protected.remove_email()?;
+    manager.start()?;
+    Ok(result)
 }
 
 #[tauri::command]
-fn forgelink_remove_email_settings() -> Value {
-    forgelink_email_settings()
+fn forgelink_push_settings(
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+) -> Value {
+    protected.push_status()
 }
 
 #[tauri::command]
-fn forgelink_push_settings() -> Value {
-    json!({ "configured": false, "provider": "ntfy", "url": "https://ntfy.sh", "profile": "lock_screen_safe", "topic_present": false, "token_present": false })
+fn forgelink_save_push_settings(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+    payload: Value,
+) -> Result<Value, String> {
+    let result = protected.save_push(&payload)?;
+    manager.start()?;
+    Ok(result)
 }
 
 #[tauri::command]
-fn forgelink_save_push_settings(_payload: Value) -> Value {
-    forgelink_push_settings()
-}
-
-#[tauri::command]
-fn forgelink_remove_push_settings() -> Value {
-    forgelink_push_settings()
+fn forgelink_remove_push_settings(
+    manager: State<'_, local_service::LocalServiceManager>,
+    protected: State<'_, protected_settings::ProtectedSettingsService>,
+) -> Result<Value, String> {
+    let result = protected.remove_push()?;
+    manager.start()?;
+    Ok(result)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -634,12 +719,23 @@ pub fn run() {
         .setup(|app| {
             let config = load_local_service_config(app.handle());
             let runtime = local_service::resolve_backend_runtime(app.path().resource_dir().ok());
-            let manager = local_service::LocalServiceManager::new(
+            let legacy_roots = app
+                .path()
+                .app_data_dir()
+                .ok()
+                .into_iter()
+                .collect::<Vec<_>>();
+            let protected =
+                protected_settings::ProtectedSettingsService::new(local_data_dir(), legacy_roots)
+                    .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            let manager = local_service::LocalServiceManager::new_with_protected(
                 runtime,
                 config.clone(),
                 local_data_dir(),
                 None,
+                protected.clone(),
             );
+            app.manage(protected);
             app.manage(manager);
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             if config.onboarding_complete {
@@ -682,6 +778,13 @@ pub fn run() {
             forgelink_rotate_agent_channel,
             forgelink_revoke_agent_channel,
             forgelink_set_agent_channel_enabled,
+            forgelink_local_integrations,
+            forgelink_create_local_integration,
+            forgelink_update_local_integration,
+            forgelink_rotate_local_integration,
+            forgelink_revoke_local_integration,
+            forgelink_set_local_integration_enabled,
+            forgelink_test_local_integration,
             forgelink_email_settings,
             forgelink_save_email_settings,
             forgelink_remove_email_settings,
@@ -706,13 +809,17 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_state_dir(name: &str) -> PathBuf {
         let mut path = std::env::temp_dir();
         path.push(format!(
             "forgelink-tauri-mobile-runtime-{}-{}",
             name,
-            now_marker().replace(':', "-")
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
         ));
         path
     }
@@ -758,20 +865,6 @@ mod tests {
         assert!(forbidden.contains(&json!("credentials")));
         assert!(forbidden.contains(&json!("provider_secrets")));
         assert!(forbidden.contains(&json!("tokens")));
-    }
-
-    #[test]
-    fn telnyx_bridge_status_is_redacted_and_does_not_claim_unproved_tauri_parity() {
-        let status = telnyx_settings_status();
-        let serialized = status.to_string();
-        assert_eq!(status["preferred_provider"], json!("none"));
-        assert_eq!(status["telnyx"]["configured"], json!(false));
-        assert_eq!(
-            status["telnyx"]["availability"],
-            json!("desktop_local_service_required")
-        );
-        assert!(!serialized.contains("api_key\":"));
-        assert!(!serialized.contains("public_key\":"));
     }
 
     #[test]
@@ -823,53 +916,5 @@ mod tests {
         let loaded = attention_policy_from_dir(Some(&dir));
         assert_eq!(loaded["operator_mode"], json!("focus"));
         assert_eq!(loaded["quiet_hours_enabled"], json!(true));
-    }
-
-    #[test]
-    fn agent_channels_persist_metadata_without_secret_files() {
-        let dir = test_state_dir("channels");
-        let channel = agent_channel("forgewire", "ForgeWire Fabric");
-        let channels = upsert_channel(channels_from_dir(Some(&dir)), channel.clone());
-        save_channels_to_dir(Some(&dir), &channels);
-
-        let loaded = channels_from_dir(Some(&dir));
-        assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded[0]["channel_id"], json!("forgewire"));
-        assert_eq!(loaded[0]["label"], json!("ForgeWire Fabric"));
-        assert_eq!(loaded[0]["configured"], json!(true));
-        assert_eq!(loaded[0]["token_file_present"], json!(false));
-    }
-
-    #[test]
-    fn agent_channel_revoke_and_enable_update_existing_record() {
-        let dir = test_state_dir("channel-update");
-        let channels = upsert_channel(
-            channels_from_dir(Some(&dir)),
-            agent_channel("forgewire", "ForgeWire Fabric"),
-        );
-        save_channels_to_dir(Some(&dir), &channels);
-
-        let (channels, revoked) =
-            update_channel(channels_from_dir(Some(&dir)), "forgewire", |existing| {
-                existing["enabled"] = json!(false);
-                existing["configured"] = json!(false);
-                existing["revoked_at"] = json!(now_marker());
-            });
-        assert_eq!(revoked["enabled"], json!(false));
-        assert_eq!(revoked["configured"], json!(false));
-        assert!(revoked["revoked_at"]
-            .as_str()
-            .unwrap_or_default()
-            .starts_with("unix:"));
-
-        let (channels, enabled) = update_channel(channels, "forgewire", |existing| {
-            existing["enabled"] = json!(true);
-        });
-        save_channels_to_dir(Some(&dir), &channels);
-        assert_eq!(enabled["enabled"], json!(true));
-
-        let loaded = channels_from_dir(Some(&dir));
-        assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded[0]["enabled"], json!(true));
     }
 }

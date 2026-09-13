@@ -3674,7 +3674,7 @@ function EmailCredentialForm({ status, onSave, onRemove }: { status?: EmailSetti
       setFrom(status.from);
     }
   }, [status]);
-  const save = () =>
+  const save = () => {
     onSave({
       host,
       port: Number(port) || 465,
@@ -3685,6 +3685,13 @@ function EmailCredentialForm({ status, onSave, onRemove }: { status?: EmailSetti
       ...(inbound !== "" ? { inbound_secret: inbound } : {}),
       ...(action !== "" ? { action_secret: action } : {}),
     });
+    // Secret inputs are write-only. Clear them immediately after handing the
+    // payload to the shell so a failed restart cannot leave credentials in the
+    // renderer form state or browser snapshot.
+    setPass("");
+    setInbound("");
+    setAction("");
+  };
   return (
     <div className="form-stack email-cred-form">
       <Field label="SMTP host">
@@ -3731,7 +3738,13 @@ function PushCredentialForm({ status, onSave, onRemove }: { status?: PushSetting
       setProfile(status.profile || "lock_screen_safe");
     }
   }, [status]);
-  const save = () => onSave({ url, profile, ...(topic ? { topic } : {}), ...(token !== "" ? { token } : {}) });
+  const save = () => {
+    onSave({ url, profile, ...(topic ? { topic } : {}), ...(token !== "" ? { token } : {}) });
+    // Topic and access token are delivery credentials, not redisplayable form
+    // values. Do not retain them in renderer state after a save attempt.
+    setTopic("");
+    setToken("");
+  };
   return (
     <div className="form-stack push-cred-form">
       <Field label="Provider URL" hint="ntfy.sh or a self-hosted instance">
@@ -4012,6 +4025,26 @@ function Settings({
           <p>Connection health, local data safety, and the environment this app uses.</p>
         </div>
       </header>
+      {!mobileLocalMode && (status?.migration?.required || status?.migration?.metadata_corrupt) && (
+        <section className="settings-card span-two" role="status">
+          <div className="settings-card-head">
+            <div className="settings-icon">
+              <Icon name="alert" />
+            </div>
+            <div>
+              <h2>Legacy credentials require re-entry</h2>
+              <p>
+                ForgeLink preserves legacy Electron settings for recovery but does not attempt to decrypt them automatically. Re-enter each provider below to place it in the protected Tauri vault.
+              </p>
+            </div>
+          </div>
+          <div className="status-list">
+            <StatusRow label="Migration strategy: manual re-entry" ready={false} />
+            <StatusRow label="Legacy files preserved" ready={!status?.migration?.metadata_corrupt} />
+            {status?.protected_storage?.state && <StatusRow label={`Protected storage: ${status.protected_storage.state}`} ready={status.protected_storage.state === "ready"} />}
+          </div>
+        </section>
+      )}
       <div className="settings-grid">
         {mobileLocalMode && (
           <section className="settings-card span-two">

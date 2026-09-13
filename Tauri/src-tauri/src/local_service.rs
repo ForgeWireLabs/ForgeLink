@@ -1,3 +1,4 @@
+use crate::protected_settings::ProtectedSettingsService;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use rand_core::{OsRng, RngCore};
 use reqwest::blocking::Client;
@@ -62,12 +63,22 @@ pub struct ServiceSnapshot {
     pub ownership: &'static str,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct BackendConnection {
     #[serde(rename = "baseUrl")]
     pub base_url: String,
     #[serde(rename = "apiToken")]
     pub api_token: String,
+}
+
+impl std::fmt::Debug for BackendConnection {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BackendConnection")
+            .field("base_url", &self.base_url)
+            .field("api_token", &"[redacted]")
+            .finish()
+    }
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -77,6 +88,8 @@ pub struct BackendRuntime {
     pub script: PathBuf,
     pub working_dir: Option<PathBuf>,
     pub bundled: bool,
+    // Non-secret runtime switches used by deterministic tests and future
+    // packaged-runtime toggles. Provider credentials never enter this list.
     extra_env: Vec<(String, String)>,
 }
 
@@ -222,6 +235,7 @@ struct DesktopInner {
     port_note: String,
     stop_requested: bool,
     generation: u64,
+    protected: ProtectedSettingsService,
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -234,21 +248,48 @@ pub struct LocalServiceManager {
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl LocalServiceManager {
-    pub fn new(
-        runtime: Result<BackendRuntime, String>,
-        config: ServiceConfig,
-        data_dir: PathBuf,
-        api_token: Option<String>,
-    ) -> Self {
-        Self::with_readiness_timeout(runtime, config, data_dir, api_token, READINESS_TIMEOUT)
-    }
-
+    #[cfg(test)]
     fn with_readiness_timeout(
         runtime: Result<BackendRuntime, String>,
         config: ServiceConfig,
         data_dir: PathBuf,
         api_token: Option<String>,
         readiness_timeout: Duration,
+    ) -> Self {
+        Self::with_readiness_timeout_and_protected(
+            runtime,
+            config,
+            data_dir,
+            api_token,
+            readiness_timeout,
+            ProtectedSettingsService::unavailable(),
+        )
+    }
+
+    pub fn new_with_protected(
+        runtime: Result<BackendRuntime, String>,
+        config: ServiceConfig,
+        data_dir: PathBuf,
+        api_token: Option<String>,
+        protected: ProtectedSettingsService,
+    ) -> Self {
+        Self::with_readiness_timeout_and_protected(
+            runtime,
+            config,
+            data_dir,
+            api_token,
+            READINESS_TIMEOUT,
+            protected,
+        )
+    }
+
+    fn with_readiness_timeout_and_protected(
+        runtime: Result<BackendRuntime, String>,
+        config: ServiceConfig,
+        data_dir: PathBuf,
+        api_token: Option<String>,
+        readiness_timeout: Duration,
+        protected: ProtectedSettingsService,
     ) -> Self {
         let token = api_token
             .filter(|value| !value.is_empty())
@@ -269,6 +310,7 @@ impl LocalServiceManager {
             port_note: String::new(),
             stop_requested: false,
             generation: 0,
+            protected,
         }));
         let monitor_stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let monitor_inner = Arc::clone(&inner);
@@ -324,7 +366,7 @@ impl LocalServiceManager {
         }
         self.stop_internal(false)?;
 
-        let (generation, config, runtime, token, data_dir) = {
+        let (generation, config, runtime, token, data_dir, protected) = {
             let mut state = lock(&self.inner);
             state.config.validate()?;
             if !state.config.onboarding_complete {
@@ -348,6 +390,7 @@ impl LocalServiceManager {
                 state.runtime.clone(),
                 state.api_token.clone(),
                 state.data_dir.clone(),
+                state.protected.clone(),
             )
         };
 
@@ -379,7 +422,14 @@ impl LocalServiceManager {
         } else {
             String::new()
         };
-        let mut child = match spawn_backend(&runtime, &config, selected_port, &token, &data_dir) {
+        let mut child = match spawn_backend(
+            &runtime,
+            &config,
+            selected_port,
+            &token,
+            &data_dir,
+            &protected,
+        ) {
             Ok(child) => child,
             Err(error) => return self.fail_start(generation, error),
         };
@@ -507,6 +557,7 @@ fn monitor_loop(inner: Arc<Mutex<DesktopInner>>, stop: Arc<std::sync::atomic::At
                                 state.runtime.clone(),
                                 state.api_token.clone(),
                                 state.data_dir.clone(),
+                                state.protected.clone(),
                                 state.effective_port,
                                 state.restarts.count(),
                             ))
@@ -529,7 +580,9 @@ fn monitor_loop(inner: Arc<Mutex<DesktopInner>>, stop: Arc<std::sync::atomic::At
             }
         };
 
-        if let Some((generation, config, runtime, token, data_dir, port, attempt)) = restart {
+        if let Some((generation, config, runtime, token, data_dir, protected, port, attempt)) =
+            restart
+        {
             std::thread::sleep(Duration::from_millis((attempt as u64) * 100));
             if stop.load(std::sync::atomic::Ordering::Acquire) {
                 break;
@@ -537,7 +590,9 @@ fn monitor_loop(inner: Arc<Mutex<DesktopInner>>, stop: Arc<std::sync::atomic::At
             let Ok(runtime) = runtime else {
                 continue;
             };
-            let Ok(mut child) = spawn_backend(&runtime, &config, port, &token, &data_dir) else {
+            let Ok(mut child) =
+                spawn_backend(&runtime, &config, port, &token, &data_dir, &protected)
+            else {
                 let mut state = lock(&inner);
                 if state.generation == generation {
                     state.phase = "degraded";
@@ -582,9 +637,12 @@ fn spawn_backend(
     port: u16,
     token: &str,
     data_dir: &PathBuf,
+    protected: &ProtectedSettingsService,
 ) -> Result<OwnedChild, String> {
+    let protected_env = protected.backend_env()?;
     let mut command = std::process::Command::new(&runtime.executable);
     command
+        .env_clear()
         .arg(&runtime.script)
         .arg("--host")
         .arg(&config.host)
@@ -598,11 +656,34 @@ fn spawn_backend(
         .env("FORGELINK_RUNTIME_BUNDLED", runtime.bundled.to_string())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    if let Some(working_dir) = &runtime.working_dir {
-        command.current_dir(working_dir);
+    for key in [
+        "PATH",
+        "Path",
+        "SystemRoot",
+        "WINDIR",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "HOME",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMFILES",
+        "PROGRAMFILES(X86)",
+    ] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    for (key, value) in protected_env {
+        command.env(key, value);
     }
     for (key, value) in &runtime.extra_env {
-        command.env(key, value);
+        if key == "FORGELINK_TEST_MODE" {
+            command.env(key, value);
+        }
+    }
+    if let Some(working_dir) = &runtime.working_dir {
+        command.current_dir(working_dir);
     }
     command
         .spawn()
@@ -785,6 +866,16 @@ impl LocalServiceManager {
         }
     }
 
+    pub fn new_with_protected(
+        runtime: Result<BackendRuntime, String>,
+        config: ServiceConfig,
+        data_dir: PathBuf,
+        api_token: Option<String>,
+        _protected: ProtectedSettingsService,
+    ) -> Self {
+        Self::new(runtime, config, data_dir, api_token)
+    }
+
     pub fn config(&self) -> ServiceConfig {
         lock(&self.inner).config.clone()
     }
@@ -945,6 +1036,23 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
         predicate()
     }
 
+    fn wait_for_test_service(port: u16, token: &str) {
+        assert!(wait_until(Duration::from_secs(10), || {
+            Client::builder()
+                .timeout(Duration::from_millis(100))
+                .build()
+                .ok()
+                .and_then(|client| {
+                    client
+                        .get(format!("http://{DEFAULT_HOST}:{port}/health"))
+                        .bearer_auth(token)
+                        .send()
+                        .ok()
+                })
+                .is_some_and(|response| response.status().is_success())
+        }));
+    }
+
     fn stop_process(child: &mut Child) {
         let _ = child.kill();
         let _ = child.wait();
@@ -1101,7 +1209,7 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
             .current_dir(&root)
             .spawn()
             .expect("existing service");
-        thread::sleep(Duration::from_millis(150));
+        wait_for_test_service(preferred, token);
         let manager = LocalServiceManager::with_readiness_timeout(
             Ok(BackendRuntime::new(
                 executable,

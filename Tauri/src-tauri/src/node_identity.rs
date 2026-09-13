@@ -3,18 +3,19 @@ use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+#[cfg(all(test, not(any(target_os = "android", target_os = "ios"))))]
+use crate::secure_store::DEFAULT_MAGIC;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-use aes_gcm::{
-    aead::{Aead, Payload},
-    Aes256Gcm, KeyInit, Nonce,
+use crate::secure_store::{
+    EncryptedFileSecretStore, OsWrappingKeyProvider, SecureStoreError, WrappingKeyProvider,
 };
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-use rand_core::{OsRng, RngCore};
+use rand_core::OsRng;
+#[cfg(test)]
+use std::fs;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use std::{
     env,
-    fs::{self, OpenOptions},
-    io::Write,
     path::{Path, PathBuf},
 };
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -34,11 +35,10 @@ const LOCAL_ROOT_ENV: &str = "FORGELINK_LOCAL_ROOT";
 #[cfg(target_os = "windows")]
 const DEFAULT_WINDOWS_LOCAL_ROOT: &str = r"C:\Projects\ForgeLink-local";
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-const VAULT_MAGIC: &[u8; 8] = b"FLNIV001";
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-const VAULT_NONCE_BYTES: usize = 12;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const PRIVATE_KEY_BYTES: usize = 32;
+
+#[cfg(all(test, not(any(target_os = "android", target_os = "ios"))))]
+const VAULT_MAGIC: &[u8; 8] = DEFAULT_MAGIC;
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct NodeIdentityRequest {
@@ -150,182 +150,30 @@ fn delete_with_store(
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-trait WrappingKeyProvider {
-    fn load(&self) -> Result<Zeroizing<Vec<u8>>, NodeIdentityError>;
-    fn load_or_create(&self) -> Result<Zeroizing<Vec<u8>>, NodeIdentityError>;
-}
-
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-struct OsWrappingKeyProvider;
-
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-impl OsWrappingKeyProvider {
-    fn entry() -> Result<keyring::v1::Entry, NodeIdentityError> {
-        keyring::v1::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
-            .map_err(|_| NodeIdentityError::StorageUnavailable)
-    }
-}
-
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-impl WrappingKeyProvider for OsWrappingKeyProvider {
-    fn load(&self) -> Result<Zeroizing<Vec<u8>>, NodeIdentityError> {
-        match Self::entry()?.get_secret() {
-            Ok(secret) if secret.len() == PRIVATE_KEY_BYTES => Ok(Zeroizing::new(secret)),
-            Ok(_) | Err(_) => Err(NodeIdentityError::StorageUnavailable),
-        }
-    }
-
-    fn load_or_create(&self) -> Result<Zeroizing<Vec<u8>>, NodeIdentityError> {
-        let entry = Self::entry()?;
-        match entry.get_secret() {
-            Ok(secret) if secret.len() == PRIVATE_KEY_BYTES => Ok(Zeroizing::new(secret)),
-            Ok(_) => Err(NodeIdentityError::StorageUnavailable),
-            Err(keyring::v1::Error::NoEntry) => {
-                let mut secret = Zeroizing::new(vec![0_u8; PRIVATE_KEY_BYTES]);
-                OsRng.fill_bytes(secret.as_mut_slice());
-                entry
-                    .set_secret(secret.as_slice())
-                    .map_err(|_| NodeIdentityError::StorageUnavailable)?;
-                Ok(secret)
-            }
-            Err(_) => Err(NodeIdentityError::StorageUnavailable),
-        }
-    }
-}
-
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-struct EncryptedFileSecretStore<P> {
-    directory: PathBuf,
-    wrapping_keys: P,
-}
-
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-impl<P: WrappingKeyProvider> EncryptedFileSecretStore<P> {
-    fn new(directory: PathBuf, wrapping_keys: P) -> Result<Self, NodeIdentityError> {
-        if !directory.is_absolute() || !directory.is_dir() {
-            return Err(NodeIdentityError::StorageUnavailable);
-        }
-        Ok(Self {
-            directory,
-            wrapping_keys,
-        })
-    }
-
-    fn path_for(&self, secure_key_ref: &str) -> PathBuf {
-        let digest = Sha256::digest(secure_key_ref.as_bytes());
-        let file_name = digest
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        self.directory.join(format!("{file_name}.flkey"))
-    }
-
-    fn existing_cipher(&self) -> Result<Aes256Gcm, NodeIdentityError> {
-        let key = self.wrapping_keys.load()?;
-        Aes256Gcm::new_from_slice(key.as_slice()).map_err(|_| NodeIdentityError::StorageUnavailable)
-    }
-
-    fn creation_cipher(&self) -> Result<Aes256Gcm, NodeIdentityError> {
-        let key = self.wrapping_keys.load_or_create()?;
-        Aes256Gcm::new_from_slice(key.as_slice()).map_err(|_| NodeIdentityError::StorageUnavailable)
-    }
-
-    fn read_secret(
-        &self,
-        secure_key_ref: &str,
-    ) -> Result<Option<Zeroizing<Vec<u8>>>, NodeIdentityError> {
-        let path = self.path_for(secure_key_ref);
-        let blob = match fs::read(path) {
-            Ok(blob) => blob,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(_) => return Err(NodeIdentityError::StorageUnavailable),
-        };
-        if blob.len() < VAULT_MAGIC.len() + VAULT_NONCE_BYTES + 16
-            || &blob[..VAULT_MAGIC.len()] != VAULT_MAGIC
-        {
-            return Err(NodeIdentityError::StorageUnavailable);
-        }
-
-        let nonce_start = VAULT_MAGIC.len();
-        let ciphertext_start = nonce_start + VAULT_NONCE_BYTES;
-        let nonce = Nonce::from_slice(&blob[nonce_start..ciphertext_start]);
-        let cipher = self.existing_cipher()?;
-        let cleartext = cipher
-            .decrypt(
-                nonce,
-                Payload {
-                    msg: &blob[ciphertext_start..],
-                    aad: secure_key_ref.as_bytes(),
-                },
-            )
-            .map_err(|_| NodeIdentityError::StorageUnavailable)?;
-        if cleartext.len() != PRIVATE_KEY_BYTES {
-            return Err(NodeIdentityError::StorageUnavailable);
-        }
-        Ok(Some(Zeroizing::new(cleartext)))
-    }
-}
-
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl<P: WrappingKeyProvider> SecretStore for EncryptedFileSecretStore<P> {
     fn contains(&self, secure_key_ref: &str) -> Result<bool, NodeIdentityError> {
-        Ok(self.read_secret(secure_key_ref)?.is_some())
+        self.read_secret(secure_key_ref)
+            .map(|value| value.is_some())
+            .map_err(|error| match error {
+                SecureStoreError::InvalidReference => NodeIdentityError::StorageUnavailable,
+                _ => NodeIdentityError::StorageUnavailable,
+            })
     }
 
     fn create(&self, secure_key_ref: &str, secret: &[u8]) -> Result<(), NodeIdentityError> {
         if secret.len() != PRIVATE_KEY_BYTES {
             return Err(NodeIdentityError::StorageUnavailable);
         }
-
-        let path = self.path_for(secure_key_ref);
-        let cipher = self.creation_cipher()?;
-        let mut nonce_bytes = [0_u8; VAULT_NONCE_BYTES];
-        OsRng.fill_bytes(&mut nonce_bytes);
-        let ciphertext = cipher
-            .encrypt(
-                Nonce::from_slice(&nonce_bytes),
-                Payload {
-                    msg: secret,
-                    aad: secure_key_ref.as_bytes(),
-                },
-            )
-            .map_err(|_| NodeIdentityError::StorageUnavailable)?;
-
-        let mut blob = Vec::with_capacity(VAULT_MAGIC.len() + nonce_bytes.len() + ciphertext.len());
-        blob.extend_from_slice(VAULT_MAGIC);
-        blob.extend_from_slice(&nonce_bytes);
-        blob.extend_from_slice(&ciphertext);
-
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-
-        let mut file = match options.open(&path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                return Err(NodeIdentityError::AlreadyExists)
-            }
-            Err(_) => return Err(NodeIdentityError::StorageUnavailable),
-        };
-
-        if file.write_all(&blob).and_then(|_| file.sync_all()).is_err() {
-            drop(file);
-            let _ = fs::remove_file(path);
-            return Err(NodeIdentityError::StorageUnavailable);
-        }
-        Ok(())
+        self.create(secure_key_ref, secret)
+            .map_err(|error| match error {
+                SecureStoreError::AlreadyExists => NodeIdentityError::AlreadyExists,
+                _ => NodeIdentityError::StorageUnavailable,
+            })
     }
 
     fn delete(&self, secure_key_ref: &str) -> Result<bool, NodeIdentityError> {
-        match fs::remove_file(self.path_for(secure_key_ref)) {
-            Ok(()) => Ok(true),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-            Err(_) => Err(NodeIdentityError::StorageUnavailable),
-        }
+        self.delete(secure_key_ref)
+            .map_err(|_| NodeIdentityError::StorageUnavailable)
     }
 }
 
@@ -362,7 +210,11 @@ fn configured_vault_dir() -> Result<PathBuf, NodeIdentityError> {
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn os_secret_store() -> Result<EncryptedFileSecretStore<OsWrappingKeyProvider>, NodeIdentityError> {
-    EncryptedFileSecretStore::new(configured_vault_dir()?, OsWrappingKeyProvider)
+    EncryptedFileSecretStore::new(
+        configured_vault_dir()?,
+        OsWrappingKeyProvider::new(KEYRING_SERVICE, KEYRING_ACCOUNT),
+    )
+    .map_err(|_| NodeIdentityError::StorageUnavailable)
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -443,11 +295,11 @@ mod tests {
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     impl WrappingKeyProvider for FixedWrappingKeyProvider {
-        fn load(&self) -> Result<Zeroizing<Vec<u8>>, NodeIdentityError> {
+        fn load(&self) -> Result<Zeroizing<Vec<u8>>, SecureStoreError> {
             Ok(Zeroizing::new(self.0.to_vec()))
         }
 
-        fn load_or_create(&self) -> Result<Zeroizing<Vec<u8>>, NodeIdentityError> {
+        fn load_or_create(&self) -> Result<Zeroizing<Vec<u8>>, SecureStoreError> {
             self.load()
         }
     }
@@ -617,7 +469,7 @@ mod tests {
 
         assert_eq!(
             store.contains(reference).expect_err("tampering must fail"),
-            NodeIdentityError::StorageUnavailable
+            SecureStoreError::Corrupt
         );
         fs::remove_dir_all(directory).expect("remove test vault");
     }

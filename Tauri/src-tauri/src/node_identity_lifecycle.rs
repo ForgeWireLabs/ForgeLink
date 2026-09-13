@@ -215,11 +215,20 @@ trait LinkedNodeBackend {
     ) -> Result<LinkedNodeRecoveryRecord, BackendFailure>;
 }
 
-#[derive(Debug)]
 struct LoopbackBackend {
     client: Client,
     base_url: String,
     token: String,
+}
+
+impl std::fmt::Debug for LoopbackBackend {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LoopbackBackend")
+            .field("base_url", &self.base_url)
+            .field("token", &"[redacted]")
+            .finish()
+    }
 }
 
 impl LoopbackBackend {

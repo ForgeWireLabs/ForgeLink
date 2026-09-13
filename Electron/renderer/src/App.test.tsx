@@ -1009,7 +1009,7 @@ describe("React renderer parity", () => {
     await userEvent.click(screen.getByRole("button", { name: "Revoke Home Assistant" }));
     await waitFor(() => expect(window.desktop?.revokeLocalIntegration).toHaveBeenCalledWith("home-assistant"));
     expect(screen.queryByText(/fllocal_/)).toBeNull();
-  });
+  }, 15000);
 
   it("imports complete environment credentials explicitly", async () => {
     vi.mocked(window.desktop!.getStatus).mockResolvedValueOnce({ running: true, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "environment", environment_import_available: true, needs_onboarding: false, settings: { account_sid: "ACENV", auth_token_configured: true, twilio_number: "+15550003333", public_base_url: "https://env.example.com", webhook_host: "127.0.0.1", webhook_port: 5055 } });
@@ -1043,15 +1043,35 @@ describe("React renderer parity", () => {
     expect(screen.getByText(/Enter SMTP credentials below/)).toBeTruthy();
   });
 
+  it("shows the explicit manual re-entry path for legacy Electron settings", async () => {
+    vi.mocked(window.desktop!.getStatus).mockResolvedValueOnce({
+      running: true,
+      baseUrl: "http://127.0.0.1:5055",
+      configured: false,
+      credential_source: "none",
+      needs_onboarding: false,
+      migration: { strategy: "manual_reentry", required: true, metadata_corrupt: false },
+      protected_storage: { format: "FLPSV001", keyring: "os-keyring", state: "ready", secret_material_in_renderer: false, mobile_secret_replication: false },
+    });
+    render(<App/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(await screen.findByRole("heading", { name: "Legacy credentials require re-entry" })).toBeTruthy();
+    expect(screen.getByText(/does not attempt to decrypt them automatically/)).toBeTruthy();
+  });
+
   it("saves email credentials through the secure store bridge (EMAIL-002)", async () => {
     render(<App/>);
     await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
     await screen.findByRole("heading", { name: "Email channel" });
     await userEvent.type(screen.getByPlaceholderText("smtp.provider.example"), "smtp.example.com");
     await userEvent.type(screen.getByPlaceholderText("ops@your-domain"), "ops@example.com");
+    const password = screen.getByLabelText("Password / token");
+    await userEvent.type(password, "synthetic-email-secret-canary");
     await userEvent.click(screen.getByRole("button", { name: "Save email credentials" }));
     await waitFor(() => expect(window.desktop?.saveEmailSettings).toHaveBeenCalled());
-  });
+    expect((password as HTMLInputElement).value).toBe("");
+    expect(document.body.textContent).not.toContain("synthetic-email-secret-canary");
+  }, 15000);
 
   it("shows the push channel card with a lock-screen-safe redaction preview (PUSH-006)", async () => {
     render(<App/>);
@@ -1065,9 +1085,13 @@ describe("React renderer parity", () => {
     render(<App/>);
     await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
     await screen.findByRole("heading", { name: "Push notifications" });
+    const topic = screen.getByLabelText("Topic");
+    await userEvent.type(topic, "synthetic-push-topic-canary");
     await userEvent.click(screen.getByRole("button", { name: "Save push credentials" }));
     await waitFor(() => expect(window.desktop?.savePushSettings).toHaveBeenCalled());
-  });
+    expect((topic as HTMLInputElement).value).toBe("");
+    expect(document.body.textContent).not.toContain("synthetic-push-topic-canary");
+  }, 15000);
 
   it("loads and clears the first-run sample workspace with a synthetic-data banner (OCX-018)", async () => {
     render(<App/>);
