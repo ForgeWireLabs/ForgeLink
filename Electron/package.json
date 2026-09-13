@@ -17,7 +17,8 @@
     "release:check": "node scripts/release-preflight.js",
     "scan:secrets": "node security.js",
     "scan:deps": "npm audit --omit=dev --audit-level=high",
-    "screenshot": "npm run backend:build && npm run renderer:build && electron scripts/visual-smoke.js"
+    "screenshot": "npm run backend:build && npm run renderer:build && electron scripts/visual-smoke.js",
+    "screenshot:browser": "npm run backend:build && npm run renderer:build && node scripts/visual-smoke-browser.js"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.2",

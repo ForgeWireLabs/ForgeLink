@@ -12,7 +12,7 @@ ForgeLink is a **local-first communications, coordination, and human-authority p
 
 > `main` is ahead of the latest packaged release. Features described as current on `main` are not necessarily present in the v2.0.1 installer. Active work is called out explicitly below rather than presented as shipped.
 
-<!-- README VISUAL SLOT: add one synthetic-data cockpit screenshot here once the current shared-cockpit visual baseline is refreshed. Prefer the real Decisions / People / Agents / Channels UI over an architecture illustration. -->
+![ForgeLink Decisions cockpit with synthetic demo data](assets/readme/forgelink-cockpit-hero.png)
 
 ## Why ForgeLink exists
 
@@ -22,32 +22,19 @@ A person may want to send a message, place a call, manage a contact, or review c
 
 ForgeLink puts those paths in one locally owned product.
 
-```text
-                         Human operator
-                               |
-                      ForgeLink cockpit
-                               |
-       +-----------------------+-----------------------+
-       |                       |                       |
-     People                 Channels               Decisions
-  identity/trust       messages / voice /       authority / evidence /
-  contact policy        external providers       approval / audit
-       |                       |                       |
-       +-----------------------+-----------------------+
-                               |
-                communications + coordination core
-                               ^
-                               |
-                   governed API / MCP surfaces
-                               |
-                    +----------+----------+
-                    |                     |
-                  Agents              Applications
-```
+### How ForgeLink fits together
+
+<p align="center">
+  <img src="assets/readme/forgelink-product-architecture.svg" alt="ForgeLink product architecture: a first-class human operator uses the ForgeLink cockpit across People, Channels, and Decisions; agents and applications enter through a governed API and MCP boundary; providers and ForgeWire or Fabric remain optional edges." width="1200">
+</p>
 
 The older model of `Agent -> ForgeLink -> Human` is still an important ForgeLink use case. It is no longer an adequate definition of the product.
 
 ## The cockpit
+
+<p align="center">
+  <img src="assets/readme/forgelink-cockpit-overview.png" alt="ForgeLink cockpit overview showing the Decisions, People, Agents, and Channels surfaces with synthetic demo data" width="1200">
+</p>
 
 ForgeLink organizes the operator experience around four first-class surfaces:
 

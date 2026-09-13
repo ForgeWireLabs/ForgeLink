@@ -46,9 +46,10 @@ app.whenReady().then(async () => {
   await fs.rm(visualData, { recursive: true, force: true });
   const { PhoneDatabase } = require(path.join(projectRoot, "Electron", "backend-dist", "database.js"));
   const previewDatabase = new PhoneDatabase(path.join(visualData, "phone.sqlite3"));
-  const contactId = previewDatabase.upsertContact("Grace Hopper", "+15551234567");
+  const contactId = previewDatabase.upsertContact("Dana Rivers (sample)", "+15551234567");
+  previewDatabase.updateContact(contactId, { relationship: "trusted", trust_level: "trusted", tags: "sample" });
   previewDatabase.addContactPoint(contactId, "handle", "fabric", "agent", false);
-  const pending = previewDatabase.createPendingMessage("local-preview", "+15551234567", "This message could not be delivered yet.", []);
+  const pending = previewDatabase.createPendingMessage("local-preview", "+15551234567", "This message could not be delivered yet. (sample)", []);
   previewDatabase.markMessageFailed(pending.id, "Preview failure");
   previewDatabase.saveDraft(pending.thread_id, "A restart-safe draft");
   previewDatabase.createCall({
@@ -63,7 +64,7 @@ app.whenReady().then(async () => {
     status: "ringing",
     startedAt: new Date().toISOString()
   });
-  previewDatabase.addAgentMessage({ id: "agent-preview", channel_id: "forgewire", source: "fabric", kind: "approval_request", urgency: "urgent", title: "Deploy approval", body: "Private deployment approval body", actions: [{ id: "approve", label: "Approve" }], created_at: new Date().toISOString() });
+  previewDatabase.addAgentMessage({ id: "agent-preview", channel_id: "forgewire", source: "fabric", kind: "approval_request", urgency: "urgent", title: "Deploy approval (sample)", body: "Synthetic approval request for a staging deploy.", actions: [{ id: "approve", label: "Approve" }], created_at: new Date().toISOString() });
   const signalSource = previewDatabase.upsertSignalSubscription({ title: "ForgeWire Signals", url: "https://example.com/feed.xml", fetch_interval_minutes: 60, retention_days: 30 });
   previewDatabase.addSignalItem({ subscription_id: signalSource.id, external_id: "preview-signal", title: "Build lane is ready", url: "https://example.com/build", summary: "A release candidate is available for review without entering the message queue.", author: "ForgeWire", published_at: new Date().toISOString() });
   previewDatabase.markSignalFetch(signalSource.id, "ok");
@@ -287,8 +288,8 @@ app.whenReady().then(async () => {
   `);
   await window.webContents.executeJavaScript(`
     (() => {
-      const button = document.querySelector('button[aria-label="Edit Grace Hopper"]');
-      if (!button) throw new Error("Grace Hopper edit button was not found.");
+      const button = document.querySelector('button[aria-label="Edit Dana Rivers (sample)"]');
+      if (!button) throw new Error("Dana Rivers (sample) edit button was not found.");
       button.click();
     })()
   `);

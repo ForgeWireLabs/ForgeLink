@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 1000" role="img" aria-labelledby="title description">
+  <title id="title">ForgeLink product architecture</title>
+  <desc id="description">A first-class human operator uses the ForgeLink cockpit across People, Channels, and Decisions. The communications and coordination core is entered by agents and applications through a governed API and MCP boundary. Providers are channel edges, and ForgeWire and Fabric are optional integrations.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#9b8cff"/>
+    </marker>
+    <marker id="arrow-muted" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6f7d99"/>
+    </marker>
+    <style>
+      .eyebrow { fill: #a99cff; font: 700 14px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: 2.6px; }
+      .title { fill: #f4f6fa; font: 750 28px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; }
+      .node-title { fill: #f4f6fa; font: 750 25px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; }
+      .node-subtitle { fill: #c0cade; font: 500 16px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; }
+      .surface-title { fill: #f4f6fa; font: 750 22px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; }
+      .surface-subtitle { fill: #b8c5dc; font: 500 15px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; }
+      .small { fill: #91a0bb; font: 600 13px/1.3 Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: .3px; }
+      .small-strong { fill: #d8def0; font: 700 13px/1.3 Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: .3px; }
+      .card { fill: #151e31; stroke: #33415d; stroke-width: 2; }
+      .card-core { fill: #1b2340; stroke: #7568e9; stroke-width: 2; }
+      .card-api { fill: #172a35; stroke: #45b992; stroke-width: 2; }
+      .card-agent { fill: #172232; stroke: #567292; stroke-width: 2; }
+      .card-optional { fill: #141d2d; stroke: #6f7d99; stroke-width: 2; stroke-dasharray: 8 7; }
+      .connector { fill: none; stroke: #71809b; stroke-width: 3; }
+      .connector-accent { fill: none; stroke: #9b8cff; stroke-width: 3; }
+      .connector-dashed { fill: none; stroke: #6f7d99; stroke-width: 2.5; stroke-dasharray: 8 8; }
+    </style>
+  </defs>
+
+  <rect width="1500" height="1000" fill="#0b1020"/>
+  <text x="750" y="34" text-anchor="middle" class="eyebrow">FORGELINK PRODUCT MODEL</text>
+
+  <g aria-label="Human operator">
+    <rect x="600" y="58" width="300" height="88" rx="18" class="card-core"/>
+    <circle cx="635" cy="102" r="18" fill="#9b8cff" opacity=".2" stroke="#b9afff" stroke-width="2"/>
+    <circle cx="635" cy="96" r="6" fill="#d8d2ff"/>
+    <path d="M 624 116 Q 635 104 646 116" fill="none" stroke="#d8d2ff" stroke-width="3" stroke-linecap="round"/>
+    <text x="675" y="95" class="node-title">Human operator</text>
+    <text x="675" y="121" class="node-subtitle">first-class user and authority</text>
+  </g>
+
+  <path d="M 750 146 L 750 175" class="connector-accent" marker-end="url(#arrow)"/>
+
+  <g aria-label="ForgeLink cockpit">
+    <rect x="430" y="175" width="640" height="155" rx="22" class="card-core"/>
+    <text x="750" y="228" text-anchor="middle" class="eyebrow">LOCAL-FIRST COMMUNICATIONS + COORDINATION</text>
+    <text x="750" y="267" text-anchor="middle" class="title">ForgeLink cockpit</text>
+    <text x="750" y="297" text-anchor="middle" class="node-subtitle">owns local state, policy, evidence, and operator attention</text>
+  </g>
+
+  <path d="M 750 330 L 750 385" class="connector-accent" marker-end="url(#arrow)"/>
+  <path d="M 280 385 L 1220 385" class="connector"/>
+  <path d="M 280 385 L 280 420 M 750 385 L 750 420 M 1220 385 L 1220 420" class="connector" marker-end="url(#arrow-muted)"/>
+
+  <g aria-label="People surface">
+    <rect x="120" y="420" width="320" height="142" rx="18" class="card"/>
+    <circle cx="158" cy="462" r="16" fill="#263d4d" stroke="#58c7a6" stroke-width="2"/>
+    <path d="M 148 484 Q 158 472 168 484 M 143 478 Q 148 467 153 467 M 163 467 Q 168 467 173 478" fill="none" stroke="#77e2bd" stroke-width="2.5" stroke-linecap="round"/>
+    <text x="190" y="466" class="surface-title">People</text>
+    <text x="146" y="510" class="surface-subtitle">contacts · trust · policy</text>
+    <text x="146" y="536" class="small">relationship and communication history</text>
+  </g>
+
+  <g aria-label="Channels surface">
+    <rect x="590" y="420" width="320" height="142" rx="18" class="card"/>
+    <circle cx="628" cy="462" r="16" fill="#29254a" stroke="#a99cff" stroke-width="2"/>
+    <path d="M 620 456 H 635 Q 639 456 639 460 V 470 Q 639 474 635 474 H 625 L 620 479 V 456 Z" fill="none" stroke="#c2baff" stroke-width="2.5" stroke-linejoin="round"/>
+    <text x="660" y="466" class="surface-title">Channels</text>
+    <text x="616" y="510" class="surface-subtitle">messages · voice · network edges</text>
+    <text x="616" y="536" class="small">providers connect here; they do not own state</text>
+  </g>
+
+  <g aria-label="Decisions surface">
+    <rect x="1060" y="420" width="320" height="142" rx="18" class="card"/>
+    <circle cx="1098" cy="462" r="16" fill="#45362a" stroke="#f1bd67" stroke-width="2"/>
+    <path d="M 1098 451 L 1108 471 H 1088 Z" fill="none" stroke="#ffd58c" stroke-width="2.5" stroke-linejoin="round"/>
+    <path d="M 1098 458 V 464" stroke="#ffd58c" stroke-width="2.5" stroke-linecap="round"/>
+    <circle cx="1098" cy="468" r="1.5" fill="#ffd58c"/>
+    <text x="1130" y="466" class="surface-title">Decisions</text>
+    <text x="1086" y="510" class="surface-subtitle">approval · evidence · authority</text>
+    <text x="1086" y="536" class="small">review, replay, outcomes, and audit linkage</text>
+  </g>
+
+  <path d="M 280 562 L 280 590 M 750 562 L 750 590 M 1220 562 L 1220 590 M 280 590 L 1220 590" class="connector"/>
+  <path d="M 750 590 L 750 615" class="connector" marker-end="url(#arrow-muted)"/>
+
+  <g aria-label="Communications and coordination core">
+    <rect x="390" y="615" width="720" height="92" rx="18" class="card-core"/>
+    <text x="750" y="657" text-anchor="middle" class="node-title">Communications + coordination</text>
+    <text x="750" y="684" text-anchor="middle" class="node-subtitle">one locally owned product model for people and governed software participation</text>
+  </g>
+
+  <path d="M 750 762 L 750 707" class="connector-accent" marker-end="url(#arrow)"/>
+
+  <g aria-label="Governed API and MCP boundary">
+    <rect x="500" y="762" width="500" height="82" rx="18" class="card-api"/>
+    <text x="750" y="798" text-anchor="middle" class="node-title">Governed API / MCP</text>
+    <text x="750" y="824" text-anchor="middle" class="node-subtitle">bounded entry for agents and applications</text>
+  </g>
+
+  <path d="M 750 844 L 750 866 M 425 866 L 1075 866 M 425 866 L 425 880 M 1075 866 L 1075 880" class="connector" marker-end="url(#arrow-muted)"/>
+
+  <g aria-label="Agent participant">
+    <rect x="275" y="880" width="300" height="74" rx="17" class="card-agent"/>
+    <text x="425" y="911" text-anchor="middle" class="surface-title">Agents</text>
+    <text x="425" y="936" text-anchor="middle" class="small">request, assist, report — no direct persistence</text>
+  </g>
+
+  <g aria-label="Application participant">
+    <rect x="925" y="880" width="300" height="74" rx="17" class="card-agent"/>
+    <text x="1075" y="911" text-anchor="middle" class="surface-title">Applications</text>
+    <text x="1075" y="936" text-anchor="middle" class="small">integrate through governed local boundaries</text>
+  </g>
+
+  <g aria-label="Optional ForgeWire and Fabric integration">
+    <rect x="35" y="752" width="330" height="94" rx="17" class="card-optional"/>
+    <text x="55" y="786" class="small-strong">ForgeWire / Fabric</text>
+    <text x="55" y="813" class="small">optional integration edge</text>
+    <text x="55" y="834" class="small">not ForgeLink’s product core</text>
+    <path d="M 365 800 C 410 800 430 804 500 804" class="connector-dashed" marker-end="url(#arrow-muted)"/>
+  </g>
+
+  <text x="1470" y="981" text-anchor="end" class="small">solid = ForgeLink ownership · dashed = optional edge</text>
+</svg>
