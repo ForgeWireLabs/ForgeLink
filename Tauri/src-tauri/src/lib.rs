@@ -1,3 +1,4 @@
+mod local_service;
 mod node_identity;
 mod node_identity_lifecycle;
 
@@ -7,12 +8,13 @@ use std::{
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::Manager;
+use tauri::{Manager, State};
 
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:5055";
 const MOBILE_STATE_DIR: &str = "mobile-runtime";
 const ATTENTION_POLICY_FILE: &str = "attention-policy.json";
 const AGENT_CHANNELS_FILE: &str = "agent-channels.json";
+const LOCAL_SERVICE_CONFIG_FILE: &str = "local-service.json";
 
 fn base_url() -> String {
     std::env::var("FORGELINK_LOCAL_API_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string())
@@ -32,7 +34,91 @@ fn now_marker() -> String {
 }
 
 fn mobile_state_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
-    app.path().app_data_dir().ok().map(|path| path.join(MOBILE_STATE_DIR))
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|path| path.join(MOBILE_STATE_DIR))
+}
+
+fn local_service_config_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|path| path.join(LOCAL_SERVICE_CONFIG_FILE))
+}
+
+fn local_data_dir() -> PathBuf {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".forgelink")
+}
+
+fn load_local_service_config(app: &tauri::AppHandle) -> local_service::ServiceConfig {
+    let Some(path) = local_service_config_path(app) else {
+        return local_service::ServiceConfig::default();
+    };
+    let value = read_json(&path, json!({}));
+    let config = local_service::ServiceConfig {
+        host: value["host"]
+            .as_str()
+            .or_else(|| value["webhook_host"].as_str())
+            .unwrap_or(local_service::DEFAULT_HOST)
+            .to_string(),
+        configured_port: value["configured_port"]
+            .as_u64()
+            .or_else(|| value["webhook_port"].as_u64())
+            .and_then(|port| u16::try_from(port).ok())
+            .unwrap_or(local_service::DEFAULT_PORT),
+        onboarding_complete: value["onboarding_complete"].as_bool().unwrap_or(false),
+    };
+    if config.validate().is_ok() {
+        config
+    } else {
+        local_service::ServiceConfig::default()
+    }
+}
+
+fn save_local_service_config(
+    app: &tauri::AppHandle,
+    config: &local_service::ServiceConfig,
+) -> Result<(), String> {
+    let path = local_service_config_path(app)
+        .ok_or_else(|| "ForgeLink application data directory is unavailable.".to_string())?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| "ForgeLink application data path is invalid.".to_string())?;
+    fs::create_dir_all(parent)
+        .map_err(|_| "ForgeLink could not prepare its local-service configuration.".to_string())?;
+    let value = json!({
+        "version": 1,
+        "host": config.host,
+        "configured_port": config.configured_port,
+        "onboarding_complete": config.onboarding_complete
+    });
+    let contents = serde_json::to_string_pretty(&value)
+        .map_err(|_| "ForgeLink could not encode its local-service configuration.".to_string())?;
+    fs::write(path, contents)
+        .map_err(|_| "ForgeLink could not save its local-service configuration.".to_string())
+}
+
+fn local_service_config_from_payload(
+    current: &local_service::ServiceConfig,
+    payload: &Value,
+    onboarding_complete: bool,
+) -> Result<local_service::ServiceConfig, String> {
+    let mut config = current.clone();
+    if let Some(host) = payload["webhook_host"].as_str() {
+        config.host = host.to_string();
+    }
+    if let Some(port) = payload["webhook_port"].as_u64() {
+        config.configured_port = u16::try_from(port)
+            .map_err(|_| "Local service port must be between 1024 and 65535.".to_string())?;
+    }
+    config.onboarding_complete = onboarding_complete;
+    config.validate()?;
+    Ok(config)
 }
 
 fn default_attention_policy() -> Value {
@@ -78,8 +164,13 @@ fn write_json(path: &Path, value: &Value) -> Value {
 }
 
 fn attention_policy_from_dir(dir: Option<&Path>) -> Value {
-    dir.map(|state_dir| read_json(&state_dir.join(ATTENTION_POLICY_FILE), default_attention_policy()))
-        .unwrap_or_else(default_attention_policy)
+    dir.map(|state_dir| {
+        read_json(
+            &state_dir.join(ATTENTION_POLICY_FILE),
+            default_attention_policy(),
+        )
+    })
+    .unwrap_or_else(default_attention_policy)
 }
 
 fn save_attention_policy_to_dir(dir: Option<&Path>, payload: Value) -> Value {
@@ -87,21 +178,35 @@ fn save_attention_policy_to_dir(dir: Option<&Path>, payload: Value) -> Value {
         .unwrap_or(payload)
 }
 
-fn desktop_status() -> Value {
+fn local_service_status(manager: &local_service::LocalServiceManager) -> Value {
+    let config = manager.config();
+    let snapshot = manager.snapshot();
     json!({
-        "running": true,
-        "baseUrl": base_url(),
+        "running": snapshot.running,
+        "phase": snapshot.phase,
+        "service_owner": snapshot.ownership,
+        "local_service_owned": snapshot.ownership == "owned",
+        "runtime_available": snapshot.runtime_available,
+        "mobile_runtime": snapshot.mobile_runtime,
+        "baseUrl": snapshot.base_url,
         "configured": false,
         "credential_source": "none",
-        "onboarding_complete": true,
-        "needs_onboarding": false,
+        "environment_import_available": false,
+        "onboarding_complete": config.onboarding_complete,
+        "needs_onboarding": !config.onboarding_complete && !snapshot.mobile_runtime,
+        "configured_port": snapshot.configured_port,
+        "effective_port": snapshot.effective_port,
+        "backend_restarts": snapshot.backend_restarts,
+        "last_exit_code": snapshot.last_exit_code,
+        "recovery_message": snapshot.recovery_message,
+        "port_note": snapshot.port_note,
         "settings": {
             "account_sid": "",
             "auth_token_configured": false,
             "twilio_number": "",
             "public_base_url": "",
-            "webhook_host": "127.0.0.1",
-            "webhook_port": 5055,
+            "webhook_host": config.host,
+            "webhook_port": config.configured_port,
             "attention_policy": default_attention_policy()
         }
     })
@@ -159,8 +264,14 @@ fn save_channels_to_dir(dir: Option<&Path>, channels: &[Value]) -> Vec<Value> {
 }
 
 fn upsert_channel(mut channels: Vec<Value>, channel: Value) -> Vec<Value> {
-    let channel_id = channel["channel_id"].as_str().unwrap_or_default().to_string();
-    if let Some(existing) = channels.iter_mut().find(|candidate| candidate["channel_id"].as_str() == Some(channel_id.as_str())) {
+    let channel_id = channel["channel_id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    if let Some(existing) = channels
+        .iter_mut()
+        .find(|candidate| candidate["channel_id"].as_str() == Some(channel_id.as_str()))
+    {
         *existing = channel;
     } else {
         channels.push(channel);
@@ -168,8 +279,15 @@ fn upsert_channel(mut channels: Vec<Value>, channel: Value) -> Vec<Value> {
     channels
 }
 
-fn update_channel(mut channels: Vec<Value>, channel_id: &str, updater: impl FnOnce(&mut Value)) -> (Vec<Value>, Value) {
-    if let Some(existing) = channels.iter_mut().find(|candidate| candidate["channel_id"].as_str() == Some(channel_id)) {
+fn update_channel(
+    mut channels: Vec<Value>,
+    channel_id: &str,
+    updater: impl FnOnce(&mut Value),
+) -> (Vec<Value>, Value) {
+    if let Some(existing) = channels
+        .iter_mut()
+        .find(|candidate| candidate["channel_id"].as_str() == Some(channel_id))
+    {
         updater(existing);
         let updated = existing.clone();
         return (channels.clone(), updated);
@@ -260,50 +378,77 @@ fn forgelink_desktop_linked_node_status() -> Value {
 }
 
 #[tauri::command]
-fn forgelink_backend_connection() -> Value {
-    json!({ "baseUrl": base_url(), "apiToken": api_token() })
+fn forgelink_backend_connection(manager: State<'_, local_service::LocalServiceManager>) -> Value {
+    serde_json::to_value(manager.backend_connection())
+        .unwrap_or_else(|_| json!({ "baseUrl": "", "apiToken": "" }))
 }
 
 #[tauri::command]
-fn forgelink_get_status() -> Value {
-    desktop_status()
+fn forgelink_get_status(manager: State<'_, local_service::LocalServiceManager>) -> Value {
+    local_service_status(&manager)
 }
 
 #[tauri::command]
-fn forgelink_start_local_only(_payload: Value) -> Value {
-    desktop_status()
+fn forgelink_start_local_only(
+    app: tauri::AppHandle,
+    manager: State<'_, local_service::LocalServiceManager>,
+    payload: Value,
+) -> Result<Value, String> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = (app, manager, payload);
+        return Err("Mobile does not own the desktop local service. Pair or configure an authenticated operator node instead.".to_string());
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let config = local_service_config_from_payload(&manager.config(), &payload, true)?;
+        save_local_service_config(&app, &config)?;
+        manager.update_config(config)?;
+        manager.start().map(|_| local_service_status(&manager))
+    }
 }
 
 #[tauri::command]
-fn forgelink_start_service() -> Value {
-    desktop_status()
+fn forgelink_start_service(
+    manager: State<'_, local_service::LocalServiceManager>,
+) -> Result<Value, String> {
+    manager.start().map(|_| local_service_status(&manager))
 }
 
 #[tauri::command]
-fn forgelink_start_server(_payload: Value) -> Value {
-    desktop_status()
+fn forgelink_start_server(
+    app: tauri::AppHandle,
+    manager: State<'_, local_service::LocalServiceManager>,
+    payload: Value,
+) -> Result<Value, String> {
+    if payload["account_sid"].is_string()
+        || payload["auth_token"].is_string()
+        || payload["twilio_number"].is_string()
+    {
+        return Err("Tauri provider credential lifecycle remains a later WI032 slice; use local-only onboarding until TPR-003 is proven.".to_string());
+    }
+    forgelink_start_local_only(app, manager, payload)
 }
 
 #[tauri::command]
-fn forgelink_stop_server() -> Value {
-    let mut status = desktop_status();
-    status["running"] = json!(false);
-    status
+fn forgelink_stop_server(manager: State<'_, local_service::LocalServiceManager>) -> Value {
+    let _ = manager.stop();
+    local_service_status(&manager)
 }
 
 #[tauri::command]
-fn forgelink_validate_settings(_payload: Value) -> Value {
-    json!({ "account_name": "Tauri mobile runtime", "account_status": "mobile-local", "phone_number": "" })
+fn forgelink_validate_settings(_payload: Value) -> Result<Value, String> {
+    Err("Tauri provider validation is not part of TPR-002; use local-only onboarding until TPR-003 is proven.".to_string())
 }
 
 #[tauri::command]
-fn forgelink_import_environment() -> Value {
-    desktop_status()
+fn forgelink_import_environment() -> Result<Value, String> {
+    Err("Tauri provider credential import is not part of TPR-002; use local-only onboarding until TPR-003 is proven.".to_string())
 }
 
 #[tauri::command]
-fn forgelink_remove_credentials() -> Value {
-    desktop_status()
+fn forgelink_remove_credentials() -> Result<Value, String> {
+    Err("Tauri provider credential removal is not part of TPR-002; use local-only onboarding until TPR-003 is proven.".to_string())
 }
 
 fn telnyx_settings_status() -> Value {
@@ -413,12 +558,13 @@ fn forgelink_create_agent_channel(app: tauri::AppHandle, payload: Value) -> Valu
 #[tauri::command]
 fn forgelink_rotate_agent_channel(app: tauri::AppHandle, channel_id: String) -> Value {
     let dir = mobile_state_dir(&app);
-    let (channels, channel) = update_channel(channels_from_dir(dir.as_deref()), &channel_id, |existing| {
-        existing["configured"] = json!(true);
-        existing["revoked_at"] = json!(null);
-        existing["rotated_at"] = json!(now_marker());
-        existing["token_file_present"] = json!(false);
-    });
+    let (channels, channel) =
+        update_channel(channels_from_dir(dir.as_deref()), &channel_id, |existing| {
+            existing["configured"] = json!(true);
+            existing["revoked_at"] = json!(null);
+            existing["rotated_at"] = json!(now_marker());
+            existing["token_file_present"] = json!(false);
+        });
     let _ = save_channels_to_dir(dir.as_deref(), &channels);
     channel
 }
@@ -426,22 +572,28 @@ fn forgelink_rotate_agent_channel(app: tauri::AppHandle, channel_id: String) -> 
 #[tauri::command]
 fn forgelink_revoke_agent_channel(app: tauri::AppHandle, channel_id: String) -> Value {
     let dir = mobile_state_dir(&app);
-    let (channels, channel) = update_channel(channels_from_dir(dir.as_deref()), &channel_id, |existing| {
-        existing["enabled"] = json!(false);
-        existing["configured"] = json!(false);
-        existing["revoked_at"] = json!(now_marker());
-        existing["token_file_present"] = json!(false);
-    });
+    let (channels, channel) =
+        update_channel(channels_from_dir(dir.as_deref()), &channel_id, |existing| {
+            existing["enabled"] = json!(false);
+            existing["configured"] = json!(false);
+            existing["revoked_at"] = json!(now_marker());
+            existing["token_file_present"] = json!(false);
+        });
     let _ = save_channels_to_dir(dir.as_deref(), &channels);
     channel
 }
 
 #[tauri::command]
-fn forgelink_set_agent_channel_enabled(app: tauri::AppHandle, channel_id: String, enabled: bool) -> Value {
+fn forgelink_set_agent_channel_enabled(
+    app: tauri::AppHandle,
+    channel_id: String,
+    enabled: bool,
+) -> Value {
     let dir = mobile_state_dir(&app);
-    let (channels, channel) = update_channel(channels_from_dir(dir.as_deref()), &channel_id, |existing| {
-        existing["enabled"] = json!(enabled);
-    });
+    let (channels, channel) =
+        update_channel(channels_from_dir(dir.as_deref()), &channel_id, |existing| {
+            existing["enabled"] = json!(enabled);
+        });
     let _ = save_channels_to_dir(dir.as_deref(), &channels);
     channel
 }
@@ -479,6 +631,24 @@ fn forgelink_remove_push_settings() -> Value {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            let config = load_local_service_config(app.handle());
+            let runtime = local_service::resolve_backend_runtime(app.path().resource_dir().ok());
+            let manager = local_service::LocalServiceManager::new(
+                runtime,
+                config.clone(),
+                local_data_dir(),
+                None,
+            );
+            app.manage(manager);
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            if config.onboarding_complete {
+                if let Err(error) = app.state::<local_service::LocalServiceManager>().start() {
+                    eprintln!("ForgeLink local service did not start: {error}");
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             forgelink_backend_connection,
             forgelink_create_linked_node_identity,
@@ -519,8 +689,18 @@ pub fn run() {
             forgelink_save_push_settings,
             forgelink_remove_push_settings
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running ForgeLink Tauri shell");
+        .build(tauri::generate_context!())
+        .expect("error while building ForgeLink Tauri shell")
+        .run(|app_handle, event| {
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
+                app_handle
+                    .state::<local_service::LocalServiceManager>()
+                    .shutdown();
+            }
+        });
 }
 
 #[cfg(test)]
@@ -529,7 +709,11 @@ mod tests {
 
     fn test_state_dir(name: &str) -> PathBuf {
         let mut path = std::env::temp_dir();
-        path.push(format!("forgelink-tauri-mobile-runtime-{}-{}", name, now_marker().replace(':', "-")));
+        path.push(format!(
+            "forgelink-tauri-mobile-runtime-{}-{}",
+            name,
+            now_marker().replace(':', "-")
+        ));
         path
     }
 
@@ -554,10 +738,7 @@ mod tests {
             status["sync_health"]["broad_background_sync_enabled"],
             json!(false)
         );
-        assert_eq!(
-            status["sync_health"]["clustering_enabled"],
-            json!(false)
-        );
+        assert_eq!(status["sync_health"]["clustering_enabled"], json!(false));
 
         let accepted = status["accepted_data_classes"]
             .as_array()
@@ -585,7 +766,10 @@ mod tests {
         let serialized = status.to_string();
         assert_eq!(status["preferred_provider"], json!("none"));
         assert_eq!(status["telnyx"]["configured"], json!(false));
-        assert_eq!(status["telnyx"]["availability"], json!("desktop_local_service_required"));
+        assert_eq!(
+            status["telnyx"]["availability"],
+            json!("desktop_local_service_required")
+        );
         assert!(!serialized.contains("api_key\":"));
         assert!(!serialized.contains("public_key\":"));
     }
@@ -613,30 +797,6 @@ mod tests {
         assert!(!serialized.contains("contact_number"));
         assert!(!serialized.contains("credential_value"));
         assert!(!serialized.contains("provider_secret_value"));
-    }
-
-    #[test]
-    fn backend_connection_uses_loopback_and_scaffold_token() {
-        let connection = forgelink_backend_connection();
-        assert_eq!(connection["baseUrl"], json!("http://127.0.0.1:5055"));
-        assert_eq!(connection["apiToken"], json!("tauri-scaffold-token"));
-    }
-
-    #[test]
-    fn desktop_status_is_local_only_and_does_not_require_onboarding() {
-        let status = forgelink_get_status();
-        assert_eq!(status["running"], json!(true));
-        assert_eq!(status["configured"], json!(false));
-        assert_eq!(status["credential_source"], json!("none"));
-        assert_eq!(status["needs_onboarding"], json!(false));
-        assert_eq!(status["settings"]["webhook_host"], json!("127.0.0.1"));
-    }
-
-    #[test]
-    fn stop_server_reports_stopped_without_mutating_private_data() {
-        let status = forgelink_stop_server();
-        assert_eq!(status["running"], json!(false));
-        assert_eq!(status["settings"]["auth_token_configured"], json!(false));
     }
 
     #[test]
@@ -683,17 +843,24 @@ mod tests {
     #[test]
     fn agent_channel_revoke_and_enable_update_existing_record() {
         let dir = test_state_dir("channel-update");
-        let channels = upsert_channel(channels_from_dir(Some(&dir)), agent_channel("forgewire", "ForgeWire Fabric"));
+        let channels = upsert_channel(
+            channels_from_dir(Some(&dir)),
+            agent_channel("forgewire", "ForgeWire Fabric"),
+        );
         save_channels_to_dir(Some(&dir), &channels);
 
-        let (channels, revoked) = update_channel(channels_from_dir(Some(&dir)), "forgewire", |existing| {
-            existing["enabled"] = json!(false);
-            existing["configured"] = json!(false);
-            existing["revoked_at"] = json!(now_marker());
-        });
+        let (channels, revoked) =
+            update_channel(channels_from_dir(Some(&dir)), "forgewire", |existing| {
+                existing["enabled"] = json!(false);
+                existing["configured"] = json!(false);
+                existing["revoked_at"] = json!(now_marker());
+            });
         assert_eq!(revoked["enabled"], json!(false));
         assert_eq!(revoked["configured"], json!(false));
-        assert!(revoked["revoked_at"].as_str().unwrap_or_default().starts_with("unix:"));
+        assert!(revoked["revoked_at"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("unix:"));
 
         let (channels, enabled) = update_channel(channels, "forgewire", |existing| {
             existing["enabled"] = json!(true);

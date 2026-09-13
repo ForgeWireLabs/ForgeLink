@@ -281,7 +281,7 @@ const DEFAULT_ATTENTION_POLICY: AttentionPolicy = {
 const isTauriRuntime = () => Boolean(window.__TAURI__?.core?.invoke);
 
 const MOBILE_RUNTIME_GAP_MESSAGE =
-  "Android full cockpit runtime is active. The desktop local service is unavailable on this device; mobile-local runtime parity work is next.";
+  "Mobile is not connected to an authenticated operator-owned ForgeLink node. This device does not start or replicate the desktop backend.";
 
 const MOBILE_LOCAL_CONFIG: ConfigStatus = {
   account_sid: false,
@@ -664,6 +664,7 @@ export function App() {
   const applyMobileRuntimeGap = useCallback((cause: unknown) => {
     const detail = cause instanceof Error ? cause.message : String(cause);
     setMobileLocalMode(true);
+    setConnectionReady(false);
     setThreads([]);
     setContacts([]);
     setAgentMessages([]);
@@ -793,12 +794,15 @@ export function App() {
             setView("settings");
             setModal({ kind: "settings", provider: "choose" });
           }
+          if (next.mobile_runtime && !next.running) {
+            applyMobileRuntimeGap(next.recovery_message || "No authenticated operator node is available.");
+          }
         }
         if (backendConnection) {
           setHost(backendConnection.baseUrl);
           setApiToken(backendConnection.apiToken);
-          setConnectionReady(true);
-          setMobileLocalMode(false);
+          setConnectionReady(next?.running === true && Boolean(backendConnection.baseUrl && backendConnection.apiToken));
+          if (next?.running) setMobileLocalMode(false);
         }
       } catch (cause) {
         setError(String(cause));
@@ -853,7 +857,7 @@ export function App() {
   useEffect(() => {
     if (!connectionReady || mobileLocalMode) return;
     loadAll().catch((cause) => {
-      if (isTauriRuntime()) applyMobileRuntimeGap(cause);
+      if (isTauriRuntime() && status?.mobile_runtime === true) applyMobileRuntimeGap(cause);
       else setError(`The local service is unavailable. ${cause instanceof Error ? cause.message : String(cause)}`);
     });
     const timer = window.setInterval(async () => {
@@ -893,7 +897,7 @@ export function App() {
       }
     }, 5000);
     return () => clearInterval(timer);
-  }, [api, applyMobileRuntimeGap, connectionReady, loadAll, mobileLocalMode, selectedId]);
+  }, [api, applyMobileRuntimeGap, connectionReady, loadAll, mobileLocalMode, selectedId, status?.mobile_runtime]);
 
   async function chooseThread(id: number) {
     setSelectedId(id);
@@ -1248,6 +1252,7 @@ export function App() {
               const next = await shell.importEnvironment();
               setStatus(next);
               setHost(next.baseUrl);
+              setConnectionReady(next.running === true && Boolean(apiToken));
               setConfig(await new PhoneApi(() => ({ baseUrl: next.baseUrl, apiToken })).config());
               void notify({
                 kind: "system",
@@ -1262,6 +1267,7 @@ export function App() {
             try {
               const next = await shell.removeCredentials();
               setStatus(next);
+              setConnectionReady(next.running === true && Boolean(apiToken));
               setConfig({ account_sid: false, auth_token: false, phone_number: false, public_base_url: false });
               setModal({ kind: "settings" });
             } catch (cause) {
@@ -1272,6 +1278,7 @@ export function App() {
             try {
               const next = status?.running === false ? await shell.startService() : await shell.stopServer();
               setStatus(next);
+              setConnectionReady(next.running === true && Boolean(apiToken));
             } catch (cause) {
               setError(String(cause));
             }
@@ -1652,6 +1659,7 @@ export function App() {
             const next = await shell.startServer(values);
             setStatus(next);
             setHost(next.baseUrl);
+            setConnectionReady(next.running === true && Boolean(apiToken));
             setConfig(await new PhoneApi(() => ({ baseUrl: next.baseUrl, apiToken })).config());
             void notify({
               kind: "system",
@@ -1663,6 +1671,7 @@ export function App() {
             const next = await shell.startLocalOnly(values);
             setStatus(next);
             setHost(next.baseUrl);
+            setConnectionReady(next.running === true && Boolean(apiToken));
             setConfig(await new PhoneApi(() => ({ baseUrl: next.baseUrl, apiToken })).config());
             void notify({ kind: "system", title: "Local-only mode ready", body: "ForgeLink is ready for agent messages and local workflows." });
           }}
@@ -1672,12 +1681,14 @@ export function App() {
               const local = await shell.startLocalOnly({ webhook_host: "127.0.0.1", webhook_port: status.settings?.webhook_port || 5055 });
               setStatus(local);
               setHost(local.baseUrl);
+              setConnectionReady(local.running === true && Boolean(apiToken));
             }
             const saved = await shell.saveTelnyxSettings(values);
             setSmsProviderSettings(saved);
             const next = await shell.getStatus();
             setStatus(next);
             setHost(next.baseUrl);
+            setConnectionReady(next.running === true && Boolean(apiToken));
             setConfig(await new PhoneApi(() => ({ baseUrl: next.baseUrl, apiToken })).config());
             void notify({ kind: "system", title: "Telnyx ready", body: "Telnyx SMS/MMS and signed webhooks are configured. Voice remains on Twilio when available." });
           }}
@@ -4009,8 +4020,8 @@ function Settings({
                 <Icon name="phone" />
               </div>
               <div>
-                <h2>Android mobile-local runtime active</h2>
-                <p>The Android cockpit is running from app-local runtime state while the desktop local service is unavailable.</p>
+                <h2>Mobile operator-node client</h2>
+                <p>The operator-owned ForgeLink node is unavailable. This device does not start or replicate the desktop backend.</p>
               </div>
             </div>
             <div className="status-list">
@@ -4053,8 +4064,7 @@ function Settings({
             {lifecycleStatus.wipe_request_id && <p className="settings-source">Wipe request: {lifecycleStatus.wipe_request_id}</p>}
             {lifecycleStatus.wipe_ack_id && <p className="settings-source">Wipe acknowledgement: {lifecycleStatus.wipe_ack_id}</p>}
             <p className="settings-source">
-              Mobile-local state is limited to safe runtime preferences and redacted metadata; private messages and contacts remain out of this Android-local
-              slice.
+              Mobile retains only safe runtime preferences and redacted metadata; private messages and contacts remain on the operator-owned ForgeLink node.
             </p>
           </section>
         )}

@@ -583,17 +583,17 @@ describe("React renderer parity", () => {
   });
 
   it("surfaces Android mobile-local runtime status from Settings when desktop API is unavailable", async () => {
-    const invoke = vi.fn(async (command: string) => { if (command === "forgelink_agent_channels") return [agentChannel]; if (command === "forgelink_attention_policy") return attentionPolicy; if (command === "forgelink_pairing_status") return { state: "unpaired", label: "Unpaired", detail: "This Android device has not been paired with the desktop ForgeLink authority.", capabilities: [] }; if (command === "forgelink_node_link_status") return { schema_version: 1, node_id: "local-android-node", platform: "android", device_label: "Android local node", link_state: "local_only", trust_state: "local", sync_mode: "none", capability_claims: ["cockpit.local", "sync.none"], authority_node_id: null, linked_at: null, last_seen_at: null, revoked_at: null, stale_after: null, detail: "This ForgeLink node is running local-only. No desktop link or private-data sync is active." }; return {}; }) as unknown as <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
+    const invoke = vi.fn(async (command: string) => { if (command === "forgelink_get_status") return { running: false, baseUrl: "http://127.0.0.1:5055", mobile_runtime: true, recovery_message: "No authenticated operator node is available." }; if (command === "forgelink_backend_connection") return { baseUrl: "http://127.0.0.1:5055", apiToken: "operator-node-token" }; if (command === "forgelink_agent_channels") return [agentChannel]; if (command === "forgelink_attention_policy") return attentionPolicy; if (command === "forgelink_pairing_status") return { state: "unpaired", label: "Unpaired", detail: "This Android device has not been paired with the desktop ForgeLink authority.", capabilities: [] }; if (command === "forgelink_node_link_status") return { schema_version: 1, node_id: "local-android-node", platform: "android", device_label: "Android local node", link_state: "local_only", trust_state: "local", sync_mode: "none", capability_claims: ["cockpit.local", "sync.none"], authority_node_id: null, linked_at: null, last_seen_at: null, revoked_at: null, stale_after: null, detail: "This ForgeLink node is running local-only. No desktop link or private-data sync is active." }; return {}; }) as unknown as <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
     window.__TAURI__ = { core: { invoke } };
     vi.mocked(fetch).mockRejectedValue(new Error("desktop offline"));
 
     render(<App/>);
 
-    expect(await screen.findByText(/Android full cockpit runtime is active/)).toBeTruthy();
+    expect(await screen.findByText(/Mobile is not connected to an authenticated operator-owned ForgeLink node/)).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
 
-    expect(await screen.findByRole("heading", { name: "Android mobile-local runtime active" })).toBeTruthy();
-    expect(screen.getByText("The Android cockpit is running from app-local runtime state while the desktop local service is unavailable.")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Mobile operator-node client" })).toBeTruthy();
+    expect(screen.getByText("The operator-owned ForgeLink node is unavailable. This device does not start or replicate the desktop backend.")).toBeTruthy();
     expect(screen.getByText("Attention policy available")).toBeTruthy();
     expect(screen.getByText("Agent channel metadata: 1")).toBeTruthy();
     expect(screen.getByText("No private desktop DB replication")).toBeTruthy();
@@ -614,14 +614,14 @@ describe("React renderer parity", () => {
     expect(screen.getByText("Decisions: available local")).toBeTruthy();
     expect(screen.getByText("Comms sync: unavailable because unlinked")).toBeTruthy();
     expect(screen.getByText("Device pairing: unpaired")).toBeTruthy();
-    expect(screen.getByText(/private messages and contacts remain out of this Android-local slice/)).toBeTruthy();
+    expect(screen.getByText(/private messages and contacts remain on the operator-owned ForgeLink node/)).toBeTruthy();
   });
 
   it("surfaces Android paired-limited status from Settings when desktop API is unavailable", async () => {
     const invoke = vi.fn(async (command: string) => {
       if (command === "forgelink_agent_channels") return [agentChannel];
       if (command === "forgelink_attention_policy") return attentionPolicy;
-      if (command === "forgelink_get_status") return { running: true, baseUrl: "http://127.0.0.1:5055", configured: true, credential_source: "stored", needs_onboarding: false };
+      if (command === "forgelink_get_status") return { running: true, baseUrl: "http://127.0.0.1:5055", mobile_runtime: true, configured: true, credential_source: "stored", needs_onboarding: false };
       if (command === "forgelink_backend_connection") return { baseUrl: "http://127.0.0.1:5055", apiToken: "renderer-api-token" };
       if (command === "forgelink_pairing_status") return { state: "paired_limited", label: "Paired limited", detail: "This Android device is paired for limited cockpit capabilities.", capabilities: ["push_notifications"] };
       throw new Error(`unsupported command ${command}`);
@@ -631,7 +631,7 @@ describe("React renderer parity", () => {
 
     render(<App/>);
 
-    expect(await screen.findByText(/Android full cockpit runtime is active/)).toBeTruthy();
+    expect(await screen.findByText(/Mobile is not connected to an authenticated operator-owned ForgeLink node/)).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
 
     expect(await screen.findByText("Pairing status: Paired limited")).toBeTruthy();
@@ -652,6 +652,8 @@ describe("React renderer parity", () => {
     ["stale", "Stale", "stale", "private_data_disabled", "This ForgeLink node link is stale. Revalidation is required before linked capabilities resume."]
   ])("surfaces %s ForgeLink node-link status without private-data access", async (linkState, label, trustState, syncMode, detail) => {
     const invoke = vi.fn(async (command: string) => {
+      if (command === "forgelink_get_status") return { running: true, baseUrl: "http://127.0.0.1:5055", mobile_runtime: true, needs_onboarding: false };
+      if (command === "forgelink_backend_connection") return { baseUrl: "http://127.0.0.1:5055", apiToken: "operator-node-token" };
       if (command === "forgelink_agent_channels") return [agentChannel];
       if (command === "forgelink_attention_policy") return attentionPolicy;
       if (command === "forgelink_pairing_status") return { state: "paired_limited", label: "Paired limited", detail: "This Android device is paired for limited cockpit capabilities.", capabilities: ["push_notifications"] };
@@ -663,7 +665,7 @@ describe("React renderer parity", () => {
 
     render(<App/>);
 
-    expect(await screen.findByText(/Android full cockpit runtime is active/)).toBeTruthy();
+    expect(await screen.findByText(/Mobile is not connected to an authenticated operator-owned ForgeLink node/)).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
 
     expect((await screen.findAllByText(`Node link: ${label}`)).length).toBeGreaterThanOrEqual(1);
@@ -716,6 +718,8 @@ describe("React renderer parity", () => {
         stale_after: "2026-07-10T01:00:00.000Z",
         detail: "This ForgeLink node link has been revoked. Linked capabilities are unavailable."
       };
+      if (command === "forgelink_get_status") return { running: true, baseUrl: "http://127.0.0.1:5055", mobile_runtime: true, needs_onboarding: false };
+      if (command === "forgelink_backend_connection") return { baseUrl: "http://127.0.0.1:5055", apiToken: "operator-node-token" };
       return {};
     }) as unknown as <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
     window.__TAURI__ = { core: { invoke } };
@@ -723,7 +727,7 @@ describe("React renderer parity", () => {
 
     render(<App/>);
 
-    expect(await screen.findByText(/Android full cockpit runtime is active/)).toBeTruthy();
+    expect(await screen.findByText(/Mobile is not connected to an authenticated operator-owned ForgeLink node/)).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
 
     expect(await screen.findByText("Lifecycle status: Revoked")).toBeTruthy();

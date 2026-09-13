@@ -7,8 +7,10 @@
   "scripts": {
     "tauri": "tauri",
     "renderer:build": "cd ../Electron && npm run renderer:build",
+    "backend:prepare": "node scripts/prepare-backend-runtime.mjs",
     "tauri:check": "cargo check --manifest-path src-tauri/Cargo.toml",
-    "tauri:desktop:dev": "npm run renderer:build && cargo run --manifest-path src-tauri/Cargo.toml",
+    "tauri:desktop:dev": "npm run backend:prepare && npm run renderer:build && cargo run --manifest-path src-tauri/Cargo.toml",
+    "tauri:desktop:build": "npm run backend:prepare && npm run renderer:build && tauri build",
     "tauri:android:init": "tauri android init --ci",
     "tauri:android:build": "tauri android build --apk",
     "tauri:android:dev": "tauri android dev",

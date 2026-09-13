@@ -46,7 +46,7 @@ The bridge deliberately excludes raw filesystem, raw process, raw device shell,
 and private database access. Product data flows through the authenticated local
 API and scoped resources; shell capabilities provide OS integration only.
 
-## Tauri Scaffold
+## Tauri Shell And Lifecycle
 
 The initial Tauri 2 scaffold lives under `Tauri/`:
 
@@ -62,9 +62,24 @@ The initial Tauri 2 scaffold lives under `Tauri/`:
 - `Electron/tauri-scaffold.test.js` guards that Electron remains available until
   the retirement gate is satisfied.
 
-The scaffold responses are local-only/degraded until the Tauri shell owns the
-full backend lifecycle. A real local API connection can be pointed at
-`FORGELINK_LOCAL_API_URL` and `FORGELINK_LOCAL_API_TOKEN`.
+The Tauri desktop shell now owns the local backend lifecycle through
+`Tauri/src-tauri/src/local_service.rs`: it resolves the packaged runtime first,
+selects a safe loopback port, injects a launch-only bearer token, waits for an
+authenticated `/health` response, tracks bounded crash recovery, and cleans up
+only the child it owns. The renderer is not told `running: true` until that
+authenticated readiness check succeeds. Development falls back to the repository
+backend; packaged builds use the staged `forgelink-runtime` resource prepared by
+`Tauri/scripts/prepare-backend-runtime.mjs`.
+
+Tauri mobile is deliberately different: its cfg-specific manager never starts a
+desktop backend, never receives the desktop data directory, and probes only an
+authenticated operator-owned API configured through `FORGELINK_LOCAL_API_URL` and
+`FORGELINK_LOCAL_API_TOKEN`. It does not replicate the private desktop database.
+
+Provider credential storage, native notifications/deep links/single-instance
+behavior, backup/restore diagnostics, and signed distribution remain later
+parity criteria. A real local API connection can be pointed at the mobile
+environment variables above.
 
 Desktop linked-node private keys are stored as authenticated encrypted blobs in the
 operator-owned local vault. `FORGELINK_IDENTITY_VAULT_DIR` selects the exact vault;
@@ -131,6 +146,8 @@ the first Tauri desktop/mobile scaffold and Electron-retirement guardrails. They
 do not yet claim signed public distribution, Android/iOS emulator/device smoke,
 or Electron removal; those belong to TAURI-006/007 and later parity evidence.
 
-Rollback for the scaffold is straightforward: keep Electron as the supported
-shell, remove or ignore `Tauri/`, and restore the previous work item state. No
-database schema, provider credential, or private data migration is introduced.
+Rollback for the current lifecycle slice is straightforward: keep Electron as the
+supported shell, stop using the Tauri runtime resource, and restore the previous
+work item state. No database schema, provider credential, or private data
+migration is introduced. Electron remains available until the WI032 retirement
+gate is satisfied.

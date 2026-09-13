@@ -4,7 +4,7 @@
   "version": "2.0.3",
   "identifier": "com.forgewire.forgelink",
   "build": {
-    "beforeBuildCommand": "npm run renderer:build",
+    "beforeBuildCommand": "npm run backend:prepare && npm run renderer:build",
     "beforeDevCommand": "npm run renderer:build",
     "frontendDist": "../../Electron/renderer"
   },
@@ -25,8 +25,11 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
     "targets": "all",
+    "resources": {
+      "../.runtime": "forgelink-runtime"
+    },
     "icon": [
       "../../Electron/assets/icon.ico"
     ]

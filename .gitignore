@@ -16,6 +16,10 @@ run.sh
 
 # Tauri Android local/generated output
 Tauri/node_modules/
+Tauri/.runtime/
+!Tauri/.runtime/
+Tauri/.runtime/*
+!Tauri/.runtime/.gitkeep
 Tauri/src-tauri/gen/
 *.apk
 *.aab
