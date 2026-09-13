@@ -29,14 +29,14 @@
     {
       "id": "TPR-001",
       "text": "Inventory every Electron-only API, workflow, lifecycle assumption, packaging path, and operator dependency that must be replaced or explicitly retired.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": ["20260913-wi032-tpr001-tpr002-lifecycle"]
     },
     {
       "id": "TPR-002",
       "text": "Prove onboarding and local-service lifecycle parity in Tauri, including startup, authenticated discovery, port conflicts, bounded restart, clean shutdown, and operator recovery.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": ["20260913-wi032-tpr001-tpr002-lifecycle"]
     },
     {
       "id": "TPR-003",
@@ -94,5 +94,5 @@
     }
   ],
   "created": "2026-07-10",
-  "updated": "2026-07-10"
+  "updated": "2026-09-13"
 }

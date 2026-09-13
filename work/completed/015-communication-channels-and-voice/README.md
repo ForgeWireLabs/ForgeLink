@@ -351,8 +351,8 @@ only if a concrete operator deployment requires it.
 
 ### Phase 6: Future channel and direct-telecom research gates
 
-- [x] **CLV-018 Add channel roadmap records for email, push, Telegram, WhatsApp,
-  Discord, RSS, and related adapters.**
+- [x] **CLV-018** Add channel roadmap records for email, push, Telegram, WhatsApp,
+  Discord, RSS, and related adapters.
   - Email: durable/auditable fallback channel.
   - Push: urgent notification channel using ntfy/Pushover-style semantics or a
     future first-party push path.

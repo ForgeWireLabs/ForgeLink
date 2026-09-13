@@ -1,0 +1,117 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260913-wi032-tpr001-tpr002-lifecycle",
+  "timestamp": "2026-09-13T22:00:00Z",
+  "work_item": "032",
+  "result": "passed",
+  "criteria": ["TPR-001", "TPR-002"],
+  "summary": "WI032 Electron/Tauri parity inventory and real Tauri desktop local-service lifecycle slice.",
+  "before_sha": "a33c8a3",
+  "implementation_sha": "86eccbd",
+  "reconciled_origin_main_sha": "6823a40",
+  "commands": [
+    {
+      "command": "cargo fmt --manifest-path Tauri/src-tauri/Cargo.toml --check",
+      "exit_code": 0,
+      "summary": "Rust formatting check passed."
+    },
+    {
+      "command": "cargo test --manifest-path Tauri/src-tauri/Cargo.toml",
+      "exit_code": 0,
+      "summary": "38 passed, 0 failed; lifecycle coverage includes onboarding guard, authenticated readiness, timeout, spawn failure, attach, port conflict, unrelated-process safety, stop, shutdown, crash recovery, and restart exhaustion."
+    },
+    {
+      "command": "npm run backend:prepare (from Tauri)",
+      "exit_code": 0,
+      "summary": "Built Electron/backend and staged backend-dist, production dependencies, bundled Node runtime, and non-secret manifest under the ignored Tauri/.runtime resource directory."
+    },
+    {
+      "command": "npm run renderer:build (from Electron)",
+      "exit_code": 0,
+      "summary": "Shared renderer TypeScript and browser bundle built successfully."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx (from Electron)",
+      "exit_code": 0,
+      "summary": "228 passed, 0 failed; renderer startup now waits for a truthful running status and mobile displays the remote-only operator-node boundary."
+    },
+    {
+      "command": "node --test tauri-scaffold.test.js tauri-lifecycle.test.js (from Electron)",
+      "exit_code": 0,
+      "summary": "6 passed, 0 failed; bridge registration, lifecycle ownership, packaging resource, and mobile no-replication guards passed."
+    },
+    {
+      "command": "npm test (from Electron)",
+      "exit_code": 0,
+      "summary": "455 passed, 1 skipped opt-in live Twilio test, 0 failed."
+    },
+    {
+      "command": "npm run tauri:check (from Tauri)",
+      "exit_code": 0,
+      "summary": "Tauri Rust desktop check passed."
+    },
+    {
+      "command": "npx tauri build (from Tauri)",
+      "exit_code": 0,
+      "summary": "Windows release build produced MSI and NSIS bundles; this is build evidence only, not clean-machine installation or public-release evidence."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact and ForgeLink governance validation passed after this evidence and ledger update."
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "summary": "No whitespace errors in the implementation changes."
+    }
+  ],
+  "artifacts": [
+    "work/active/032-tauri-production-parity-and-electron-retirement/local-artifacts/electron-tauri-parity-inventory.md",
+    "Tauri/src-tauri/src/local_service.rs",
+    "Tauri/scripts/prepare-backend-runtime.mjs",
+    "Electron/tauri-lifecycle.test.js",
+    "docs/electron-retirement-gate.md",
+    "docs/tauri-shared-shell.md",
+    "Tauri/src-tauri/target/release/bundle/msi/ForgeLink_2.0.3_x64_en-US.msi",
+    "Tauri/src-tauri/target/release/bundle/nsis/ForgeLink_2.0.3_x64-setup.exe"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "codex/wi032-tauri-lifecycle",
+    "platform": "Windows",
+    "os_build": "Windows 10.0.26200 x86_64",
+    "node": "24.19.0",
+    "npm": "11.17.0",
+    "rust": "1.98.0",
+    "tauri_cli": "2.11.4",
+    "tauri": "2.11.5",
+    "release_bundles": {
+      "msi": {
+        "path": "Tauri/src-tauri/target/release/bundle/msi/ForgeLink_2.0.3_x64_en-US.msi",
+        "sha256": "E9473E1E9A8E942ABAE24B6217CBF253765931257AD77B4ED11B7B2D9E40A182"
+      },
+      "nsis": {
+        "path": "Tauri/src-tauri/target/release/bundle/nsis/ForgeLink_2.0.3_x64-setup.exe",
+        "sha256": "63E20D02D9E9BD67F019CE67FB9ED9385A6A3C1C41F97E69DDFD8003564038C0"
+      }
+    },
+    "process_note": "Build and test environment only. No credentials, tokens, private messages, contacts, or live provider payloads were included in evidence."
+  },
+  "parity_summary": {
+    "inventory": "Complete across shell bridge, lifecycle, OS integration, packaging/release, data safety, and operator workflows; remaining gaps are explicitly assigned to TPR-003 through TPR-008.",
+    "desktop_lifecycle": "Tauri LocalServiceManager owns the child process, loopback port selection, launch bearer token, authenticated JSON health readiness, bounded restart budget of five attempts per 60 seconds, explicit stop, exit cleanup, and degraded recovery status.",
+    "packaging": "Tauri resources map ../.runtime to forgelink-runtime; preparation stages backend-dist, npm production dependencies, process.execPath as node.exe/node, and a non-secret manifest. Windows MSI and NSIS builds completed.",
+    "mobile": "Android/iOS cfg path never starts or receives the desktop backend/data directory; it is an authenticated remote operator-node client and private database replication remains false.",
+    "redaction": "Tokens are only used in the manager-to-child and renderer connection contract; public lifecycle status, serialized status tests, errors, logs, and this evidence contain no credentials or private communication data."
+  },
+  "known_gaps": [
+    "TPR-003 secure provider/email/push/MCP credential parity is not claimed.",
+    "TPR-004 native notifications, deep links, single-instance, and full activation restoration are not claimed.",
+    "TPR-005 Tauri-specific backup/restore/diagnostics/corruption smoke is not claimed.",
+    "TPR-006 through TPR-008 public signing, update feed, clean-machine installation, uninstall, rollback drill, and Linux/macOS posture remain open.",
+    "The Windows bundles were built successfully but were not installed in an isolated clean-machine run."
+  ],
+  "historical_reconciliation": "The existing WI030 Android evidence was read and retained as historical emulator/operator-status evidence. It does not prove packaged Tauri mobile app authentication and does not authorize desktop backend or private database replication on mobile.",
+  "rollback_boundary": "Electron remains the compatibility shell; revert the WI032 lifecycle/resource/docs commit and evidence/ledger commit while retaining the prior README visual commit. No database schema, credential-store, or private-data migration was introduced."
+}

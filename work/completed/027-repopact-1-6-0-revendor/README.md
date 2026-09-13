@@ -44,8 +44,8 @@ duplicate.
 
 ## Acceptance criteria
 
-- [x] **RVN-001 Add the 1.6.0 parity check to the vendored validator and bump
-  pins**, preserving preflight.
+- [x] **RVN-001** Add the 1.6.0 parity check to the vendored validator and bump
+  pins, preserving preflight.
 - [x] **RVN-002 Remove the redundant local parity check** from `.local`.
 - [x] **RVN-003 Both validators pass** on the tree.
 

@@ -1,7 +1,7 @@
 ---
 audience: maintainers and implementation agents
 status: active
-last_verified: 2026-07-10
+last_verified: 2026-09-13
 source_of_truth: work/active/032-tauri-production-parity-and-electron-retirement/README.md; work/active/032-tauri-production-parity-and-electron-retirement/work-item.json
 ---
 
@@ -34,8 +34,8 @@ item owns the remaining parity evidence and the eventual removal.
 
 ## Priority Order
 
-- [ ] **TPR-001** Inventory every Electron-only API, workflow, lifecycle assumption, packaging path, and operator dependency that must be replaced or explicitly retired.
-- [ ] **TPR-002** Prove onboarding and local-service lifecycle parity in Tauri, including startup, authenticated discovery, port conflicts, bounded restart, clean shutdown, and operator recovery.
+- [x] **TPR-001** Inventory every Electron-only API, workflow, lifecycle assumption, packaging path, and operator dependency that must be replaced or explicitly retired.
+- [x] **TPR-002** Prove onboarding and local-service lifecycle parity in Tauri, including startup, authenticated discovery, port conflicts, bounded restart, clean shutdown, and operator recovery.
 - [ ] **TPR-003** Prove secure-storage parity for credentials and protected settings without exposing secrets to renderer state, logs, diagnostics, exports, or screenshots.
 - [ ] **TPR-004** Prove notifications, deep links, navigation restoration, and single-instance behavior or document platform-specific replacements and limits.
 - [ ] **TPR-005** Prove backup, restore, retention, diagnostics, corruption recovery, and data-safety parity without copying the private desktop database to mobile nodes.
@@ -77,5 +77,12 @@ The removal must be a distinct, reviewable slice with a documented rollback poin
 
 ## Evidence Log
 
-No parity or removal criteria are closed by creating this item. Existing work item 030
-evidence is foundation input, not proof that Electron may already be removed.
+- `20260913-wi032-tpr001-tpr002-lifecycle` — TPR-001 inventory and TPR-002
+  desktop lifecycle evidence. The inventory is the durable deletion checklist;
+  Rust tests prove real startup/readiness, onboarding guard, authenticated attach,
+  timeout, spawn failure, port conflict safety, bounded restart/exhaustion, stop,
+  shutdown, recovery, and redaction. A Windows Tauri release build produced MSI
+  and NSIS bundles, but clean-machine installation and public signing remain open.
+- Existing WI030 Android evidence remains historical foundation input. It proves
+  emulator/operator-status inspection only, not packaged mobile app authentication
+  or private database replication.
