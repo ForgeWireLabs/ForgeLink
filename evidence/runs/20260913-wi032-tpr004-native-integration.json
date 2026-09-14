@@ -1,0 +1,127 @@
+{
+  "$schema": "../../schemas/evidence-run.schema.json",
+  "id": "20260913-wi032-tpr004-native-integration",
+  "timestamp": "2026-09-14T00:49:36Z",
+  "work_item": "032",
+  "result": "passed",
+  "criteria": ["TPR-004"],
+  "summary": "Tauri native integration parity for attention-policy-aware notifications, strict deep links, navigation restoration, single-instance activation, safe external opening, and documented packaged-platform limits.",
+  "before_sha": "7feb8b9",
+  "implementation_sha": "f54e8cc",
+  "reconciled_origin_main_sha": "7feb8b9",
+  "commands": [
+    {
+      "command": "cargo fmt --manifest-path Tauri/src-tauri/Cargo.toml --check",
+      "exit_code": 0,
+      "summary": "Rust formatting check passed."
+    },
+    {
+      "command": "cargo check --manifest-path Tauri/src-tauri/Cargo.toml",
+      "exit_code": 0,
+      "summary": "Tauri desktop library and registered native plugins compiled successfully."
+    },
+    {
+      "command": "cargo test --manifest-path Tauri/src-tauri/Cargo.toml",
+      "exit_code": 0,
+      "summary": "49 passed, 0 failed; navigation grammar, external URL validation, attention-policy parity, emergency gating, secure storage, and lifecycle coverage passed."
+    },
+    {
+      "command": "npm run backend:build (from Electron)",
+      "exit_code": 0,
+      "summary": "Backend TypeScript compiled successfully."
+    },
+    {
+      "command": "npm run renderer:build (from Electron)",
+      "exit_code": 0,
+      "summary": "Shared renderer TypeScript and browser bundle built successfully."
+    },
+    {
+      "command": "npx vitest run renderer/src/App.test.tsx (from Electron)",
+      "exit_code": 0,
+      "summary": "232 passed, 0 failed; safe navigation restoration, deep-link/notification surface routing, Tauri event cleanup, and existing cockpit parity passed."
+    },
+    {
+      "command": "node --test tauri-scaffold.test.js tauri-lifecycle.test.js tauri-desktop-integration.test.js (from Electron)",
+      "exit_code": 0,
+      "summary": "11 passed, 0 failed; plugin order, configuration, bridge boundaries, compatibility shell, and native integration contracts passed."
+    },
+    {
+      "command": "npm test (from Electron)",
+      "exit_code": 0,
+      "summary": "461 tests total: 460 passed, 0 failed, 1 skipped opt-in live Twilio test."
+    },
+    {
+      "command": "node --check main.js && node --check preload.js (from Electron)",
+      "exit_code": 0,
+      "summary": "Electron compatibility shell syntax checks passed."
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "summary": "No whitespace errors in the implementation or documentation changes."
+    },
+    {
+      "command": "python .local/validate_system.py",
+      "exit_code": 0,
+      "summary": "RepoPact, evidence links, schema-ladder invariants, and documentation validation passed after the evidence record was added."
+    }
+  ],
+  "artifacts": [
+    "Tauri/src-tauri/Cargo.toml",
+    "Tauri/src-tauri/Cargo.lock",
+    "Tauri/src-tauri/tauri.conf.json",
+    "Tauri/src-tauri/capabilities/default.json",
+    "Tauri/src-tauri/capabilities/mobile-cockpit.json",
+    "Tauri/src-tauri/src/desktop_integration.rs",
+    "Tauri/src-tauri/src/navigation.rs",
+    "Tauri/src-tauri/src/notifications.rs",
+    "Tauri/src-tauri/src/lib.rs",
+    "Electron/main.js",
+    "Electron/preload.js",
+    "Electron/renderer/src/shell.ts",
+    "Electron/renderer/src/types.ts",
+    "Electron/renderer/src/App.tsx",
+    "Electron/renderer/src/App.test.tsx",
+    "Electron/tauri-desktop-integration.test.js",
+    "Electron/renderer/app.js",
+    "docs/tauri-native-integration.md",
+    "docs/tauri-shared-shell.md",
+    "docs/tauri-validation-rollback-evidence.md",
+    "work/active/032-tauri-production-parity-and-electron-retirement/README.md",
+    "work/active/032-tauri-production-parity-and-electron-retirement/work-item.json"
+  ],
+  "environment": {
+    "repository": "ForgeWireLabs/ForgeLink",
+    "branch": "codex/wi032-tauri-desktop-integration",
+    "platform": "Windows",
+    "os_build": "Windows 10.0.26200 x86_64",
+    "node": "24.19.0",
+    "npm": "11.17.0",
+    "rust": "1.98.0",
+    "tauri_cli": "2.11.4",
+    "tauri": "2.11.5",
+    "native_plugin_lock_versions": {
+      "tauri-plugin-deep-link": "2.4.10",
+      "tauri-plugin-notification": "2.4.0",
+      "tauri-plugin-opener": "2.5.5",
+      "tauri-plugin-single-instance": "2.4.4",
+      "tauri-plugin-window-state": "2.4.1"
+    },
+    "process_note": "Build and test environment only. No credentials, tokens, private messages, contacts, provider payloads, or secret canary values were included in evidence."
+  },
+  "parity_summary": {
+    "notifications": "Native Tauri notification delivery is behind the shared shell command, reuses the existing attention-policy fields and redaction semantics, checks permission state, requests at most once per process after a prompt state, and carries only validated navigation metadata. Mobile registers only the Open ForgeLink action; it grants no decision authority.",
+    "deep_links": "The forgelink://open/<surface>/<local-id> grammar is strict, bounded, and fail-closed. Startup uses get_current, running-app events use on_open_url, and malformed/query-bearing/path-traversal links never reach the renderer.",
+    "single_instance": "Tauri registers single-instance before deep-link handling. The second-instance callback activates the existing main window; the deep-link plugin forwards the URL event instead of starting a competing local backend.",
+    "navigation": "The shared renderer receives one onNavigationIntent contract, restores only five allow-listed top-level surfaces from local storage, and treats IDs as bounded selection hints. Deep-link and notification paths do not call approve, deny, send, call, or provider commands.",
+    "external_navigation": "Tauri and Electron open only bounded credential-free HTTPS URLs through their native openers; ForgeLink URLs and credential-bearing URLs are rejected.",
+    "platform_limits": "Windows installed-app toast identity, packaged Windows installation, and packaged Android/iOS notification/deep-link smoke remain explicit TPR-007/008 gates. Linux/macOS packaging and signing posture remain TPR-008 gates."
+  },
+  "known_gaps": [
+    "TPR-005 Tauri-specific backup/restore, diagnostics/support-report, retention, and corruption-recovery smoke remains open.",
+    "TPR-006 through TPR-008 public signing, update feed, clean-machine installation, uninstall, rollback drill, and cross-platform packaged smoke remain open.",
+    "TPR-009 through TPR-011 remain open; Electron is intentionally retained as the compatibility shell.",
+    "No installed Windows OS toast or packaged Android/iOS emulator/device smoke is claimed by this evidence record."
+  ],
+  "rollback_boundary": "Electron remains available and the Tauri branch can be reverted to 7feb8b9 without database, private-data, or automatic credential migration. Native integration stores only non-sensitive renderer navigation state and does not alter backend schema or private data ownership."
+}
