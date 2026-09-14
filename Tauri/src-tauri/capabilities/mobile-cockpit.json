@@ -3,7 +3,7 @@
   "identifier": "mobile-cockpit",
   "description": "Mobile cockpit scaffold: shared UI, authenticated local API client, and restricted decision terminal profile.",
   "windows": ["main"],
-  "permissions": ["core:default"],
+  "permissions": ["core:default", "core:event:default"],
   "context": {
     "shared_cockpit": true,
     "restricted_decision_terminal_profile": "mobile_lock_screen",

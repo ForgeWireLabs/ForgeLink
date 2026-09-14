@@ -1,6 +1,9 @@
+mod desktop_integration;
 mod local_service;
+mod navigation;
 mod node_identity;
 mod node_identity_lifecycle;
+mod notifications;
 mod protected_settings;
 mod secure_store;
 
@@ -463,15 +466,44 @@ fn forgelink_remove_telnyx_settings(
 }
 
 #[tauri::command]
-fn forgelink_notify(_title: String, _body: String) {}
-
-#[tauri::command]
-fn forgelink_notify_event(_payload: Value) -> Value {
-    json!({ "notify": true, "reason": "tauri_mobile_local", "title": "ForgeLink", "body": "ForgeLink has an update." })
+fn forgelink_notify(
+    app: tauri::AppHandle,
+    coordinator: State<'_, notifications::NotificationCoordinator>,
+    title: String,
+    body: String,
+) -> Value {
+    notifications::deliver(
+        &app,
+        &coordinator,
+        json!({
+            "kind": "system",
+            "category": "info",
+            "title": title,
+            "body": body
+        }),
+    )
 }
 
 #[tauri::command]
-fn forgelink_open_external(_url: String) {}
+fn forgelink_notify_event(
+    app: tauri::AppHandle,
+    coordinator: State<'_, notifications::NotificationCoordinator>,
+    payload: Value,
+) -> Value {
+    notifications::deliver(&app, &coordinator, payload)
+}
+
+#[tauri::command]
+fn forgelink_open_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    desktop_integration::open_external(&app, &url)
+}
+
+#[tauri::command]
+fn forgelink_take_navigation_intent(
+    coordinator: State<'_, navigation::NavigationCoordinator>,
+) -> Option<navigation::NavigationIntent> {
+    coordinator.take_pending()
+}
 
 #[tauri::command]
 fn forgelink_attention_policy(app: tauri::AppHandle) -> Value {
@@ -715,8 +747,97 @@ fn forgelink_remove_push_settings(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Err(error) = desktop_integration::activate_main_window(app) {
+                eprintln!("ForgeLink could not activate its existing window: {error}");
+            }
+        }));
+    }
+
+    builder = builder
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init());
+
+    #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
+    {
+        builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+    }
+
+    builder
         .setup(|app| {
+            let navigation = navigation::NavigationCoordinator::default();
+            app.manage(navigation.clone());
+            app.manage(notifications::NotificationCoordinator::default());
+
+            #[cfg(mobile)]
+            {
+                use tauri_plugin_notification::{Action, ActionType, NotificationExt};
+                let action = Action::builder("open", "Open ForgeLink")
+                    .foreground(true)
+                    .requires_authentication(false)
+                    .build();
+                let action_type = ActionType::builder("forgelink-navigation")
+                    .actions(vec![action])
+                    .build();
+                if let Err(error) = app.notification().register_action_types(vec![action_type]) {
+                    eprintln!(
+                        "ForgeLink could not register its mobile notification action: {error}"
+                    );
+                }
+            }
+
+            use tauri_plugin_deep_link::DeepLinkExt;
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                for url in urls {
+                    navigation.route(
+                        app.handle(),
+                        url.as_str(),
+                        navigation::NavigationSource::Startup,
+                    );
+                }
+            }
+            let navigation_for_callback = navigation.clone();
+            let app_handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    navigation_for_callback.route(
+                        &app_handle,
+                        url.as_str(),
+                        navigation::NavigationSource::DeepLink,
+                    );
+                }
+                if let Err(error) = desktop_integration::activate_main_window(&app_handle) {
+                    eprintln!("ForgeLink could not activate its deep-link window: {error}");
+                }
+            });
+
+            use tauri::Listener;
+            let navigation_for_notification = navigation.clone();
+            let app_handle_for_notification = app.handle().clone();
+            app.listen("plugin:notification|actionPerformed", move |event| {
+                let payload =
+                    serde_json::from_str::<Value>(event.payload()).unwrap_or_else(|_| json!({}));
+                let target = payload.get("extra").unwrap_or(&payload);
+                if let Some(intent) = navigation::intent_from_notification(target) {
+                    navigation_for_notification.publish(&app_handle_for_notification, intent);
+                    if let Err(error) =
+                        desktop_integration::activate_main_window(&app_handle_for_notification)
+                    {
+                        eprintln!("ForgeLink could not activate its notification window: {error}");
+                    }
+                }
+            });
+
+            #[cfg(all(debug_assertions, windows))]
+            if let Err(error) = app.deep_link().register_all() {
+                eprintln!("ForgeLink could not register its development deep link: {error}");
+            }
+
             let config = load_local_service_config(app.handle());
             let runtime = local_service::resolve_backend_runtime(app.path().resource_dir().ok());
             let legacy_roots = app
@@ -767,6 +888,7 @@ pub fn run() {
             forgelink_notify,
             forgelink_notify_event,
             forgelink_open_external,
+            forgelink_take_navigation_intent,
             forgelink_attention_policy,
             forgelink_save_attention_policy,
             forgelink_mcp_status,
@@ -894,9 +1016,12 @@ mod tests {
 
     #[test]
     fn notification_and_attention_defaults_return_renderer_safe_shapes() {
-        let decision = forgelink_notify_event(json!({ "kind": "system", "title": "test" }));
+        let decision = notifications::evaluate_attention(
+            &default_attention_policy(),
+            &json!({ "kind": "system", "title": "test" }),
+        );
         assert_eq!(decision["notify"], json!(true));
-        assert_eq!(decision["reason"], json!("tauri_mobile_local"));
+        assert_eq!(decision["reason"], json!("allowed"));
 
         let policy = default_attention_policy();
         assert_eq!(policy["redact_notification_bodies"], json!(true));

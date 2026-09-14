@@ -50,6 +50,7 @@ let contactTimelineFixture: Array<Record<string, unknown>>;
 function response(payload: unknown, ok = true): Promise<Response> { return Promise.resolve({ ok, status: ok ? 200 : 400, json: async () => payload } as Response); }
 
 beforeEach(() => {
+  window.localStorage.clear();
   outboundDraftsFixture = [outboundDraft];
   sampleStatusFixture = { loaded: false, counts: { contacts: 0, agents: 0, approvals: 0, outcomes: 0, channels: 0 } };
   messagesFixture = [message];
@@ -110,7 +111,8 @@ beforeEach(() => {
     desktopLinkedNodeStatus: vi.fn().mockResolvedValue(buildDesktopLinkedNodeStatus()),
     savePushSettings: vi.fn().mockResolvedValue({ configured: true, provider: "ntfy", url: "https://ntfy.sh", profile: "lock_screen_safe", topic_present: true, token_present: false }),
     removePushSettings: vi.fn().mockResolvedValue({ configured: false, provider: "ntfy", url: "https://ntfy.sh", profile: "lock_screen_safe", topic_present: false, token_present: false }),
-    onServerStatus: vi.fn()
+    onServerStatus: vi.fn(),
+    onNavigationIntent: vi.fn(() => () => undefined)
   };
   vi.spyOn(window, "confirm").mockReturnValue(true);
   vi.stubGlobal("fetch", vi.fn((input: string | URL | Request, init?: RequestInit) => {
@@ -229,6 +231,52 @@ describe("React renderer parity", () => {
     expect(SHELL_BRIDGE_CAPABILITIES.secureSettings).toEqual(expect.arrayContaining(["importEnvironment", "smsProviderSettings", "validateTelnyxSettings", "saveTelnyxSettings", "emailSettings", "pushSettings"]));
     expect(SHELL_BRIDGE_CAPABILITIES.agentCredentials).toEqual(expect.arrayContaining(["mcpStatus", "agentChannels", "setAgentChannelEnabled"]));
     expect(capabilityNames.every(name => typeof window.desktop?.[name as keyof typeof window.desktop] === "function")).toBe(true);
+  });
+
+  it("restores only a safe top-level navigation surface", async () => {
+    window.localStorage.setItem("forgelink.navigation.surface", "settings");
+    render(<App/>);
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
+
+    window.localStorage.setItem("forgelink.navigation.surface", "forgelink://open/settings/approve");
+    cleanup();
+    render(<App/>);
+    expect(await screen.findByRole("heading", { name: "Decisions" })).toBeTruthy();
+  });
+
+  it("routes deep-link and notification intents to surfaces without executing actions", async () => {
+    render(<App/>);
+    await screen.findByRole("heading", { name: "Decisions" });
+    const subscribe = vi.mocked(window.desktop!.onNavigationIntent);
+    const callback = subscribe.mock.calls[0]?.[0];
+    expect(callback).toBeTruthy();
+
+    callback?.({ surface: "channels", local_id: "thread-17", source: "deep_link" });
+    expect(await screen.findByRole("heading", { name: "Channels" })).toBeTruthy();
+    expect(window.desktop!.notifyEvent).not.toHaveBeenCalledWith(expect.objectContaining({ action: expect.anything() }));
+
+    callback?.({ surface: "decisions", local_id: "agent-1", source: "notification" });
+    expect(await screen.findByRole("heading", { name: "Decisions" })).toBeTruthy();
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes("/actions/"))).toBe(false);
+  });
+
+  it("cleans up the Tauri navigation event listener", async () => {
+    delete window.forgeLinkShell;
+    delete window.desktop;
+    const invokeMock = vi.fn(async (command: string): Promise<unknown> => {
+      if (command === "forgelink_get_status") return { running: true, baseUrl: "http://127.0.0.1:5055", configured: false, credential_source: "none", needs_onboarding: false };
+      if (command === "forgelink_backend_connection") return { baseUrl: "http://127.0.0.1:5055", apiToken: "renderer-api-token" };
+      return null;
+    });
+    const invoke = invokeMock as unknown as <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
+    const unlisten = vi.fn();
+    const listen = vi.fn().mockResolvedValue(unlisten);
+    window.__TAURI__ = { core: { invoke }, event: { listen } };
+
+    const view = render(<App/>);
+    await screen.findByRole("heading", { name: "Decisions" });
+    view.unmount();
+    await waitFor(() => expect(unlisten).toHaveBeenCalled());
   });
 
   it("routes shell calls through Tauri invoke when running under a Tauri shell", async () => {

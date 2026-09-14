@@ -26,6 +26,12 @@ Covered checks:
 - Distribution/update guard: `Electron/tauri-distribution.test.js` proves
   unsigned Tauri builds stay internal, public desktop updater feeds are signing
   held, and mobile updates remain store-owned.
+- Native integration: `Electron/tauri-desktop-integration.test.js`, the Tauri
+  Rust unit tests, and `docs/tauri-native-integration.md` prove the plugin order,
+  strict deep-link grammar, single-instance/window activation wiring,
+  attention-policy-aware native notification path, navigation-only notification
+  activation, safe external opener, renderer restoration, and documented
+  installed/package limits.
 - Governance: `python .local/validate_system.py` validates RepoPact records,
   evidence links, schema-ladder invariants, and docs links.
 
@@ -59,6 +65,9 @@ This pass still does not claim a packaged Tauri APK/IPA installed on emulator or
 physical device. Public/mobile shipping still needs packaged-app device evidence
 for pairing, authenticated local API connection from the app shell,
 notifications, deep links, signed decision envelope return, and device revoke.
+The TPR-004 native contract is implemented, but the platform matrix keeps those
+packaged smoke limits explicit rather than treating compile/static evidence as
+OS delivery evidence.
 
 Signed Tauri desktop release, signed updater feed, mobile store submission, and
 Electron removal remain outside this slice.

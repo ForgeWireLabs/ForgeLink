@@ -42,7 +42,11 @@ const forgeLinkShell = {
   pushSettings: () => ipcRenderer.invoke("push-settings-get"),
   savePushSettings: (values) => ipcRenderer.invoke("push-settings-save", values),
   removePushSettings: () => ipcRenderer.invoke("push-settings-remove"),
-  onServerStatus: (callback) => ipcRenderer.on("server-status", (_, status) => callback(status))
+  onServerStatus: (callback) => ipcRenderer.on("server-status", (_, status) => callback(status)),
+  // Electron remains a compatibility shell until the Tauri retirement gate.
+  // It has no native deep-link route yet, but the shared renderer must keep a
+  // safe no-op subscription rather than probing shell-specific APIs.
+  onNavigationIntent: () => () => undefined
 };
 
 contextBridge.exposeInMainWorld("forgeLinkShell", forgeLinkShell);

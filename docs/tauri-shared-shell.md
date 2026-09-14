@@ -76,9 +76,12 @@ desktop backend, never receives the desktop data directory, and probes only an
 authenticated operator-owned API configured through `FORGELINK_LOCAL_API_URL` and
 `FORGELINK_LOCAL_API_TOKEN`. It does not replicate the private desktop database.
 
-Native notifications/deep links/single-instance behavior, backup/restore
-diagnostics, and signed distribution remain later parity criteria. Protected
-settings and provider credential storage are now covered by TPR-003. A real local
+Native notifications, deep links, single-instance activation, safe external
+opening, and navigation restoration are now covered by TPR-004. The native
+contract and platform limits are recorded in
+[`docs/tauri-native-integration.md`](tauri-native-integration.md). Backup/restore
+diagnostics and signed distribution remain later parity criteria. Protected
+settings and provider credential storage are covered by TPR-003. A real local
 API connection can be pointed at the mobile environment variables above.
 
 ## Protected settings and secret boundary
@@ -175,10 +178,11 @@ The explicit gate checklist is recorded in
 
 TAURI-001/002 are architecture and bridge-boundary closure. TAURI-003/004/005 add
 the first Tauri desktop/mobile scaffold and Electron-retirement guardrails;
-TPR-003 now closes the protected-settings parity boundary. The work does not yet
-claim signed public distribution, Android/iOS emulator/device smoke, native
-notification/deep-link/single-instance parity, backup/diagnostics parity, or
-Electron removal; those belong to later WI032 evidence.
+TPR-003 closes the protected-settings parity boundary and TPR-004 closes the
+native integration boundary with explicit packaged-platform limits. The work
+does not yet claim signed public distribution, packaged Android/iOS
+emulator/device smoke, backup/diagnostics parity, or Electron removal; those
+belong to later WI032 evidence.
 
 Rollback for the current WI032 slices is straightforward: keep Electron as the
 supported shell, stop using the Tauri runtime/protected-settings path, and restore

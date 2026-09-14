@@ -26,6 +26,7 @@ import type {
   LocalIntegrationStatus,
   McpStatus,
   Message,
+  NavigationIntent,
   OutboundDraft,
   PresenceSnapshot,
   PushChannelStatus,
@@ -279,6 +280,20 @@ const DEFAULT_ATTENTION_POLICY: AttentionPolicy = {
   muted_sources: [],
 };
 const isTauriRuntime = () => Boolean(window.__TAURI__?.core?.invoke);
+
+const NAVIGATION_SURFACES = new Set(["decisions", "people", "agents", "channels", "settings"]);
+const restoredNavigationSurface = (): View => {
+  try {
+    const stored = window.localStorage.getItem("forgelink.navigation.surface");
+    return stored && NAVIGATION_SURFACES.has(stored) ? stored as View : "decisions";
+  } catch {
+    return "decisions";
+  }
+};
+
+const topLevelNavigationSurface = (view: View): "decisions" | "people" | "agents" | "channels" | "settings" => {
+  return view === "messages" || view === "calls" || view === "signals" || view === "mobile" || view === "outbox" ? "channels" : view;
+};
 
 const MOBILE_RUNTIME_GAP_MESSAGE =
   "Mobile is not connected to an authenticated operator-owned ForgeLink node. This device does not start or replicate the desktop backend.";
@@ -619,7 +634,7 @@ export function App() {
   const [connectionReady, setConnectionReady] = useState(false);
   const connection = useCallback<() => BackendConnection>(() => ({ baseUrl: host, apiToken }), [host, apiToken]);
   const api = useMemo(() => new PhoneApi(connection), [connection]);
-  const [view, setView] = useState<View>("decisions");
+  const [view, setView] = useState<View>(restoredNavigationSurface);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
@@ -659,6 +674,7 @@ export function App() {
   const unreadRef = useRef(new Map<number, number>());
   const agentUnreadRef = useRef(new Set<string>());
   const onboardingShownRef = useRef(false);
+  const navigationIntentRef = useRef(false);
   const selected = threads.find((thread) => thread.id === selectedId);
   const closeModal = useCallback(() => setModal(null), []);
   const applyMobileRuntimeGap = useCallback((cause: unknown) => {
@@ -789,7 +805,7 @@ export function App() {
         if (!active) return;
         if (next) {
           setStatus(next);
-          if (next.needs_onboarding && !onboardingShownRef.current) {
+          if (next.needs_onboarding && !onboardingShownRef.current && !navigationIntentRef.current) {
             onboardingShownRef.current = true;
             setView("settings");
             setModal({ kind: "settings", provider: "choose" });
@@ -816,6 +832,28 @@ export function App() {
       active = false;
     };
   }, []);
+
+  const applyNavigationIntent = useCallback((intent: NavigationIntent) => {
+    if (!NAVIGATION_SURFACES.has(intent.surface)) return;
+    navigationIntentRef.current = true;
+    setView(intent.surface);
+    if (intent.surface === "channels" && intent.local_id && /^\d+$/.test(intent.local_id)) {
+      const numericId = Number(intent.local_id);
+      setSelectedId(Number.isSafeInteger(numericId) ? numericId : undefined);
+    } else if (intent.surface !== "channels") {
+      setSelectedId(undefined);
+    }
+  }, []);
+
+  useEffect(() => shell.onNavigationIntent(applyNavigationIntent), [applyNavigationIntent]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("forgelink.navigation.surface", topLevelNavigationSurface(view));
+    } catch {
+      /* Navigation state is a convenience and must never block the cockpit. */
+    }
+  }, [view]);
 
   useEffect(() => {
     let lastInput = Date.now();
@@ -868,7 +906,7 @@ export function App() {
         const nextSignalItems = await api.signalItems();
         next.forEach((thread) => {
           if ((thread.unread_count || 0) > (unreadRef.current.get(thread.id) || 0))
-            void notify({ kind: "sms", title: "New message", body: displayName(thread) });
+            void notify({ kind: "sms", title: "New message", body: displayName(thread), thread_id: String(thread.id), navigation: { surface: "channels", local_id: String(thread.id) } });
         });
         nextAgentMessages.forEach((message) => {
           if (message.status === "unread" && !agentUnreadRef.current.has(message.id))
@@ -879,6 +917,7 @@ export function App() {
               source: message.source,
               channel_id: message.channel_id,
               urgency: message.urgency,
+              navigation: { surface: "decisions", local_id: message.id },
             });
         });
         unreadRef.current = new Map(next.map((thread) => [thread.id, thread.unread_count || 0]));

@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Desktop scaffold permissions for the ForgeLink shell bridge.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "core:event:default"]
 }

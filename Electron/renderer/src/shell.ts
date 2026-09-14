@@ -1,9 +1,9 @@
-import type { AgentChannelStatus, AndroidPairingStatus, AttentionDecision, AttentionEvent, AttentionPolicy, BackendConnection, DesktopLinkedNodeStatus, DesktopStatus, EmailSettingsInput, EmailSettingsStatus, ForgeLinkNodeLinkStatus, LocalIntegrationScope, LocalIntegrationStatus, McpStatus, PushSettingsInput, PushSettingsStatus, SmsProviderSettingsStatus, TelnyxSettingsInput, TelnyxValidationResult, ValidationResult } from "./types";
+import type { AgentChannelStatus, AndroidPairingStatus, AttentionDecision, AttentionEvent, AttentionPolicy, BackendConnection, DesktopLinkedNodeStatus, DesktopStatus, EmailSettingsInput, EmailSettingsStatus, ForgeLinkNodeLinkStatus, LocalIntegrationScope, LocalIntegrationStatus, McpStatus, NavigationIntent, PushSettingsInput, PushSettingsStatus, SmsProviderSettingsStatus, TelnyxSettingsInput, TelnyxValidationResult, ValidationResult } from "./types";
 
 export const SHELL_BRIDGE_CAPABILITIES = {
   localService: ["backendConnection", "getStatus", "startServer", "startLocalOnly", "startService", "stopServer", "onServerStatus"],
   notifications: ["notify", "notifyEvent"],
-  navigation: ["openExternal"],
+  navigation: ["openExternal", "onNavigationIntent"],
   secureSettings: ["validateSettings", "importEnvironment", "removeCredentials", "smsProviderSettings", "validateTelnyxSettings", "saveTelnyxSettings", "selectSmsProvider", "removeTelnyxSettings", "emailSettings", "saveEmailSettings", "removeEmailSettings", "pushSettings", "savePushSettings", "removePushSettings"],
   attentionPolicy: ["attentionPolicy", "saveAttentionPolicy"],
   agentCredentials: ["mcpStatus", "createMcpToken", "revokeMcpToken", "testMcpBridge", "agentChannels", "createAgentChannel", "rotateAgentChannel", "revokeAgentChannel", "setAgentChannelEnabled", "localIntegrations", "createLocalIntegration", "updateLocalIntegration", "rotateLocalIntegration", "revokeLocalIntegration", "setLocalIntegrationEnabled", "testLocalIntegration"],
@@ -57,15 +57,17 @@ export interface ForgeLinkShellBridge {
   savePushSettings(values: PushSettingsInput): Promise<PushSettingsStatus>;
   removePushSettings(): Promise<PushSettingsStatus>;
   onServerStatus(callback: (status: DesktopStatus) => void): void;
+  onNavigationIntent(callback: (intent: NavigationIntent) => void): () => void;
 }
 
 const unavailable = (capability: string) => () => Promise.reject(new Error(`ForgeLink shell capability unavailable: ${capability}`));
 
 type TauriInvoke = <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
+type TauriListen = <T = unknown>(event: string, handler: (event: { payload: T }) => void) => Promise<() => void>;
 
 const invokeWithPayload = <T>(invoke: TauriInvoke, command: string, payload?: Record<string, unknown>) => invoke<T>(command, payload ? { payload } : undefined);
 
-function createTauriBridge(invoke: TauriInvoke): ForgeLinkShellBridge {
+function createTauriBridge(invoke: TauriInvoke, listen?: TauriListen): ForgeLinkShellBridge {
   return {
     notify: (title, body) => invoke("forgelink_notify", { title, body }),
     notifyEvent: event => invokeWithPayload<AttentionDecision>(invoke, "forgelink_notify_event", event as unknown as Record<string, unknown>),
@@ -111,13 +113,27 @@ function createTauriBridge(invoke: TauriInvoke): ForgeLinkShellBridge {
     desktopLinkedNodeStatus: () => invoke<DesktopLinkedNodeStatus>("forgelink_desktop_linked_node_status"),
     savePushSettings: values => invokeWithPayload<PushSettingsStatus>(invoke, "forgelink_save_push_settings", values as unknown as Record<string, unknown>),
     removePushSettings: () => invoke<PushSettingsStatus>("forgelink_remove_push_settings"),
-    onServerStatus: () => undefined
+    onServerStatus: () => undefined,
+    onNavigationIntent: callback => {
+      let disposed = false;
+      const listener = listen?.<NavigationIntent>("forgelink://navigation-intent", event => {
+        if (!disposed) callback(event.payload);
+      });
+      const startup = invoke<NavigationIntent | null>("forgelink_take_navigation_intent").then(intent => {
+        if (!disposed && intent) callback(intent);
+      }).catch(() => undefined);
+      return () => {
+        disposed = true;
+        void startup;
+        if (listener) void listener.then(unlisten => unlisten()).catch(() => undefined);
+      };
+    }
   };
 }
 
 export function getShellBridge(): ForgeLinkShellBridge {
   const tauriInvoke = window.__TAURI__?.core?.invoke;
-  if (tauriInvoke) return createTauriBridge(tauriInvoke);
+  if (tauriInvoke) return createTauriBridge(tauriInvoke, window.__TAURI__?.event?.listen);
   const bridge = window.forgeLinkShell || window.desktop;
   if (!bridge) {
     return {
@@ -165,7 +181,8 @@ export function getShellBridge(): ForgeLinkShellBridge {
       desktopLinkedNodeStatus: unavailable("desktopLinkedNodeStatus"),
       savePushSettings: unavailable("savePushSettings"),
       removePushSettings: unavailable("removePushSettings"),
-      onServerStatus: () => undefined
+      onServerStatus: () => undefined,
+      onNavigationIntent: () => () => undefined
     };
   }
   return bridge;
@@ -216,5 +233,6 @@ export const shell: ForgeLinkShellBridge = {
   desktopLinkedNodeStatus: () => getShellBridge().desktopLinkedNodeStatus(),
   savePushSettings: values => getShellBridge().savePushSettings(values),
   removePushSettings: () => getShellBridge().removePushSettings(),
-  onServerStatus: callback => getShellBridge().onServerStatus(callback)
+  onServerStatus: callback => getShellBridge().onServerStatus(callback),
+  onNavigationIntent: callback => getShellBridge().onNavigationIntent(callback)
 };

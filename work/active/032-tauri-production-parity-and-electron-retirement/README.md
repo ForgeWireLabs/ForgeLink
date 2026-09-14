@@ -37,7 +37,7 @@ item owns the remaining parity evidence and the eventual removal.
 - [x] **TPR-001** Inventory every Electron-only API, workflow, lifecycle assumption, packaging path, and operator dependency that must be replaced or explicitly retired.
 - [x] **TPR-002** Prove onboarding and local-service lifecycle parity in Tauri, including startup, authenticated discovery, port conflicts, bounded restart, clean shutdown, and operator recovery.
 - [x] **TPR-003** Prove secure-storage parity for credentials and protected settings without exposing secrets to renderer state, logs, diagnostics, exports, or screenshots.
-- [ ] **TPR-004** Prove notifications, deep links, navigation restoration, and single-instance behavior or document platform-specific replacements and limits.
+- [x] **TPR-004** Prove notifications, deep links, navigation restoration, and single-instance behavior or document platform-specific replacements and limits.
 - [ ] **TPR-005** Prove backup, restore, retention, diagnostics, corruption recovery, and data-safety parity without copying the private desktop database to mobile nodes.
 - [ ] **TPR-006** Produce reproducible Tauri release artifacts with version metadata, release notes, checksums, update and rollback contracts, and certificate-gated public signing.
 - [ ] **TPR-007** Validate a packaged Windows Tauri build through clean-machine or equivalent isolated installation, launch, onboarding, service, cockpit, update, rollback, and uninstall checks.
@@ -91,6 +91,14 @@ The removal must be a distinct, reviewable slice with a documented rollback poin
   clearing and canary absence. Electron safeStorage files are preserved and the
   migration conclusion is explicit manual re-entry; no silent credential loss or
   automatic decryption is claimed.
+- `20260913-wi032-tpr004-native-integration` — TPR-004 native integration parity.
+  Tauri registers single-instance before deep-link handling, routes validated
+  startup/running deep links and mobile notification actions through the shared
+  navigation bridge, restores safe top-level navigation state, evaluates the
+  existing attention policy before native notification delivery, and limits
+  external opening to credential-free HTTPS. Windows installed-app and
+  packaged Android/iOS notification/deep-link smoke remain explicitly held for
+  TPR-007/008 rather than being overstated as compile evidence.
 - Existing WI030 Android evidence remains historical foundation input. It proves
   emulator/operator-status inspection only, not packaged mobile app authentication
   or private database replication.

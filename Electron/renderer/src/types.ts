@@ -1,4 +1,7 @@
 export type View = "decisions" | "people" | "agents" | "channels" | "messages" | "calls" | "signals" | "mobile" | "outbox" | "settings";
+export type NavigationSurface = "decisions" | "people" | "agents" | "channels" | "settings";
+export type NavigationSource = "startup" | "second_instance" | "deep_link" | "notification" | "restore";
+export interface NavigationIntent { surface: NavigationSurface; local_id?: string; source: NavigationSource; }
 
 export interface Thread { id: number; canonical_number: string; name?: string; last_msg_ts?: string; unread_count?: number; }
 export interface Contact { id: number; name: string; number: string; company?: string; role?: string; tags?: string; notes?: string; trust_level?: string; pinned?: number; favorite?: number; }
@@ -66,8 +69,8 @@ export type LocalIntegrationScope = "agent_message" | "actions";
 export interface LocalIntegrationStatus { id: string; label: string; scopes: LocalIntegrationScope[]; enabled: boolean; credential_configured: boolean; created_at: string; rotated_at: string; revoked_at: string | null; last_used_at: string | null; last_rejected_at: string | null; accepted_count: number; rejected_count: number; token_file: string; token_file_present: boolean; }
 export type OperatorMode = "available" | "focus" | "driving" | "sleeping" | "family" | "work" | "emergency_only" | "offline";
 export interface AttentionPolicy { enabled: boolean; operator_mode: OperatorMode; quiet_hours_enabled: boolean; quiet_hours_start: string; quiet_hours_end: string; quiet_hours_allow_urgent: boolean; redact_notification_bodies: boolean; sms_notifications: "all" | "off"; agent_notifications: "all" | "high_and_urgent" | "urgent_only" | "off"; signal_notifications: "all" | "off"; system_notifications: "all" | "failures_only" | "off"; emergency_contact_bypass: boolean; emergency_agent_requires_policy: boolean; presence_enabled: boolean; presence_app_focus: string; presence_input: string; presence_network: string; presence_do_not_disturb: boolean; presence_paired_mobile: string; muted_sources: string[]; }
-export interface AttentionEvent { kind: "sms" | "agent" | "signal" | "system"; title?: string; body?: string; source?: string; source_title?: string; channel_id?: string; urgency?: "low" | "normal" | "high" | "urgent"; category?: "info" | "failure"; emergency?: boolean; required_authority?: string; risk?: string; }
-export interface AttentionDecision { notify: boolean; reason: string; title?: string; body?: string; }
+export interface AttentionEvent { kind: "sms" | "agent" | "signal" | "system"; title?: string; body?: string; source?: string; source_title?: string; channel_id?: string; thread_id?: string; urgency?: "low" | "normal" | "high" | "urgent"; category?: "info" | "failure"; emergency?: boolean; required_authority?: string; risk?: string; navigation?: { surface: NavigationSurface; local_id?: string }; }
+export interface AttentionDecision { notify: boolean; reason: string; title?: string; body?: string; os_permission?: string; delivery_result?: string; navigation?: NavigationIntent; }
 export interface DesktopStatus { running: boolean; baseUrl: string; phase?: "stopped" | "starting" | "ready" | "degraded" | "stopping" | string; service_owner?: "none" | "owned" | "attached" | "remote" | string; local_service_owned?: boolean; runtime_available?: boolean; mobile_runtime?: boolean; port_note?: string; configured?: boolean; credential_source?: "none" | "environment" | "stored"; environment_import_available?: boolean; onboarding_complete?: boolean; needs_onboarding?: boolean; configured_port?: number; effective_port?: number; backend_restarts?: number; last_exit_code?: number | null; recovery_message?: string; migration?: ProtectedMigrationStatus; protected_storage?: ProtectedStorageStatus; email_settings?: EmailSettingsStatus; push_settings?: PushSettingsStatus; sms_provider_settings?: SmsProviderSettingsStatus; settings?: DesktopSettings & { attention_policy?: AttentionPolicy }; validation?: ValidationResult; }
 export interface PresenceSnapshot { app_focus: "focused" | "unfocused"; input: "active" | "idle"; network: "online" | "offline"; do_not_disturb: boolean; paired_mobile: "nearby" | "away" | "unknown"; updated_at: string; }
 // Read-only Android/Fabric device status from the Moto One Hyper ROM lab bridge
@@ -98,6 +101,9 @@ declare global {
     __TAURI__?: {
       core?: {
         invoke?: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
+      };
+      event?: {
+        listen?: <T = unknown>(event: string, handler: (event: { payload: T }) => void) => Promise<() => void>;
       };
     };
   }

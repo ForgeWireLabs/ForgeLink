@@ -265,13 +265,23 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
   mainWindow.once("ready-to-show", () => mainWindow?.show());
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("https://")) shell.openExternal(url);
+    if (isCredentialFreeHttpsUrl(url)) shell.openExternal(url);
     return { action: "deny" };
   });
   mainWindow.webContents.on("will-navigate", (event, url) => {
     if (!url.startsWith("file://")) event.preventDefault();
   });
   mainWindow.on("closed", () => { mainWindow = null; });
+}
+
+function isCredentialFreeHttpsUrl(value) {
+  if (typeof value !== "string" || value.length > 2048 || /[\u0000-\u0020]/.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && Boolean(url.hostname) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
 }
 
 ipcMain.handle("notify", (_, payload = {}) => {
@@ -283,7 +293,7 @@ ipcMain.handle("notify", (_, payload = {}) => {
 });
 
 ipcMain.handle("open-url", (_, url) => {
-  if (typeof url === "string" && url.startsWith("https://")) return shell.openExternal(url);
+  if (isCredentialFreeHttpsUrl(url)) return shell.openExternal(url);
 });
 
 ipcMain.handle("backend-connection", () => ({ baseUrl: baseUrl(), apiToken }));

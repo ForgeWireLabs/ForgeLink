@@ -47,8 +47,8 @@
     {
       "id": "TPR-004",
       "text": "Prove notifications, deep links, navigation restoration, and single-instance behavior or document platform-specific replacements and limits.",
-      "state": "pending",
-      "evidence": []
+      "state": "satisfied",
+      "evidence": ["20260913-wi032-tpr004-native-integration"]
     },
     {
       "id": "TPR-005",
